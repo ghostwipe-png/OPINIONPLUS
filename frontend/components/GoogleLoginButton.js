@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../lib/auth';
 import { useStore } from '../lib/store';
 import { useRouter } from 'next/navigation';
@@ -12,32 +12,36 @@ export default function GoogleLoginButton() {
   const { upsertUser } = useStore();
   const router = useRouter();
   const btnRef = useRef(null);
+  const initialized = useRef(false);
+
+  const handleCallback = useCallback(async (response) => {
+    try {
+      const profile = await loginWithGoogle(response.credential);
+      upsertUser({
+        id: profile.id,
+        email: profile.email,
+        name: profile.name,
+        publisherName: profile.publisherName || profile.name,
+        logoUrl: profile.logoUrl || profile.picture,
+        bio: profile.bio || '',
+        socialLink: profile.socialLink || '',
+        role: profile.role || 'user',
+        suspended: false,
+        createdAt: profile.createdAt || new Date().toISOString(),
+      });
+      router.push('/');
+    } catch (e) {
+      console.error('Sign-in failed:', e);
+    }
+  }, [loginWithGoogle, upsertUser, router]);
 
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !window.google) return;
+    if (!GOOGLE_CLIENT_ID || !window.google || initialized.current) return;
+    initialized.current = true;
 
     window.google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
-      callback: async (response) => {
-        try {
-          const profile = await loginWithGoogle(response.credential);
-          upsertUser({
-            id: profile.id,
-            email: profile.email,
-            name: profile.name,
-            publisherName: profile.publisherName || profile.name,
-            logoUrl: profile.logoUrl || profile.picture,
-            bio: profile.bio || '',
-            socialLink: profile.socialLink || '',
-            role: profile.role || 'user',
-            suspended: false,
-            createdAt: profile.createdAt || new Date().toISOString(),
-          });
-          router.push('/');
-        } catch (e) {
-          console.error('Sign-in failed:', e);
-        }
-      },
+      callback: handleCallback,
     });
 
     if (btnRef.current) {
@@ -47,7 +51,7 @@ export default function GoogleLoginButton() {
         text: 'continue_with',
       });
     }
-  }, []);
+  }, [handleCallback]);
 
   if (!GOOGLE_CLIENT_ID) {
     return (
