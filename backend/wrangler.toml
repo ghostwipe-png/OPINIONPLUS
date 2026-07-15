@@ -1,0 +1,30 @@
+name = "opinionplus-api"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# --- D1 database ---
+# Create with: wrangler d1 create opinionplus
+# then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "opinionplus"
+database_id = "a8c259b6-4e88-4d0e-bca6-a883860403c5"
+
+# --- R2 bucket for PDFs / docs ---
+# Create with: wrangler r2 bucket create opinionplus-files
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "opinionplus-files"
+
+# --- Environment variables & secrets ---
+# Public vars can live here. Secrets (GOOGLE_CLIENT_ID is fine as a var since
+# it's public; SESSION_SECRET and ADMIN_PIN_HASH must be set with
+# `wrangler secret put NAME` instead — do not put secrets in this file).
+[vars]
+GOOGLE_CLIENT_ID = "231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com"
+ROOT_ADMIN_EMAIL = "adipotech@gmail.com"
+ALLOWED_ORIGIN = "https://opinionplus.pages.dev"
+R2_PUBLIC_BASE = "https://pub-f404ee622a524069bb1df30468d02b75.r2.dev"
+
+# wrangler secret put SESSION_SECRET       # random 32+ char string, signs session cookies
+# wrangler secret put ADMIN_PIN_HASH       # sha-256 hash of the destructive-action PIN
