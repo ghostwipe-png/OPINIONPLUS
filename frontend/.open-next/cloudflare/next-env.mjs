@@ -1,0 +1,3 @@
+export const production = {"NEXT_PUBLIC_GOOGLE_CLIENT_ID":"231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com","NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME":"nf9phgej","NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET":"opinionplus_unsigned","NEXT_PUBLIC_API_BASE":"https://opinionplus-api.opinionplus.workers.dev"};
+export const development = {"NEXT_PUBLIC_GOOGLE_CLIENT_ID":"231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com","NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME":"nf9phgej","NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET":"opinionplus_unsigned","NEXT_PUBLIC_API_BASE":"https://opinionplus-api.opinionplus.workers.dev"};
+export const test = {};
