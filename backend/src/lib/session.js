@@ -43,8 +43,8 @@ export function readCookie(request, name) {
 }
 
 export function sessionCookieHeader(token, { maxAgeSeconds = 60 * 60 * 24 * 30 } = {}) {
-  return `op_session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+  return `op_session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 
 export const clearSessionCookieHeader =
-  'op_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0';
+  'op_session=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0';
