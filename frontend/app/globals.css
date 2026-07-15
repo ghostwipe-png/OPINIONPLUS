@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #FBFAF7;
+  color: #14171F;
+}
+
+::selection {
+  background-color: #E0492B;
+  color: #FBFAF7;
+}
+
+:focus-visible {
+  outline: 2px solid #E0492B;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Masthead nameplate — the signature element. Every publisher's name renders
+   through this same stamped-seal + rule system, so a personal story and a
+   front-page banner share one visual grammar. */
+.nameplate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.nameplate-seal {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  border: 1.5px solid #14171F;
+  object-fit: cover;
+  background: #E4E6EB;
+  flex-shrink: 0;
+}
+
+.rule {
+  border-top: 1px solid #DAD5C8;
+}
+
+.rule-thick {
+  border-top: 3px double #14171F;
+}
+
+.wire-tag {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #E0492B;
+}
+
+.editorial-h {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.card-clip {
+  background: #fff;
+  border: 1px solid #DAD5C8;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.card-clip:hover {
+  border-color: #14171F;
+}
+
+.btn-primary {
+  background: #14171F;
+  color: #FBFAF7;
+  font-family: var(--font-body);
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: #E0492B;
+}
+
+.btn-outline {
+  border: 1.5px solid #14171F;
+  color: #14171F;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-outline:hover {
+  background: #14171F;
+  color: #FBFAF7;
+}
+
+textarea, input {
+  background: transparent;
+}
+
+.prose-story p {
+  margin-bottom: 1.25em;
+  line-height: 1.75;
+}
