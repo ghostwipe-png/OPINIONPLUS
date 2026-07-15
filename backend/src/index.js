@@ -9,10 +9,21 @@ import admin from './routes/admin.js';
 
 const app = new Hono();
 
+const ALLOWED_ORIGINS = [
+  'https://www.opinionplus.online',
+  'https://opinionplus.online',
+  'https://opinionplus.opinionplus.workers.dev',
+];
+
 app.use('*', async (c, next) => {
+  const origin = c.req.header('Origin');
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  
   const middleware = cors({
-    origin: c.env.ALLOWED_ORIGIN,
+    origin: allowed,
     credentials: true,
+    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
   });
   return middleware(c, next);
 });
