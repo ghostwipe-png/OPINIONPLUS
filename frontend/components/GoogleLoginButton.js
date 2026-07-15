@@ -1,34 +1,55 @@
 'use client';
 
-import { GoogleLogin } from '@react-oauth/google';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '../lib/auth';
 import { useStore } from '../lib/store';
 import { useRouter } from 'next/navigation';
 
-const HAS_REAL_CLIENT_ID = !!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export default function GoogleLoginButton() {
   const { loginWithGoogle } = useAuth();
   const { upsertUser } = useStore();
   const router = useRouter();
+  const btnRef = useRef(null);
 
-  const afterLogin = (profile) => {
-    upsertUser({
-      id: profile.id,
-      email: profile.email,
-      name: profile.name,
-      publisherName: profile.publisherName || profile.name,
-      logoUrl: profile.logoUrl || profile.picture,
-      bio: profile.bio || '',
-      socialLink: profile.socialLink || '',
-      role: profile.role || 'user',
-      suspended: false,
-      createdAt: profile.createdAt || new Date().toISOString(),
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !window.google) return;
+
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async (response) => {
+        try {
+          const profile = await loginWithGoogle(response.credential);
+          upsertUser({
+            id: profile.id,
+            email: profile.email,
+            name: profile.name,
+            publisherName: profile.publisherName || profile.name,
+            logoUrl: profile.logoUrl || profile.picture,
+            bio: profile.bio || '',
+            socialLink: profile.socialLink || '',
+            role: profile.role || 'user',
+            suspended: false,
+            createdAt: profile.createdAt || new Date().toISOString(),
+          });
+          router.push('/');
+        } catch (e) {
+          console.error('Sign-in failed:', e);
+        }
+      },
     });
-    router.push('/');
-  };
 
-  if (!HAS_REAL_CLIENT_ID) {
+    if (btnRef.current) {
+      window.google.accounts.id.renderButton(btnRef.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+      });
+    }
+  }, []);
+
+  if (!GOOGLE_CLIENT_ID) {
     return (
       <div className="text-center">
         <p className="text-sm text-ink-600 mb-2">Google Sign-In is not configured.</p>
@@ -39,21 +60,5 @@ export default function GoogleLoginButton() {
     );
   }
 
-  return (
-    <GoogleLogin
-      onSuccess={async (cred) => {
-        try {
-          const profile = await loginWithGoogle(cred.credential);
-          afterLogin(profile);
-        } catch (e) {
-          console.error('Sign-in failed:', e);
-          alert(e.message || 'Sign-in failed. Please try again.');
-        }
-      }}
-      onError={() => console.error('Google sign-in failed')}
-      theme="outline"
-      size="large"
-      text="continue_with"
-    />
-  );
+  return <div ref={btnRef}></div>;
 }
