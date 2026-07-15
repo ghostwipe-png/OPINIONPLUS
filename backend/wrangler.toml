@@ -23,7 +23,7 @@ bucket_name = "opinionplus-files"
 [vars]
 GOOGLE_CLIENT_ID = "231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com"
 ROOT_ADMIN_EMAIL = "adipotech@gmail.com"
-ALLOWED_ORIGIN = "https://opinionplus.pages.dev"
+ALLOWED_ORIGIN = "https://opinionplus.opinionplus.workers.dev"
 R2_PUBLIC_BASE = "https://pub-f404ee622a524069bb1df30468d02b75.r2.dev"
 
 # wrangler secret put SESSION_SECRET       # random 32+ char string, signs session cookies

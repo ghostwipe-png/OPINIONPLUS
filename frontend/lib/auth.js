@@ -3,89 +3,77 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 
 const AuthContext = createContext(null);
-
-const STORAGE_KEY = 'op_auth_session';
 export const ROOT_ADMIN_EMAIL = 'adipotech@gmail.com';
-
-// Decode the JWT Google returns. This is client-side only, good enough for
-// a prototype. In production, verify the id_token on the Worker before
-// trusting any of these fields (see backend/src/routes/auth.js).
-function decodeGoogleCredential(credential) {
-  const payload = JSON.parse(atob(credential.split('.')[1]));
-  return {
-    googleSub: payload.sub,
-    email: payload.email,
-    name: payload.name,
-    picture: payload.picture,
-  };
-}
-
-function roleForEmail(email, existingRole) {
-  if (email === ROOT_ADMIN_EMAIL) return 'root';
-  return existingRole || 'user';
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) setUser(JSON.parse(raw));
-    } catch (e) {
-      /* ignore corrupt storage */
+    // Check for existing session on mount
+    api('/auth/me')
+      .then(data => {
+        if (data.user) setUser(normalizeUser(data.user));
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
+  }, []);
+
+  function normalizeUser(u) {
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      picture: u.logo_url || null,
+      publisherName: u.publisher_name || u.name,
+      logoUrl: u.logo_url || null,
+      bio: u.bio || '',
+      socialLink: u.social_link || '',
+      role: u.role || 'user',
+      suspended: !!u.suspended,
+      createdAt: u.created_at || new Date().toISOString(),
+    };
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      ...options,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `API ${res.status}`);
     }
-    setReady(true);
+    return res.json();
+  }
+
+  const loginWithGoogle = useCallback(async (credential) => {
+    const data = await api('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ id_token: credential }),
+    });
+    const normalized = normalizeUser(data.user);
+    setUser(normalized);
+    return normalized;
   }, []);
 
-  const persist = useCallback((next) => {
-    setUser(next);
-    if (next) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    else window.localStorage.removeItem(STORAGE_KEY);
+  const updateProfile = useCallback((patch) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      return { ...prev, ...patch };
+    });
   }, []);
 
-  const login = useCallback(
-    (profile) => {
-      const next = {
-        id: profile.googleSub || profile.id,
-        email: profile.email,
-        name: profile.name,
-        picture: profile.picture || null,
-        publisherName: profile.publisherName || profile.name,
-        logoUrl: profile.logoUrl || profile.picture || null,
-        bio: profile.bio || '',
-        role: roleForEmail(profile.email, profile.role),
-        suspended: !!profile.suspended,
-        createdAt: profile.createdAt || new Date().toISOString(),
-      };
-      persist(next);
-      return next;
-    },
-    [persist]
-  );
-
-  const loginWithGoogleCredential = useCallback(
-    (credential) => {
-      const decoded = decodeGoogleCredential(credential);
-      return login(decoded);
-    },
-    [login]
-  );
-
-  const updateProfile = useCallback(
-    (patch) => {
-      setUser((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, ...patch };
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        return next;
-      });
-    },
-    []
-  );
-
-  const logout = useCallback(() => persist(null), [persist]);
+  const logout = useCallback(async () => {
+    try {
+      await api('/auth/logout', { method: 'POST' });
+    } catch (e) {
+      // ignore
+    }
+    setUser(null);
+  }, []);
 
   const value = {
     user,
@@ -93,8 +81,7 @@ export function AuthProvider({ children }) {
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin' || user?.role === 'root',
     isRoot: user?.role === 'root',
-    login,
-    loginWithGoogleCredential,
+    loginWithGoogle,
     updateProfile,
     logout,
   };
