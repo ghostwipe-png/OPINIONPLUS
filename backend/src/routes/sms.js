@@ -48,7 +48,7 @@ sms.delete('/contacts/:id', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Send SMS via Twilio
+// Send SMS via Infobip
 sms.post('/send', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
@@ -83,88 +83,92 @@ sms.post('/send', requireAuth, async (c) => {
     return c.json({ error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` }, 402);
   }
 
-  // Get Twilio credentials
-  const accountSid = c.env.TWILIO_ACCOUNT_SID;
-  const authToken = c.env.TWILIO_AUTH_TOKEN;
-  const from = c.env.TWILIO_PHONE_NUMBER || 'OPINIONPLUS';
+  // Get Infobip credentials
+  const apiKey = c.env.INFOBIP_API_KEY;
+  const baseUrl = c.env.INFOBIP_BASE_URL || 'https://api.infobip.com';
 
-  if (!accountSid || !authToken) {
+  if (!apiKey) {
     return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
   }
 
-  const results = [];
-  let totalDelivered = 0;
-  let totalFailed = 0;
+  // Format destinations
+  const destinations = validRecipients.map(phone => ({
+    to: phone.replace(/^\+/, '') // Infobip expects number without +
+  }));
 
-  // Send to each recipient individually for better tracking
-  for (const to of validRecipients) {
-    try {
-      const formData = new URLSearchParams();
-      formData.append('To', to);
-      formData.append('From', from);
-      formData.append('Body', trimmedMessage);
+  try {
+    const response = await fetch(`${baseUrl}/sms/2/text/advanced`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `App ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [{
+          destinations,
+          from: 'OPINIONPLUS',
+          text: trimmedMessage,
+        }]
+      }),
+    });
 
-      const auth = btoa(`${accountSid}:${authToken}`);
+    const data = await response.json();
 
-      const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData.toString(),
-        }
-      );
-
-      const data = await response.json();
-
-      if (response.ok && data.sid) {
-        totalDelivered++;
-        results.push({ number: to, status: 'sent', sid: data.sid, error: null });
-      } else {
-        totalFailed++;
-        results.push({ number: to, status: 'failed', sid: null, error: data.message || 'Unknown error' });
-        console.error('Twilio error for', to, ':', JSON.stringify(data));
-      }
-    } catch (e) {
-      totalFailed++;
-      results.push({ number: to, status: 'failed', sid: null, error: e.message });
-      console.error('Twilio exception for', to, ':', e.message);
+    if (!response.ok) {
+      console.error('Infobip error:', JSON.stringify(data));
+      return c.json({ 
+        error: 'SMS gateway error.',
+        details: data.requestError?.serviceException || data
+      }, 502);
     }
-  }
 
-  const actualCost = totalDelivered; // Only charge for delivered
-  const finalStatus = totalDelivered > 0 && totalFailed === 0 ? 'delivered' 
-    : totalDelivered > 0 ? 'partial' 
-    : 'failed';
+    // Count results
+    const msgResults = data.messages?.[0] || {};
+    const msgStatus = msgResults.status || {};
+    const sent = msgResults.destinations?.filter(d => d.status?.name === 'PENDING_ACCEPTED')?.length || 0;
+    const failed = (validRecipients.length - sent);
+    const statuses = msgResults.destinations?.map(d => ({
+      number: d.to,
+      status: d.status?.name || 'UNKNOWN',
+      messageId: d.messageId
+    })) || [];
 
-  // Deduct credits only for delivered messages
-  if (actualCost > 0) {
+    let historyStatus = 'sent';
+    if (sent > 0 && failed === 0) historyStatus = 'delivered';
+    else if (failed > 0 && sent === 0) historyStatus = 'failed';
+    else if (sent > 0 && failed > 0) historyStatus = 'partial';
+
+    // Deduct credits only for delivered
+    if (sent > 0) {
+      await c.env.DB.prepare(
+        'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
+      ).bind(sent, sent, user.id).run();
+    }
+
+    // Log history
+    const historyId = crypto.randomUUID();
     await c.env.DB.prepare(
-      'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
-    ).bind(actualCost, actualCost, user.id).run();
+      'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, historyStatus, sent).run();
+
+    const updated = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?')
+      .bind(user.id).first();
+
+    return c.json({ 
+      ok: true,
+      sent,
+      failed,
+      remaining_credits: updated?.balance || 0,
+      message_id: historyId,
+      details: statuses,
+      bulkId: msgResults.bulkId
+    });
+
+  } catch (e) {
+    console.error('Infobip exception:', e.message);
+    return c.json({ error: 'Failed to send SMS.', details: e.message }, 500);
   }
-
-  // Log history
-  const historyId = crypto.randomUUID();
-  await c.env.DB.prepare(
-    'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, finalStatus, actualCost).run();
-
-  // Get updated balance
-  const updated = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?')
-    .bind(user.id).first();
-
-  return c.json({ 
-    ok: true,
-    sent: totalDelivered,
-    failed: totalFailed,
-    remaining_credits: updated?.balance || 0,
-    message_id: historyId,
-    details: results
-  });
 });
 
 // Get SMS history
