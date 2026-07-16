@@ -71,8 +71,12 @@ sms.post('/send', requireAuth, async (c) => {
   }
 
   // Send via Africa's Talking
-  const apiKey = c.env.AFRICAS_TALKING_API_KEY;
-  const username = c.env.AFRICAS_TALKING_USERNAME || 'sandbox';
+  const apiKey = c.env.AFRICAS_TALKING_API_KEY || '';
+  const username = c.env.AFRICAS_TALKING_USERNAME || 'opinionplus';
+
+  if (!apiKey) {
+  return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
+ }
   
   try {
     const res = await fetch('https://api.africastalking.com/version1/messaging', {
