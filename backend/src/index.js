@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { attachUser } from './middleware/auth.js';
+import { apiKeyAuth } from './middleware/apiKey.js';
 import auth from './routes/auth.js';
 import stories from './routes/stories.js';
 import users from './routes/users.js';
@@ -32,6 +33,17 @@ app.use('*', async (c, next) => {
 app.use('*', attachUser);
 
 app.get('/', (c) => c.json({ ok: true, service: 'opinionplus-api' }));
+
+// Public API — authenticated via API key, returns publisher's stories
+app.get('/api/feed', apiKeyAuth, async (c) => {
+  const user = c.get('user');
+  const { results } = await c.env.DB.prepare(
+    'SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100'
+  )
+    .bind(user.id)
+    .all();
+  return c.json({ publisher: user.publisher_name, stories: results });
+});
 
 app.route('/auth', auth);
 app.route('/stories', stories);

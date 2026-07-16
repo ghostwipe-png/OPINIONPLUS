@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
+import { apiKeyAuth } from '../middleware/apiKey.js';
 
 const stories = new Hono();
 
@@ -40,6 +41,19 @@ stories.get('/', async (c) => {
   const { results } = await c.env.DB.prepare(sql).bind(...binds).all();
   const hydrated = await Promise.all(results.map((r) => hydrateStory(c.env.DB, r)));
   return c.json({ stories: hydrated });
+});
+
+// Public API endpoint — authenticated via API key
+stories.get('/api/feed', apiKeyAuth, async (c) => {
+  const user = c.get('user');
+  const { results } = await c.env.DB.prepare(
+    'SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100'
+  )
+    .bind(user.id)
+    .all();
+
+  const hydrated = await Promise.all(results.map((r) => hydrateStory(c.env.DB, r)));
+  return c.json({ publisher: user.publisher_name, stories: hydrated });
 });
 
 stories.get('/:id', async (c) => {
