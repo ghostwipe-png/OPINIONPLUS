@@ -90,23 +90,7 @@ sms.post('/send', requireAuth, async (c) => {
   const username = c.env.AFRICAS_TALKING_USERNAME || 'opinionplus';
 
   if (!apiKey) {
-    // No API key configured — simulate success for testing
-    await c.env.DB.prepare(
-      'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
-    ).bind(cost, cost, user.id).run();
-
-    const historyId = crypto.randomUUID();
-    await c.env.DB.prepare(
-      'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'simulated', cost).run();
-
-    return c.json({ 
-      ok: true,
-      sent: validRecipients.length,
-      remaining_credits: credits.balance - cost,
-      message_id: historyId,
-      mode: 'simulated'
-    });
+    return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
   }
 
   // Send via Africa's Talking
