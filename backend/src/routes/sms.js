@@ -48,7 +48,7 @@ sms.delete('/contacts/:id', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Send SMS
+// Send SMS via Twilio
 sms.post('/send', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
@@ -80,78 +80,90 @@ sms.post('/send', requireAuth, async (c) => {
 
   const cost = validRecipients.length;
   if (credits.balance < cost) {
-    return c.json({ 
-      error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` 
-    }, 402);
+    return c.json({ error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` }, 402);
   }
 
-  // Get API credentials
-  const apiKey = c.env.AFRICAS_TALKING_API_KEY;
-  const username = c.env.AFRICAS_TALKING_USERNAME || 'opinionplus';
+  // Get Twilio credentials
+  const accountSid = c.env.TWILIO_ACCOUNT_SID;
+  const authToken = c.env.TWILIO_AUTH_TOKEN;
+  const from = c.env.TWILIO_PHONE_NUMBER || 'OPINIONPLUS';
 
-  if (!apiKey) {
+  if (!accountSid || !authToken) {
     return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
   }
 
-  // Send via Africa's Talking
-  const url = username === 'sandbox' 
-    ? 'https://api.sandbox.africastalking.com/version1/messaging'
-    : 'https://api.africastalking.com/version1/messaging';
+  const results = [];
+  let totalDelivered = 0;
+  let totalFailed = 0;
 
-  const formData = new URLSearchParams();
-  formData.append('username', username);
-  formData.append('to', validRecipients.join(','));
-  formData.append('message', trimmedMessage);
-  formData.append('from', 'OPINIONPLUS');
+  // Send to each recipient individually for better tracking
+  for (const to of validRecipients) {
+    try {
+      const formData = new URLSearchParams();
+      formData.append('To', to);
+      formData.append('From', from);
+      formData.append('Body', trimmedMessage);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'apiKey': apiKey,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Accept': 'application/json',
-    },
-    body: formData.toString(),
-  });
+      const auth = btoa(`${accountSid}:${authToken}`);
 
-  const data = await response.json();
+      const response = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
+        }
+      );
 
-  if (!response.ok) {
-    console.error('Africa\'s Talking error:', JSON.stringify(data));
-    return c.json({ 
-      error: 'SMS gateway error.',
-      details: data 
-    }, 502);
+      const data = await response.json();
+
+      if (response.ok && data.sid) {
+        totalDelivered++;
+        results.push({ number: to, status: 'sent', sid: data.sid, error: null });
+      } else {
+        totalFailed++;
+        results.push({ number: to, status: 'failed', sid: null, error: data.message || 'Unknown error' });
+        console.error('Twilio error for', to, ':', JSON.stringify(data));
+      }
+    } catch (e) {
+      totalFailed++;
+      results.push({ number: to, status: 'failed', sid: null, error: e.message });
+      console.error('Twilio exception for', to, ':', e.message);
+    }
   }
 
-  // Deduct credits
-  await c.env.DB.prepare(
-    'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
-  ).bind(cost, cost, user.id).run();
+  const actualCost = totalDelivered; // Only charge for delivered
+  const finalStatus = totalDelivered > 0 && totalFailed === 0 ? 'delivered' 
+    : totalDelivered > 0 ? 'partial' 
+    : 'failed';
+
+  // Deduct credits only for delivered messages
+  if (actualCost > 0) {
+    await c.env.DB.prepare(
+      'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
+    ).bind(actualCost, actualCost, user.id).run();
+  }
 
   // Log history
   const historyId = crypto.randomUUID();
   await c.env.DB.prepare(
     'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'sent', cost).run();
+  ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, finalStatus, actualCost).run();
 
-  // Count results
-  const msgData = data.SMSMessageData || {};
-  const recipients_result = msgData.Recipients || [];
-  const delivered = recipients_result.filter(r => r.status === 'Success').length;
-  const failed = recipients_result.filter(r => r.status !== 'Success').length;
+  // Get updated balance
+  const updated = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?')
+    .bind(user.id).first();
 
   return c.json({ 
     ok: true,
-    sent: delivered,
-    failed: failed,
-    remaining_credits: credits.balance - cost,
+    sent: totalDelivered,
+    failed: totalFailed,
+    remaining_credits: updated?.balance || 0,
     message_id: historyId,
-    gateway_response: {
-      message: msgData.Message || 'Sent',
-      delivered,
-      failed
-    }
+    details: results
   });
 });
 
