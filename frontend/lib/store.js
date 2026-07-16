@@ -78,15 +78,34 @@ export function StoreProvider({ children }) {
     }
   }, [data, ready]);
 
-  async function loadFromAPI() {
+    async function loadFromAPI() {
     try {
-      const [storiesRes] = await Promise.all([
+      const [storiesRes, meRes] = await Promise.all([
         api('/stories'),
+        api('/auth/me'),
       ]);
-      setData(d => ({
-        ...d,
+
+      const newData = {
         stories: (storiesRes.stories || []).map(s => normalizeStory(s)),
-      }));
+      };
+
+      if (meRes.user) {
+        const u = meRes.user;
+        newData.users = [{
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          publisherName: u.publisher_name || u.name,
+          logoUrl: u.logo_url || null,
+          bio: u.bio || '',
+          socialLink: u.social_link || '',
+          role: u.role || 'user',
+          suspended: !!u.suspended,
+          createdAt: u.created_at || new Date().toISOString(),
+        }];
+      }
+
+      setData(d => ({ ...d, ...newData }));
     } catch (e) {
       console.error('Failed to load from API, using local fallback:', e);
       setData(loadLocal());

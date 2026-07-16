@@ -8,7 +8,7 @@ compatibility_date = "2026-06-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "opinionplus"
-database_id = "a8c259b6-4e88-4d0e-bca6-a883860403c5"
+database_id = "368652e7-aedf-4f53-a8c7-d928e59e2182"
 
 # --- R2 bucket for PDFs / docs ---
 # Create with: wrangler r2 bucket create opinionplus-files
