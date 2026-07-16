@@ -7,6 +7,7 @@ import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StoryCard from '../../../components/StoryCard';
 import ApiGuideModal from '../../../components/ApiGuideModal';
+import SmsDashboard from '../../../components/SmsDashboard';
 import { openCloudinaryWidget } from '../../../lib/mediaUpload';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -211,7 +212,6 @@ export default function ProfilePage() {
                 Generate API keys to syndicate your stories to external sites. Keep your keys secure.
               </p>
 
-              {/* Generate new key */}
               <div className="flex gap-2 max-w-md">
                 <input
                   value={newKeyName}
@@ -224,7 +224,6 @@ export default function ProfilePage() {
                 </button>
               </div>
 
-              {/* Show new key — only once */}
               {newKey && (
                 <div className="bg-ink-50 border border-signal rounded-sm p-4">
                   <p className="text-xs font-semibold text-signal mb-2">
@@ -244,7 +243,6 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* Existing keys */}
               {apiKeys.length > 0 && (
                 <div className="border border-wire rounded-sm divide-y divide-wire">
                   {apiKeys.map((k) => (
@@ -271,6 +269,9 @@ export default function ProfilePage() {
           )}
         </div>
       )}
+
+      {/* SMS Dashboard — owner only */}
+      {isOwner && <SmsDashboard />}
 
       <div className="rule mt-10 pt-8">
         <h2 className="wire-tag mb-5">Published</h2>
