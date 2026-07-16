@@ -28,8 +28,6 @@ import {
   Code2,
 } from 'lucide-react';
 
-// Simple exec-command driven buttons, grouped for a professional toolbar.
-// Each group is visually separated by a divider.
 const INLINE_TOOLS = [
   { cmd: 'bold', icon: Bold, label: 'Bold (Ctrl+B)' },
   { cmd: 'italic', icon: Italic, label: 'Italic (Ctrl+I)' },
@@ -89,7 +87,7 @@ function ToolbarButton({ icon: Icon, label, onClick, active = false }) {
       type="button"
       title={label}
       aria-label={label}
-      onMouseDown={(e) => e.preventDefault()} // keep editor selection focused
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={`w-8 h-8 grid place-items-center rounded-sm transition-colors ${
         active ? 'bg-ink text-paper' : 'hover:bg-ink-50 text-ink-600'
@@ -150,8 +148,6 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
   const ref = useRef(null);
   const savedRange = useRef(null);
 
-  // Load initial value once; further updates are driven by user input so we
-  // don't fight the browser's own cursor management.
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== value) {
       ref.current.innerHTML = value || '';
@@ -159,9 +155,6 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep a copy of the current selection any time it changes inside the
-  // editor, so toolbar controls that must steal focus (native color input,
-  // <select> dropdowns) can restore it before applying a command.
   const saveSelection = () => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && ref.current && ref.current.contains(sel.anchorNode)) {
@@ -197,9 +190,6 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
     });
   };
 
-  // execCommand('fontSize') only accepts legacy sizes 1-7. The standard
-  // workaround: apply a marker size, then swap the resulting <font size>
-  // tags for real pixel values via inline style.
   const setFontSize = (px) => {
     withSelection(() => {
       document.execCommand('fontSize', false, '7');
@@ -258,7 +248,7 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
   };
 
   return (
-    <div className="border border-wire rounded-sm">
+    <div className="border border-wire rounded-sm overflow-hidden">
       <div className="flex items-center gap-0.5 border-b border-wire p-2 flex-wrap">
         <ToolbarButton icon={Undo2} label="Undo (Ctrl+Z)" onClick={() => exec('undo')} />
         <ToolbarButton icon={Redo2} label="Redo (Ctrl+Shift+Z)" onClick={() => exec('redo')} />
@@ -274,13 +264,9 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
           className="text-xs border border-wire rounded-sm px-2 py-1.5 bg-paper text-ink-600 max-w-[110px]"
           title="Paragraph style"
         >
-          <option value="" disabled>
-            Style
-          </option>
+          <option value="" disabled>Style</option>
           {BLOCK_FORMATS.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
+            <option key={f.value} value={f.value}>{f.label}</option>
           ))}
         </select>
 
@@ -294,13 +280,9 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
           className="text-xs border border-wire rounded-sm px-2 py-1.5 bg-paper text-ink-600 max-w-[110px]"
           title="Font family"
         >
-          <option value="" disabled>
-            Font
-          </option>
+          <option value="" disabled>Font</option>
           {FONT_FAMILIES.map((f) => (
-            <option key={f.label} value={f.value}>
-              {f.label}
-            </option>
+            <option key={f.label} value={f.value}>{f.label}</option>
           ))}
         </select>
 
@@ -314,13 +296,9 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
           className="text-xs border border-wire rounded-sm px-2 py-1.5 bg-paper text-ink-600 max-w-[90px]"
           title="Font size"
         >
-          <option value="" disabled>
-            Size
-          </option>
+          <option value="" disabled>Size</option>
           {FONT_SIZES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
+            <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
         <Divider />
@@ -334,13 +312,7 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
         <Divider />
 
         <ColorSwatchPicker icon={Palette} label="Text color" colors={TEXT_COLORS} onPick={setTextColor} onOpen={saveSelection} />
-        <ColorSwatchPicker
-          icon={Highlighter}
-          label="Highlight color"
-          colors={HIGHLIGHT_COLORS}
-          onPick={setHighlight}
-          onOpen={saveSelection}
-        />
+        <ColorSwatchPicker icon={Highlighter} label="Highlight color" colors={HIGHLIGHT_COLORS} onPick={setHighlight} onOpen={saveSelection} />
         <Divider />
 
         {ALIGN_TOOLS.map((t) => (
@@ -361,42 +333,10 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
         <ToolbarButton icon={Minus} label="Horizontal rule" onClick={() => exec('insertHorizontalRule')} />
         <Divider />
 
-        <button
-          type="button"
-          title="Subscript"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => exec('subscript')}
-          className="w-8 h-8 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold"
-        >
-          X<span className="text-[9px] align-sub">2</span>
-        </button>
-        <button
-          type="button"
-          title="Superscript"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => exec('superscript')}
-          className="w-8 h-8 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold"
-        >
-          X<span className="text-[9px] align-super">2</span>
-        </button>
-        <button
-          type="button"
-          title="Outdent"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => exec('outdent')}
-          className="h-8 px-2 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold"
-        >
-          ⇤
-        </button>
-        <button
-          type="button"
-          title="Indent"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => exec('indent')}
-          className="h-8 px-2 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold"
-        >
-          ⇥
-        </button>
+        <button type="button" title="Subscript" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('subscript')} className="w-8 h-8 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold">X<span className="text-[9px] align-sub">2</span></button>
+        <button type="button" title="Superscript" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('superscript')} className="w-8 h-8 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold">X<span className="text-[9px] align-super">2</span></button>
+        <button type="button" title="Outdent" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('outdent')} className="h-8 px-2 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold">⇤</button>
+        <button type="button" title="Indent" onMouseDown={(e) => e.preventDefault()} onClick={() => exec('indent')} className="h-8 px-2 grid place-items-center rounded-sm hover:bg-ink-50 text-ink-600 text-xs font-semibold">⇥</button>
         <Divider />
 
         <ToolbarButton icon={Eraser} label="Clear formatting" onClick={clearFormatting} />
@@ -411,17 +351,19 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
         onKeyUp={saveSelection}
         onSelect={saveSelection}
         data-placeholder={placeholder}
-        className="prose-story min-h-[300px] p-4 text-[1.02rem] outline-none
-          [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mt-5 [&_h1]:mb-3
-          [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2
-          [&_h3]:font-display [&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2
-          [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600
-          [&_pre]:bg-ink-50 [&_pre]:border [&_pre]:border-wire [&_pre]:rounded-sm [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:overflow-x-auto
-          [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6
-          [&_a]:text-signal [&_a]:underline
+        className="prose-story min-h-[300px] max-h-[600px] overflow-y-auto p-4 text-[1.02rem] outline-none break-words [word-break:break-word] [overflow-wrap:anywhere]
+          [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mt-5 [&_h1]:mb-3 [&_h1]:break-words
+          [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:break-words
+          [&_h3]:font-display [&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:break-words
+          [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600 [&_blockquote]:break-words
+          [&_pre]:bg-ink-50 [&_pre]:border [&_pre]:border-wire [&_pre]:rounded-sm [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words
+          [&_ul]:list-disc [&_ul]:pl-6
+          [&_ol]:list-decimal [&_ol]:pl-6
+          [&_a]:text-signal [&_a]:underline [&_a]:break-words
           [&_img]:max-w-full [&_img]:rounded-sm [&_img]:my-3
-          [&_table]:w-full [&_table]:border-collapse [&_table]:my-3
-          [&_td]:border [&_td]:border-wire [&_td]:p-2 [&_th]:border [&_th]:border-wire [&_th]:p-2 [&_th]:bg-ink-50
+          [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_table]:block [&_table]:overflow-x-auto
+          [&_td]:border [&_td]:border-wire [&_td]:p-2 [&_td]:break-words
+          [&_th]:border [&_th]:border-wire [&_th]:p-2 [&_th]:bg-ink-50 [&_th]:break-words
           [&_hr]:border-wire [&_hr]:my-4
           empty:before:content-[attr(data-placeholder)] empty:before:text-ink-400"
       />
