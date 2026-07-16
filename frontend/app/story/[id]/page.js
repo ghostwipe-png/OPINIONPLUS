@@ -45,8 +45,6 @@ export default function StoryPage() {
     year: 'numeric',
   });
 
-  // Seed content is stored as plain text; the rich text editor produces
-  // HTML. Treat anything without markup as plain paragraphs.
   const bodyHtml = story.body.includes('<')
     ? story.body
     : story.body
@@ -55,10 +53,6 @@ export default function StoryPage() {
         .map((p) => `<p>${p}</p>`)
         .join('');
 
-  // A drop cap only reads well when the piece opens with real prose. If the
-  // very first block is something like an image, embed, or empty node, skip
-  // the effect rather than styling a stray letter that doesn't belong to a
-  // word (e.g. the "d" in a naked <div> wrapper).
   const firstBlockHasText = /^\s*(<(p|blockquote|h\d)[^>]*>)?\s*[A-Za-z0-9"'\u2018\u201C]/.test(bodyHtml);
 
   const requireAuth = (fn) => (...args) => {
@@ -82,13 +76,15 @@ export default function StoryPage() {
   };
 
   return (
-    <article className="max-w-3xl mx-auto px-5 py-12">
+    <article className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+      {/* Privacy badge */}
       {story.privacy !== 'public' && (
         <p className="wire-tag mb-4">
           {story.privacy === 'private' ? 'Private — visible to you only' : 'Archived'}
         </p>
       )}
 
+      {/* Type + Date */}
       <div className="flex items-center gap-2 mb-4">
         <span className="wire-tag flex items-center gap-1.5">
           {story.type === 'documentary' ? <Film size={12} /> : <FileText size={12} />}
@@ -97,10 +93,14 @@ export default function StoryPage() {
         <span className="text-xs text-ink-400">· {date}</span>
       </div>
 
-      <h1 className="editorial-h text-3xl sm:text-5xl font-black leading-tight mb-6">{story.title}</h1>
+      {/* Title */}
+      <h1 className="editorial-h text-3xl sm:text-4xl lg:text-5xl font-black leading-tight mb-6 break-words">
+        {story.title}
+      </h1>
 
+      {/* Author + actions */}
       {author && (
-        <div className="flex items-center justify-between flex-wrap gap-4 mb-8">
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-8 pb-6 border-b border-wire">
           <Link href={`/profile/${author.id}`} className="nameplate">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={author.logoUrl} alt={author.publisherName} className="nameplate-seal w-10 h-10" />
@@ -123,6 +123,7 @@ export default function StoryPage() {
         </div>
       )}
 
+      {/* Cover image */}
       {story.coverImage && !story.mediaBlocked && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={story.coverImage} alt="" className="w-full rounded-sm mb-8 border border-wire" />
@@ -135,23 +136,40 @@ export default function StoryPage() {
         </div>
       )}
 
+      {/* Body */}
       <div
-        className={`prose-story text-ink-800 text-[1.05rem] mb-8 [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_a]:text-signal [&_a]:underline${
-          firstBlockHasText
-            ? ' [&>*:first-child]:first-letter:font-display [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-signal [&>*:first-child]:first-letter:text-[4.2rem] [&>*:first-child]:first-letter:leading-[0.78] [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-3 [&>*:first-child]:first-letter:pt-1'
+        className={`prose-story w-full max-w-none text-ink-800 text-[1.05rem] leading-relaxed mb-10 overflow-hidden break-words [word-break:break-word] [overflow-wrap:anywhere]
+          [&_h1]:font-display [&_h1]:text-2xl sm:[&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mt-6 [&_h1]:mb-3 [&_h1]:break-words
+          [&_h2]:font-display [&_h2]:text-xl sm:[&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_h2]:break-words
+          [&_h3]:font-display [&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:break-words
+          [&_p]:mb-4 [&_p]:break-words
+          [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600 [&_blockquote]:my-4 [&_blockquote]:break-words
+          [&_pre]:bg-ink-50 [&_pre]:border [&_pre]:border-wire [&_pre]:rounded-sm [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:my-4
+          [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-3
+          [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-3
+          [&_li]:mb-1 [&_li]:break-words
+          [&_a]:text-signal [&_a]:underline [&_a]:break-words
+          [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-sm [&_img]:my-4
+          [&_table]:w-full [&_table]:border-collapse [&_table]:my-4 [&_table]:block [&_table]:overflow-x-auto
+          [&_td]:border [&_td]:border-wire [&_td]:p-2 [&_td]:break-words
+          [&_th]:border [&_th]:border-wire [&_th]:p-2 [&_th]:bg-ink-50 [&_th]:break-words
+          [&_hr]:border-wire [&_hr]:my-6
+          ${firstBlockHasText
+            ? ' [&>*:first-child]:first-letter:font-display [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-signal [&>*:first-child]:first-letter:text-[3.5rem] sm:[&>*:first-child]:first-letter:text-[4.2rem] [&>*:first-child]:first-letter:leading-[0.78] [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-3 [&>*:first-child]:first-letter:pt-1'
             : ''
-        }`}
+          }`}
         dangerouslySetInnerHTML={{ __html: bodyHtml }}
       />
 
+      {/* Attachments */}
       {story.files?.length > 0 && (
-        <div className="mb-8 border border-wire rounded-sm p-4">
+        <div className="mb-10 border border-wire rounded-sm p-4">
           <p className="wire-tag mb-2">Attachments</p>
           <ul className="space-y-1">
             {story.files.map((f, i) => (
-              <li key={i} className="text-sm flex items-center gap-2">
-                <Paperclip size={13} />
-                <a href={f.url} className="underline hover:text-signal">
+              <li key={i} className="text-sm flex items-center gap-2 break-words">
+                <Paperclip size={13} className="shrink-0" />
+                <a href={f.url} className="underline hover:text-signal break-words">
                   {f.name}
                 </a>
               </li>
@@ -160,11 +178,12 @@ export default function StoryPage() {
         </div>
       )}
 
+      {/* Engagement bar */}
       <div className="rule pt-6 flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
           <button
             onClick={requireAuth(() => toggleLike(story.id, user.id))}
-            className={`flex items-center gap-2 text-sm font-medium ${liked ? 'text-signal' : 'text-ink-600'}`}
+            className={`flex items-center gap-2 text-sm font-medium transition-colors ${liked ? 'text-signal' : 'text-ink-600 hover:text-signal'}`}
           >
             <Heart size={18} fill={liked ? '#E0492B' : 'none'} /> {story.likes.length}
           </button>
@@ -181,7 +200,7 @@ export default function StoryPage() {
             <button
               onClick={handleReport}
               disabled={reported}
-              className="text-xs text-ink-400 hover:text-signal flex items-center gap-1 disabled:opacity-40"
+              className="text-xs text-ink-400 hover:text-signal flex items-center gap-1 disabled:opacity-40 transition-colors"
             >
               <Flag size={13} /> {reported ? 'Reported' : 'Report'}
             </button>
@@ -191,10 +210,12 @@ export default function StoryPage() {
         <ShareButtons url={`/story/${story.id}`} title={story.title} />
       </div>
 
+      {/* Comments */}
       <div className="mt-12">
         <CommentThread storyId={story.id} comments={story.comments} />
       </div>
 
+      {/* Related stories */}
       {related.length > 0 && (
         <div className="mt-16">
           <h3 className="wire-tag mb-5">More from {author?.publisherName}</h3>
