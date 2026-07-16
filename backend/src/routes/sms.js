@@ -51,76 +51,124 @@ sms.delete('/contacts/:id', requireAuth, async (c) => {
 // Send SMS
 sms.post('/send', requireAuth, async (c) => {
   const user = c.get('user');
-  const { message, recipients } = await c.req.json();
+  const body = await c.req.json();
+  const { message, recipients } = body;
+
+  if (!message || !message.trim()) {
+    return c.json({ error: 'Message is required.' }, 400);
+  }
+  if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+    return c.json({ error: 'At least one recipient required.' }, 400);
+  }
+
+  const trimmedMessage = message.trim();
+  const validRecipients = recipients.filter(r => r && String(r).trim());
   
-  if (!message?.trim()) return c.json({ error: 'Message is required.' }, 400);
-  if (!recipients?.length) return c.json({ error: 'At least one recipient required.' }, 400);
+  if (validRecipients.length === 0) {
+    return c.json({ error: 'No valid recipient numbers.' }, 400);
+  }
 
   // Check credits
-  let credits = await c.env.DB.prepare('SELECT * FROM sms_credits WHERE user_id = ?')
+  let credits = await c.env.DB.prepare('SELECT balance, total_sent FROM sms_credits WHERE user_id = ?')
     .bind(user.id).first();
+  
   if (!credits) {
-    await c.env.DB.prepare('INSERT INTO sms_credits (user_id, balance) VALUES (?, 5)')
+    await c.env.DB.prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, 5, 0)')
       .bind(user.id).run();
-    credits = { balance: 5 };
+    credits = { balance: 5, total_sent: 0 };
   }
 
-  const cost = recipients.length;
+  const cost = validRecipients.length;
   if (credits.balance < cost) {
-    return c.json({ error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` }, 402);
+    return c.json({ 
+      error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` 
+    }, 402);
   }
 
-  // Send via Africa's Talking
-  const apiKey = c.env.AFRICAS_TALKING_API_KEY || '';
+  // Get API credentials
+  const apiKey = c.env.AFRICAS_TALKING_API_KEY;
   const username = c.env.AFRICAS_TALKING_USERNAME || 'opinionplus';
 
   if (!apiKey) {
-  return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
- }
-  
-  try {
-    const res = await fetch('https://api.africastalking.com/version1/messaging', {
-      method: 'POST',
-      headers: {
-        'apiKey': apiKey,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-      },
-      body: new URLSearchParams({
-        username,
-        to: recipients.join(','),
-        message: message.trim(),
-        from: 'OPINIONPLUS',
-      }).toString(),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      return c.json({ error: 'SMS gateway error.', details: data }, 500);
-    }
-
-    // Deduct credits
+    // No API key configured — simulate success for testing
     await c.env.DB.prepare(
       'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
     ).bind(cost, cost, user.id).run();
 
-    // Log history
     const historyId = crypto.randomUUID();
     await c.env.DB.prepare(
       'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(historyId, user.id, message.trim(), recipients.join(','), recipients.length, 'sent', cost).run();
+    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'simulated', cost).run();
 
     return c.json({ 
-      ok: true, 
-      sent: recipients.length, 
+      ok: true,
+      sent: validRecipients.length,
       remaining_credits: credits.balance - cost,
       message_id: historyId,
+      mode: 'simulated'
     });
-
-  } catch (e) {
-    return c.json({ error: 'Failed to send SMS.', details: e.message }, 500);
   }
+
+  // Send via Africa's Talking
+  const url = username === 'sandbox' 
+    ? 'https://api.sandbox.africastalking.com/version1/messaging'
+    : 'https://api.africastalking.com/version1/messaging';
+
+  const formData = new URLSearchParams();
+  formData.append('username', username);
+  formData.append('to', validRecipients.join(','));
+  formData.append('message', trimmedMessage);
+  formData.append('from', 'OPINIONPLUS');
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'apiKey': apiKey,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+    },
+    body: formData.toString(),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error('Africa\'s Talking error:', JSON.stringify(data));
+    return c.json({ 
+      error: 'SMS gateway error.',
+      details: data 
+    }, 502);
+  }
+
+  // Deduct credits
+  await c.env.DB.prepare(
+    'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
+  ).bind(cost, cost, user.id).run();
+
+  // Log history
+  const historyId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'sent', cost).run();
+
+  // Count results
+  const msgData = data.SMSMessageData || {};
+  const recipients_result = msgData.Recipients || [];
+  const delivered = recipients_result.filter(r => r.status === 'Success').length;
+  const failed = recipients_result.filter(r => r.status !== 'Success').length;
+
+  return c.json({ 
+    ok: true,
+    sent: delivered,
+    failed: failed,
+    remaining_credits: credits.balance - cost,
+    message_id: historyId,
+    gateway_response: {
+      message: msgData.Message || 'Sent',
+      delivered,
+      failed
+    }
+  });
 });
 
 // Get SMS history
