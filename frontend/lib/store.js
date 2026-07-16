@@ -2,6 +2,9 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 
+let adminPin = '1234'; // Synced with admin page
+export function setAdminPin(pin) { adminPin = pin; }
+
 const StoreContext = createContext(null);
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const STORAGE_KEY = 'op_store_v1';
@@ -32,8 +35,19 @@ function loadLocal() {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...options.headers }, ...options });
-  if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Request failed' })); throw new Error(err.error || `API ${res.status}`); }
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (path.startsWith('/admin') && adminPin) {
+    headers['X-Admin-Pin'] = adminPin;
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers,
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || `API ${res.status}`);
+  }
   return res.json();
 }
 
@@ -105,7 +119,6 @@ export function StoreProvider({ children }) {
     setData(d => ({ ...d, adminLogs: [{ id: uid('log'), actorEmail, action, target, timestamp: new Date().toISOString() }, ...d.adminLogs] }));
   }, []);
 
-  // --- ADMIN FUNCTIONS WITH API CALLS ---
   const setUserSuspended = useCallback((userId, suspended, actorEmail) => {
     setData(d => ({ ...d, users: d.users.map(u => u.id === userId ? { ...u, suspended } : u) }));
     logAdminAction(actorEmail, suspended ? 'suspend_user' : 'unsuspend_user', userId);

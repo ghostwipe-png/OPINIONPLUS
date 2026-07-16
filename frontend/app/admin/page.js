@@ -12,9 +12,9 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
-import { useStore } from '../../lib/store';
+import { useStore, setAdminPin } from '../../lib/store';
 
-const DEMO_PIN = '1234'; // In production this is verified server-side, per-admin. See README.
+const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
 
 function PinGate({ onConfirm, onCancel, label }) {
@@ -43,7 +43,7 @@ function PinGate({ onConfirm, onCancel, label }) {
             Cancel
           </button>
           <button
-            onClick={() => (pin === DEMO_PIN ? onConfirm() : setError(true))}
+            onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm()) : setError(true))}
             className="btn-primary flex-1 py-2 rounded-sm text-sm"
           >
             Confirm
@@ -72,7 +72,7 @@ export default function AdminPage() {
 
   const [tab, setTab] = useState('users');
   const [search, setSearch] = useState('');
-  const [pinAction, setPinAction] = useState(null); // { label, run }
+  const [pinAction, setPinAction] = useState(null);
   const [locked, setLocked] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const idleTimer = useRef(null);
@@ -91,13 +91,10 @@ export default function AdminPage() {
       events.forEach((ev) => window.removeEventListener(ev, resetIdle));
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   if (!ready) return null;
 
-  // Non-admins get a 404-style response, per spec — no hint that an admin
-  // panel exists at all.
   if (!isAdmin) {
     return (
       <div className="max-w-lg mx-auto px-5 py-32 text-center">
@@ -176,7 +173,6 @@ export default function AdminPage() {
             {filteredUsers.map((u) => (
               <div key={u.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={u.logoUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
                   <div>
                     <p className="text-sm font-semibold">{u.publisherName}</p>
@@ -188,7 +184,7 @@ export default function AdminPage() {
                   <button
                     onClick={() =>
                       runGated(
-                        u.suspended ? `Unsuspend ${u.publisherName}?` : `Suspend ${u.publisherName}? Their profile will show as suspended.`,
+                        u.suspended ? `Unsuspend ${u.publisherName}?` : `Suspend ${u.publisherName}?`,
                         () => setUserSuspended(u.id, !u.suspended, user.email)
                       )
                     }
@@ -224,7 +220,7 @@ export default function AdminPage() {
                   <button
                     onClick={() =>
                       runGated(
-                        s.mediaBlocked ? 'Unblock this media?' : 'Block media for this post? The publisher name stays visible.',
+                        s.mediaBlocked ? 'Unblock this media?' : 'Block media for this post?',
                         () => setMediaBlocked(s.id, !s.mediaBlocked, user.email)
                       )
                     }
@@ -234,7 +230,7 @@ export default function AdminPage() {
                   </button>
                   <button
                     onClick={() =>
-                      runGated('Delete this post permanently? This cannot be undone.', () =>
+                      runGated('Delete this post permanently?', () =>
                         adminDeleteStory(s.id, user.email)
                       )
                     }
