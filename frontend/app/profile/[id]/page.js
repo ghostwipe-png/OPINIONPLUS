@@ -2,10 +2,11 @@
 
 import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus } from 'lucide-react';
+import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal } from 'lucide-react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StoryCard from '../../../components/StoryCard';
+import ApiGuideModal from '../../../components/ApiGuideModal';
 import { openCloudinaryWidget } from '../../../lib/mediaUpload';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -35,6 +36,7 @@ export default function ProfilePage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [newKey, setNewKey] = useState(null);
   const [showKeys, setShowKeys] = useState(false);
+  const [showApiGuide, setShowApiGuide] = useState(false);
 
   const fetchKeys = async () => {
     try {
@@ -91,6 +93,9 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto px-5 py-12">
+      {/* API Guide Modal */}
+      {showApiGuide && <ApiGuideModal onClose={() => setShowApiGuide(false)} />}
+
       <div className="flex items-start gap-6 flex-wrap">
         <div className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -185,12 +190,20 @@ export default function ProfilePage() {
       {/* API Keys Section — owner only */}
       {isOwner && (
         <div className="rule mt-10 pt-8">
-          <button
-            onClick={() => { setShowKeys(!showKeys); if (!showKeys) fetchKeys(); }}
-            className="wire-tag mb-5 flex items-center gap-2 hover:text-signal transition-colors"
-          >
-            <Key size={14} /> API Keys {showKeys ? '▲' : '▼'}
-          </button>
+          <div className="flex items-center justify-between mb-5">
+            <button
+              onClick={() => { setShowKeys(!showKeys); if (!showKeys) fetchKeys(); }}
+              className="wire-tag flex items-center gap-2 hover:text-signal transition-colors"
+            >
+              <Key size={14} /> API Keys {showKeys ? '▲' : '▼'}
+            </button>
+            <button
+              onClick={() => setShowApiGuide(true)}
+              className="text-xs font-semibold text-ink-400 hover:text-signal transition-colors flex items-center gap-1"
+            >
+              <Terminal size={12} /> API GUIDE
+            </button>
+          </div>
 
           {showKeys && (
             <div className="space-y-4">
