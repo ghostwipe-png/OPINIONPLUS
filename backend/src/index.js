@@ -6,6 +6,7 @@ import stories from './routes/stories.js';
 import users from './routes/users.js';
 import uploads from './routes/uploads.js';
 import admin from './routes/admin.js';
+import keys from './routes/keys.js';
 
 const app = new Hono();
 
@@ -37,6 +38,7 @@ app.route('/stories', stories);
 app.route('/users', users);
 app.route('/uploads', uploads);
 app.route('/admin', admin);
+app.route('/keys', keys);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {

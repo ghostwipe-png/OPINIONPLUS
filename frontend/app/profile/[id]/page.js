@@ -1,12 +1,24 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState } from 'react';
-import { Camera, Check, UserPlus, UserMinus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus } from 'lucide-react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StoryCard from '../../../components/StoryCard';
 import { openCloudinaryWidget } from '../../../lib/mediaUpload';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+
+async function api(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!res.ok) throw new Error('API request failed');
+  return res.json();
+}
 
 export default function ProfilePage() {
   const { id } = useParams();
@@ -17,6 +29,43 @@ export default function ProfilePage() {
   const isOwner = user?.id === id;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(profile || {});
+
+  // API Keys
+  const [apiKeys, setApiKeys] = useState([]);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKey, setNewKey] = useState(null);
+  const [showKeys, setShowKeys] = useState(false);
+
+  const fetchKeys = async () => {
+    try {
+      const data = await api('/keys');
+      setApiKeys(data.keys || []);
+    } catch (e) { console.error(e); }
+  };
+
+  const generateKey = async () => {
+    if (!newKeyName.trim()) return;
+    try {
+      const data = await api('/keys', {
+        method: 'POST',
+        body: JSON.stringify({ name: newKeyName }),
+      });
+      setNewKey(data);
+      setNewKeyName('');
+      fetchKeys();
+    } catch (e) { console.error(e); }
+  };
+
+  const revokeKey = async (id) => {
+    try {
+      await api(`/keys/${id}`, { method: 'DELETE' });
+      fetchKeys();
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => {
+    if (isOwner) fetchKeys();
+  }, [isOwner]);
 
   if (!profile) {
     return <p className="max-w-2xl mx-auto px-5 py-24 text-center text-ink-400">Publisher not found.</p>;
@@ -132,6 +181,83 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* API Keys Section — owner only */}
+      {isOwner && (
+        <div className="rule mt-10 pt-8">
+          <button
+            onClick={() => { setShowKeys(!showKeys); if (!showKeys) fetchKeys(); }}
+            className="wire-tag mb-5 flex items-center gap-2 hover:text-signal transition-colors"
+          >
+            <Key size={14} /> API Keys {showKeys ? '▲' : '▼'}
+          </button>
+
+          {showKeys && (
+            <div className="space-y-4">
+              <p className="text-sm text-ink-400">
+                Generate API keys to syndicate your stories to external sites. Keep your keys secure.
+              </p>
+
+              {/* Generate new key */}
+              <div className="flex gap-2 max-w-md">
+                <input
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="Key name (e.g. My Website)"
+                  className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm"
+                />
+                <button onClick={generateKey} className="btn-primary px-4 py-2 rounded-sm text-sm flex items-center gap-1.5">
+                  <Plus size={14} /> Generate
+                </button>
+              </div>
+
+              {/* Show new key — only once */}
+              {newKey && (
+                <div className="bg-ink-50 border border-signal rounded-sm p-4">
+                  <p className="text-xs font-semibold text-signal mb-2">
+                    Copy this key now — you won&apos;t see it again!
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-paper border border-wire rounded-sm px-3 py-2 text-xs break-all font-mono">
+                      {newKey.key}
+                    </code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(newKey.key)}
+                      className="btn-outline px-3 py-2 rounded-sm"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Existing keys */}
+              {apiKeys.length > 0 && (
+                <div className="border border-wire rounded-sm divide-y divide-wire">
+                  {apiKeys.map((k) => (
+                    <div key={k.id} className="flex items-center justify-between p-3">
+                      <div>
+                        <p className="text-sm font-semibold">{k.name}</p>
+                        <p className="text-xs text-ink-400 font-mono">{k.prefix}...</p>
+                        <p className="text-xs text-ink-400">
+                          Created {new Date(k.created_at).toLocaleDateString()}
+                          {k.last_used_at && ` · Last used ${new Date(k.last_used_at).toLocaleDateString()}`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => revokeKey(k.id)}
+                        className="text-xs font-semibold text-signal flex items-center gap-1"
+                      >
+                        <Trash2 size={13} /> Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rule mt-10 pt-8">
         <h2 className="wire-tag mb-5">Published</h2>
