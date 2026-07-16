@@ -23,7 +23,7 @@ app.use('*', async (c, next) => {
     origin: allowed,
     credentials: true,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin'],
   });
   return middleware(c, next);
 });
