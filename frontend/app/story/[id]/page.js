@@ -55,6 +55,12 @@ export default function StoryPage() {
         .map((p) => `<p>${p}</p>`)
         .join('');
 
+  // A drop cap only reads well when the piece opens with real prose. If the
+  // very first block is something like an image, embed, or empty node, skip
+  // the effect rather than styling a stray letter that doesn't belong to a
+  // word (e.g. the "d" in a naked <div> wrapper).
+  const firstBlockHasText = /^\s*(<(p|blockquote|h\d)[^>]*>)?\s*[A-Za-z0-9"'\u2018\u201C]/.test(bodyHtml);
+
   const requireAuth = (fn) => (...args) => {
     if (!isAuthenticated) {
       router.push('/login');
@@ -130,7 +136,11 @@ export default function StoryPage() {
       )}
 
       <div
-        className="prose-story text-ink-800 text-[1.05rem] mb-8 [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_a]:text-signal [&_a]:underline"
+        className={`prose-story text-ink-800 text-[1.05rem] mb-8 [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-6 [&_h2]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-signal [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-ink-600 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_a]:text-signal [&_a]:underline${
+          firstBlockHasText
+            ? ' [&>*:first-child]:first-letter:font-display [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-signal [&>*:first-child]:first-letter:text-[4.2rem] [&>*:first-child]:first-letter:leading-[0.78] [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-3 [&>*:first-child]:first-letter:pt-1'
+            : ''
+        }`}
         dangerouslySetInnerHTML={{ __html: bodyHtml }}
       />
 

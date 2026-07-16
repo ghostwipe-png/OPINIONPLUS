@@ -22,10 +22,43 @@ const mono = JetBrains_Mono({
   variable: '--font-mono',
 });
 
+const siteUrl = 'https://www.opinionplus.online';
+const siteTitle = 'OPINIONPLUS — Every voice, a masthead';
+const siteDescription =
+  'A platform to tell your story, with your name and logo at the top, and the tools to build an audience around your truth.';
+
 export const metadata = {
-  title: 'OPINIONPLUS — Every voice, a masthead',
-  description:
-    'A platform to tell your story, with your name and logo at the top, and the tools to build an audience around your truth.',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: siteTitle,
+    template: '%s — OPINIONPLUS',
+  },
+  description: siteDescription,
+  alternates: {
+    canonical: siteUrl,
+  },
+  openGraph: {
+    title: siteTitle,
+    description: siteDescription,
+    url: siteUrl,
+    siteName: 'OPINIONPLUS',
+    type: 'website',
+    locale: 'en_US',
+    images: [
+      {
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: siteTitle,
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: siteTitle,
+    description: siteDescription,
+    images: ['/og-image.png'],
+  },
 };
 
 export default function RootLayout({ children }) {
