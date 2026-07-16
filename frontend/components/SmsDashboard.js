@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X } from 'lucide-react';
+import { MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -11,8 +11,14 @@ async function api(path, options = {}) {
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
-  if (!res.ok) throw new Error('API request failed');
-  return res.json();
+  const data = await res.json();
+  if (!res.ok) {
+    const error = new Error(data.error || data.details?.message || 'Request failed');
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
 }
 
 export default function SmsDashboard() {
@@ -28,23 +34,28 @@ export default function SmsDashboard() {
   const [newPhone, setNewPhone] = useState('');
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
       const [credRes, contactRes, histRes] = await Promise.all([
-        api('/sms/credits'),
-        api('/sms/contacts'),
-        api('/sms/history'),
+        api('/sms/credits').catch(() => ({ credits: 0, total_sent: 0 })),
+        api('/sms/contacts').catch(() => ({ contacts: [] })),
+        api('/sms/history').catch(() => ({ history: [] })),
       ]);
-      setCredits(credRes.credits);
-      setTotalSent(credRes.total_sent);
+      setCredits(credRes.credits || 0);
+      setTotalSent(credRes.total_sent || 0);
       setContacts(contactRes.contacts || []);
       setHistory(histRes.history || []);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error('Failed to load SMS data:', e);
+    }
+    setLoading(false);
   };
 
   const addContact = async () => {
@@ -57,14 +68,20 @@ export default function SmsDashboard() {
       setNewName('');
       setNewPhone('');
       loadData();
-    } catch (e) { console.error(e); }
+      setResult({ type: 'success', text: 'Contact added successfully.' });
+    } catch (e) {
+      setResult({ type: 'error', text: e.message || 'Failed to add contact.' });
+    }
   };
 
   const deleteContact = async (id) => {
     try {
       await api(`/sms/contacts/${id}`, { method: 'DELETE' });
       loadData();
-    } catch (e) { console.error(e); }
+      setResult({ type: 'success', text: 'Contact removed.' });
+    } catch (e) {
+      setResult({ type: 'error', text: e.message || 'Failed to delete contact.' });
+    }
   };
 
   const toggleContact = (phone) => {
@@ -74,8 +91,9 @@ export default function SmsDashboard() {
   };
 
   const addManualNumber = () => {
-    if (manualNumber.trim() && !selectedContacts.includes(manualNumber.trim())) {
-      setSelectedContacts([...selectedContacts, manualNumber.trim()]);
+    const num = manualNumber.trim();
+    if (num && !selectedContacts.includes(num)) {
+      setSelectedContacts([...selectedContacts, num]);
       setManualNumber('');
     }
   };
@@ -89,12 +107,40 @@ export default function SmsDashboard() {
         method: 'POST',
         body: JSON.stringify({ message, recipients: selectedContacts }),
       });
-      setResult({ type: 'success', text: `Sent to ${data.sent} recipient(s). ${data.remaining_credits} credits left.` });
+      setResult({
+        type: 'success',
+        text: `Sent to ${data.sent} recipient(s). ${data.remaining_credits} credits left.`
+      });
       setMessage('');
       setSelectedContacts([]);
       loadData();
     } catch (e) {
-      setResult({ type: 'error', text: e.message });
+      if (e.status === 402) {
+        setResult({
+          type: 'error',
+          text: `Insufficient credits. You need more credits to send this message. Purchase credits to continue.`
+        });
+      } else if (e.status === 502) {
+        setResult({
+          type: 'error',
+          text: `SMS gateway error: ${e.data?.details?.message || e.message}. Please try again or contact support.`
+        });
+      } else if (e.status === 400) {
+        setResult({
+          type: 'error',
+          text: e.message || 'Invalid request. Check your message and recipients.'
+        });
+      } else if (e.status === 500) {
+        setResult({
+          type: 'error',
+          text: e.data?.details?.message || e.message || 'Server error. SMS gateway may not be configured.'
+        });
+      } else {
+        setResult({
+          type: 'error',
+          text: e.message || 'Failed to send SMS. Please try again.'
+        });
+      }
     }
     setSending(false);
   };
@@ -134,16 +180,24 @@ export default function SmsDashboard() {
 
       {/* Result notification */}
       {result && (
-        <div className={`mb-4 p-3 rounded-sm text-sm ${
-          result.type === 'success' ? 'bg-ink-50 border border-wire' : 'bg-red-50 border border-signal text-signal'
+        <div className={`mb-4 p-3 rounded-sm text-sm flex items-start gap-2 ${
+          result.type === 'success'
+            ? 'bg-ink-50 border border-wire text-ink-700'
+            : 'bg-red-50 border border-signal text-signal'
         }`}>
-          {result.text}
-          <button onClick={() => setResult(null)} className="float-right"><X size={14} /></button>
+          {result.type === 'success' ? <CheckCircle size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5" />}
+          <span className="flex-1">{result.text}</span>
+          <button onClick={() => setResult(null)} className="shrink-0 hover:opacity-70"><X size={14} /></button>
         </div>
       )}
 
+      {/* Loading state */}
+      {loading && (
+        <p className="text-sm text-ink-400 mb-4">Loading SMS dashboard...</p>
+      )}
+
       {/* Send SMS Tab */}
-      {tab === 'send' && (
+      {tab === 'send' && !loading && (
         <div className="space-y-4">
           <textarea
             value={message}
@@ -153,30 +207,38 @@ export default function SmsDashboard() {
             maxLength={480}
             className="w-full border border-wire rounded-sm px-3 py-2 text-sm resize-none"
           />
-          <p className="text-xs text-ink-400">{message.length}/480 characters ({Math.ceil(message.length / 160)} SMS)</p>
+          <p className="text-xs text-ink-400">
+            {message.length}/480 characters ({Math.ceil(message.length / 160)} SMS)
+            {credits < 1 && (
+              <span className="text-signal ml-2 font-semibold">— You have 0 credits. SMS will not send.</span>
+            )}
+          </p>
 
           {/* Contact selection */}
           <div>
             <p className="text-xs font-semibold mb-2">Recipients ({selectedContacts.length})</p>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {contacts.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => toggleContact(c.phone)}
-                  className={`text-xs px-2 py-1 rounded-full border ${
-                    selectedContacts.includes(c.phone)
-                      ? 'bg-ink text-paper border-ink'
-                      : 'border-wire text-ink-600'
-                  }`}
-                >
-                  {c.name} ({c.phone})
-                </button>
-              ))}
-            </div>
+            {contacts.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {contacts.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => toggleContact(c.phone)}
+                    className={`text-xs px-2 py-1 rounded-full border ${
+                      selectedContacts.includes(c.phone)
+                        ? 'bg-ink text-paper border-ink'
+                        : 'border-wire text-ink-600 hover:border-ink'
+                    }`}
+                  >
+                    {c.name} ({c.phone})
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex gap-2">
               <input
                 value={manualNumber}
                 onChange={(e) => setManualNumber(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addManualNumber()}
                 placeholder="+254700000000"
                 className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm"
               />
@@ -184,20 +246,30 @@ export default function SmsDashboard() {
                 <Plus size={14} />
               </button>
             </div>
+            {selectedContacts.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {selectedContacts.map((num, i) => (
+                  <span key={i} className="text-xs bg-ink-50 border border-wire px-2 py-0.5 rounded-full flex items-center gap-1">
+                    {num}
+                    <button onClick={() => toggleContact(num)} className="hover:text-signal"><X size={10} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
             onClick={sendSms}
-            disabled={sending || !message.trim() || selectedContacts.length === 0}
+            disabled={sending || !message.trim() || selectedContacts.length === 0 || credits < selectedContacts.length}
             className="btn-primary px-5 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
           >
-            <Send size={14} /> {sending ? 'Sending...' : `Send (${selectedContacts.length} recipient${selectedContacts.length !== 1 ? 's' : ''})`}
+            <Send size={14} /> {sending ? 'Sending...' : `Send (${selectedContacts.length} SMS — ${selectedContacts.length} credit${selectedContacts.length !== 1 ? 's' : ''})`}
           </button>
         </div>
       )}
 
       {/* Contacts Tab */}
-      {tab === 'contacts' && (
+      {tab === 'contacts' && !loading && (
         <div className="space-y-4">
           <div className="flex gap-2 max-w-md">
             <input
@@ -227,7 +299,7 @@ export default function SmsDashboard() {
                     <p className="text-sm font-semibold">{c.name}</p>
                     <p className="text-xs text-ink-400">{c.phone}</p>
                   </div>
-                  <button onClick={() => deleteContact(c.id)} className="text-signal text-xs">
+                  <button onClick={() => deleteContact(c.id)} className="text-signal text-xs hover:opacity-70">
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -238,7 +310,7 @@ export default function SmsDashboard() {
       )}
 
       {/* History Tab */}
-      {tab === 'history' && (
+      {tab === 'history' && !loading && (
         <div>
           {history.length === 0 ? (
             <p className="text-sm text-ink-400">No messages sent yet.</p>
@@ -251,7 +323,7 @@ export default function SmsDashboard() {
                     To: {h.recipients} · {h.recipient_count} recipient{h.recipient_count !== 1 ? 's' : ''} · {h.cost} credit{h.cost !== 1 ? 's' : ''}
                   </p>
                   <p className="text-xs text-ink-400">
-                    {new Date(h.created_at).toLocaleString()} · Status: {h.status}
+                    {new Date(h.created_at).toLocaleString()} · Status: <span className={`font-semibold ${h.status === 'sent' || h.status === 'delivered' ? 'text-ink-600' : 'text-signal'}`}>{h.status}</span>
                   </p>
                 </div>
               ))}
