@@ -10,6 +10,7 @@ import admin from './routes/admin.js';
 import keys from './routes/keys.js';
 import sms from './routes/sms.js';
 import payments from './routes/payments.js';
+import { apiLimit } from './middleware/apiLimit.js';
 
 const app = new Hono();
 
@@ -37,7 +38,7 @@ app.use('*', attachUser);
 app.get('/', (c) => c.json({ ok: true, service: 'opinionplus-api' }));
 
 // Public API — authenticated via API key, returns publisher's stories
-app.get('/api/feed', apiKeyAuth, async (c) => {
+app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   const user = c.get('user');
   const { results } = await c.env.DB.prepare(
     'SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100'
