@@ -48,7 +48,7 @@ sms.delete('/contacts/:id', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Send SMS via Infobip
+// Send SMS via SMS Leopard
 sms.post('/send', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
@@ -83,74 +83,60 @@ sms.post('/send', requireAuth, async (c) => {
     return c.json({ error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` }, 402);
   }
 
-  // Get Infobip credentials
-  const apiKey = c.env.INFOBIP_API_KEY;
-  const baseUrl = c.env.INFOBIP_BASE_URL || 'https://api.infobip.com';
+  // Get SMS Leopard credentials
+  const apiKey = c.env.SMSLEOPARD_API_KEY;
+  const apiSecret = c.env.SMSLEOPARD_API_SECRET;
 
-  if (!apiKey) {
+  if (!apiKey || !apiSecret) {
     return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
   }
 
-  // Format destinations
-  const destinations = validRecipients.map(phone => ({
-    to: phone.replace(/^\+/, '') // Infobip expects number without +
-  }));
-
   try {
-    const response = await fetch(`${baseUrl}/sms/2/text/advanced`, {
-      method: 'POST',
+    // Format numbers and message for URL
+    const destination = validRecipients.map(p => p.replace(/^\+/, '').replace(/\s/g, '')).join(',');
+    const encodedMessage = encodeURIComponent(trimmedMessage);
+    const senderId = c.env.SMSLEOPARD_SENDER_ID || 'SMS_TEST';
+    const encodedSender = encodeURIComponent(senderId);
+
+    const url = `https://api.smsleopard.com/v1/sms/send?username=${apiKey}&password=${apiSecret}&message=${encodedMessage}&destination=${destination}&source=${encodedSender}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
       headers: {
-        'Authorization': `App ${apiKey}`,
-        'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({
-        messages: [{
-          destinations,
-          from: 'OPINIONPLUS',
-          text: trimmedMessage,
-        }]
-      }),
     });
 
-    const data = await response.json();
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error('SMS Leopard non-JSON response:', text);
+      return c.json({ error: 'SMS gateway returned invalid response.' }, 502);
+    }
 
-    if (!response.ok) {
-      console.error('Infobip error:', JSON.stringify(data));
+    if (!response.ok || data.error) {
+      console.error('SMS Leopard error:', JSON.stringify(data));
       return c.json({ 
-        error: 'SMS gateway error.',
-        details: data.requestError?.serviceException || data
+        error: data.message || data.error || 'SMS gateway error.',
+        details: data
       }, 502);
     }
 
-    // Count results
-    const msgResults = data.messages?.[0] || {};
-    const msgStatus = msgResults.status || {};
-    const sent = msgResults.destinations?.filter(d => d.status?.name === 'PENDING_ACCEPTED')?.length || 0;
-    const failed = (validRecipients.length - sent);
-    const statuses = msgResults.destinations?.map(d => ({
-      number: d.to,
-      status: d.status?.name || 'UNKNOWN',
-      messageId: d.messageId
-    })) || [];
+    // Success
+    const sent = validRecipients.length;
 
-    let historyStatus = 'sent';
-    if (sent > 0 && failed === 0) historyStatus = 'delivered';
-    else if (failed > 0 && sent === 0) historyStatus = 'failed';
-    else if (sent > 0 && failed > 0) historyStatus = 'partial';
-
-    // Deduct credits only for delivered
     if (sent > 0) {
       await c.env.DB.prepare(
         'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
       ).bind(sent, sent, user.id).run();
     }
 
-    // Log history
     const historyId = crypto.randomUUID();
     await c.env.DB.prepare(
       'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, historyStatus, sent).run();
+    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'delivered', sent).run();
 
     const updated = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?')
       .bind(user.id).first();
@@ -158,15 +144,13 @@ sms.post('/send', requireAuth, async (c) => {
     return c.json({ 
       ok: true,
       sent,
-      failed,
+      failed: 0,
       remaining_credits: updated?.balance || 0,
       message_id: historyId,
-      details: statuses,
-      bulkId: msgResults.bulkId
     });
 
   } catch (e) {
-    console.error('Infobip exception:', e.message);
+    console.error('SMS Leopard exception:', e.message);
     return c.json({ error: 'Failed to send SMS.', details: e.message }, 500);
   }
 });

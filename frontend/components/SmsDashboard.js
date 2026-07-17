@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X, AlertTriangle, CheckCircle } from 'lucide-react';
+import { MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X, AlertTriangle, CheckCircle, ShoppingCart } from 'lucide-react';
+import BuyCreditsModal from './BuyCreditsModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -35,6 +36,7 @@ export default function SmsDashboard() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showBuyCredits, setShowBuyCredits] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -118,7 +120,12 @@ export default function SmsDashboard() {
       if (e.status === 402) {
         setResult({
           type: 'error',
-          text: `Insufficient credits. You need more credits to send this message. Purchase credits to continue.`
+          text: `Insufficient credits. Purchase more credits to continue sending SMS.`
+        });
+      } else if (e.status === 403 || (e.message && (e.message.includes('insufficient') || e.message.includes('Insufficient')))) {
+        setResult({
+          type: 'error',
+          text: 'SMS account has insufficient funds. Please top up your SMS provider account.'
         });
       } else if (e.status === 502) {
         setResult({
@@ -153,14 +160,33 @@ export default function SmsDashboard() {
 
   return (
     <div className="rule mt-10 pt-8">
+      {/* Buy Credits Modal */}
+      {showBuyCredits && (
+        <BuyCreditsModal 
+          onClose={() => setShowBuyCredits(false)} 
+          onSuccess={(addedCredits) => { 
+            setCredits(c => c + addedCredits); 
+            loadData(); 
+          }} 
+        />
+      )}
+
       <div className="flex items-center justify-between mb-5">
         <button className="wire-tag flex items-center gap-2">
           <MessageSquare size={14} /> SMS Dashboard
         </button>
-        <span className="text-xs font-semibold text-ink-600 flex items-center gap-2">
-          <CreditCard size={13} />
-          {credits} credit{credits !== 1 ? 's' : ''} · {totalSent} sent
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-ink-600 flex items-center gap-2">
+            <CreditCard size={13} />
+            {credits} credit{credits !== 1 ? 's' : ''} · {totalSent} sent
+          </span>
+          <button
+            onClick={() => setShowBuyCredits(true)}
+            className="text-xs font-semibold text-signal hover:underline flex items-center gap-1"
+          >
+            <ShoppingCart size={12} /> Buy credits
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -210,7 +236,10 @@ export default function SmsDashboard() {
           <p className="text-xs text-ink-400">
             {message.length}/480 characters ({Math.ceil(message.length / 160)} SMS)
             {credits < 1 && (
-              <span className="text-signal ml-2 font-semibold">— You have 0 credits. SMS will not send.</span>
+              <span className="text-signal ml-2 font-semibold">
+                — You have 0 credits. 
+                <button onClick={() => setShowBuyCredits(true)} className="underline ml-1">Buy credits</button>
+              </span>
             )}
           </p>
 
