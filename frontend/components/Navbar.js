@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X } from 'lucide-react';
+import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X, Bookmark } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 
 export default function Navbar() {
@@ -29,6 +29,9 @@ export default function Navbar() {
                 <PenSquare size={15} /> Publish
               </Link>
             )}
+            <Link href="/read-later" className="text-ink-400 hover:text-ink-600 transition-colors flex items-center gap-1" title="Read Later">
+              <Bookmark size={14} />
+            </Link>
             {isAdmin && (
               <Link href="/admin" className="hover:text-signal transition-colors flex items-center gap-1.5">
                 <ShieldCheck size={15} /> Admin
@@ -71,14 +74,15 @@ export default function Navbar() {
 
       {open && (
         <div className="md:hidden border-t border-wire px-5 py-4 flex flex-col gap-4 text-sm font-medium">
-          <Link href="/" onClick={() => setOpen(false)}>
-            Feed
-          </Link>
+          <Link href="/" onClick={() => setOpen(false)}>Feed</Link>
           {isAuthenticated && (
             <Link href="/publish" onClick={() => setOpen(false)} className="flex items-center gap-2">
               <PenSquare size={15} /> Publish
             </Link>
           )}
+          <Link href="/read-later" onClick={() => setOpen(false)} className="flex items-center gap-2">
+            <Bookmark size={15} /> Read Later
+          </Link>
           {isAdmin && (
             <Link href="/admin" onClick={() => setOpen(false)} className="flex items-center gap-2">
               <ShieldCheck size={15} /> Admin

@@ -10,6 +10,8 @@ import StarRating from '../../../components/StarRating';
 import ShareButtons from '../../../components/ShareButtons';
 import CommentThread from '../../../components/CommentThread';
 import StoryCard from '../../../components/StoryCard';
+import ReadLaterButton from '../../../components/ReadLaterButton';
+import CollaborateButton from '../../../components/CollaborateButton';
 
 export default function StoryPage() {
   const { id } = useParams();
@@ -118,6 +120,7 @@ export default function StoryPage() {
               <button onClick={handleDelete} className="text-xs font-semibold text-signal flex items-center gap-1.5">
                 <Trash2 size={13} /> Delete
               </button>
+              <CollaborateButton storyId={story.id} isOwner={isOwner} />
             </div>
           )}
         </div>
@@ -179,6 +182,7 @@ export default function StoryPage() {
       )}
 
       {/* Engagement bar */}
+      <ReadLaterButton story={{ id: story.id, title: story.title, excerpt: story.excerpt, authorName: author?.publisherName, coverImage: story.coverImage }} />
       <div className="rule pt-6 flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
           <button

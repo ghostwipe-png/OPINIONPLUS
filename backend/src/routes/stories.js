@@ -174,4 +174,58 @@ stories.post('/:id/report', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// Invite collaborator
+stories.post('/:id/collaborate', requireAuth, async (c) => {
+  const user = c.get('user');
+  const storyId = c.req.param('id');
+  
+  const story = await c.env.DB.prepare('SELECT * FROM stories WHERE id = ? AND deleted = 0').bind(storyId).first();
+  if (!story || story.author_id !== user.id) return c.json({ error: 'Not found' }, 404);
+
+  const { email } = await c.req.json();
+  const coAuthor = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  if (!coAuthor) return c.json({ error: 'User not found.' }, 404);
+  if (coAuthor.id === user.id) return c.json({ error: 'You cannot collaborate with yourself.' }, 400);
+
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM collaborations WHERE story_id = ? AND co_author_id = ?'
+  ).bind(storyId, coAuthor.id).first();
+  if (existing) return c.json({ error: 'Already invited.' }, 400);
+
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO collaborations (id, story_id, author_id, co_author_id, status) VALUES (?, ?, ?, ?, ?)'
+  ).bind(id, storyId, user.id, coAuthor.id, 'pending').run();
+
+  return c.json({ id, coAuthorName: coAuthor.publisher_name, status: 'pending' }, 201);
+});
+
+// Get collaborators for a story
+stories.get('/:id/collaborators', async (c) => {
+  const storyId = c.req.param('id');
+  const { results } = await c.env.DB.prepare(
+    `SELECT c.*, u.publisher_name, u.logo_url, u.email
+     FROM collaborations c JOIN users u ON c.co_author_id = u.id
+     WHERE c.story_id = ?`
+  ).bind(storyId).all();
+  return c.json({ collaborators: results });
+});
+
+// Accept collaboration
+stories.post('/collaborations/:id/accept', requireAuth, async (c) => {
+  const user = c.get('user');
+  const collabId = c.req.param('id');
+  
+  const collab = await c.env.DB.prepare(
+    'SELECT * FROM collaborations WHERE id = ? AND co_author_id = ? AND status = ?'
+  ).bind(collabId, user.id, 'pending').first();
+  if (!collab) return c.json({ error: 'Not found' }, 404);
+
+  await c.env.DB.prepare('UPDATE collaborations SET status = ? WHERE id = ?').bind('accepted', collabId).run();
+  
+  // Add co-author name to story title or metadata
+  const coAuthor = await c.env.DB.prepare('SELECT publisher_name FROM users WHERE id = ?').bind(user.id).first();
+  return c.json({ ok: true, message: `You are now a co-author.` });
+});
+
 export default stories;
