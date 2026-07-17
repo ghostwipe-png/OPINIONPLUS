@@ -48,7 +48,7 @@ sms.delete('/contacts/:id', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// Send SMS via SMS Leopard
+// Send SMS via Mobitech
 sms.post('/send', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
@@ -83,74 +83,112 @@ sms.post('/send', requireAuth, async (c) => {
     return c.json({ error: `Insufficient credits. You have ${credits.balance}, need ${cost}.` }, 402);
   }
 
-  // Get SMS Leopard credentials
-  const apiKey = c.env.SMSLEOPARD_API_KEY;
-  const apiSecret = c.env.SMSLEOPARD_API_SECRET;
+  // Get Mobitech credentials
+  const apiKey = c.env.MOBITECH_API_KEY;
+  const senderName = c.env.MOBITECH_SENDER_ID || 'MOBITECH';
 
-  if (!apiKey || !apiSecret) {
+  if (!apiKey) {
     return c.json({ error: 'SMS gateway not configured. Contact support.' }, 500);
   }
 
+  let totalSent = 0;
+  let totalFailed = 0;
+  const results = [];
+
   try {
-    // Format numbers and message for URL
-    const destination = validRecipients.map(p => p.replace(/^\+/, '').replace(/\s/g, '')).join(',');
-    const encodedMessage = encodeURIComponent(trimmedMessage);
-    const senderId = c.env.SMSLEOPARD_SENDER_ID || 'SMS_TEST';
-    const encodedSender = encodeURIComponent(senderId);
+    // Use single send for each recipient (more reliable)
+    for (const phone of validRecipients) {
+      const cleanPhone = phone.startsWith('+') ? phone : `+${phone}`;
+      
+      const requestBody = {
+        mobile: cleanPhone,
+        response_type: 'json',
+        sender_name: senderName,
+        service_id: 0,
+        message: trimmedMessage,
+      };
 
-    const url = `https://api.smsleopard.com/v1/sms/send?username=${apiKey}&password=${apiSecret}&message=${encodedMessage}&destination=${destination}&source=${encodedSender}`;
+      console.log('MOBITECH REQUEST:', JSON.stringify({ ...requestBody, message: requestBody.message.slice(0, 20) + '...' }));
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+      try {
+        const response = await fetch('https://app.mobitechtechnologies.com/sms/sendsms', {
+          method: 'POST',
+          headers: {
+            'h_api_key': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-    const text = await response.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.error('SMS Leopard non-JSON response:', text);
-      return c.json({ error: 'SMS gateway returned invalid response.' }, 502);
+        const rawText = await response.text();
+        console.log('MOBITECH RAW RESPONSE:', rawText);
+        console.log('MOBITECH HTTP STATUS:', response.status);
+
+        let data;
+        try {
+          data = JSON.parse(rawText);
+          console.log('MOBITECH PARSED:', JSON.stringify(data));
+        } catch (parseErr) {
+          console.error('MOBITECH PARSE ERROR:', parseErr.message);
+          totalFailed++;
+          results.push({ number: phone, status: 'failed', error: 'Invalid response format' });
+          continue;
+        }
+
+        const result = Array.isArray(data) ? data[0] : data;
+        console.log('MOBITECH RESULT:', JSON.stringify(result));
+
+        if (result && (result.status_code === '1000' || result.status_code === 1000 || result.status_desc === 'Success')) {
+          totalSent++;
+          results.push({ number: phone, status: 'sent', message_id: result.message_id });
+          console.log('MOBITECH SUCCESS for', phone);
+        } else {
+          totalFailed++;
+          const errorMsg = result?.status_desc || result?.message || 'Unknown error';
+          results.push({ number: phone, status: 'failed', error: errorMsg });
+          console.error('MOBITECH FAILED for', phone, ':', errorMsg);
+        }
+      } catch (fetchErr) {
+        console.error('MOBITECH FETCH ERROR for', phone, ':', fetchErr.message);
+        totalFailed++;
+        results.push({ number: phone, status: 'failed', error: fetchErr.message });
+      }
     }
 
-    if (!response.ok || data.error) {
-      console.error('SMS Leopard error:', JSON.stringify(data));
-      return c.json({ 
-        error: data.message || data.error || 'SMS gateway error.',
-        details: data
-      }, 502);
-    }
+    console.log('MOBITECH FINAL: sent=' + totalSent + ' failed=' + totalFailed);
 
-    // Success
-    const sent = validRecipients.length;
+    let historyStatus = 'sent';
+    if (totalSent > 0 && totalFailed === 0) historyStatus = 'delivered';
+    else if (totalFailed > 0 && totalSent === 0) historyStatus = 'failed';
+    else if (totalSent > 0 && totalFailed > 0) historyStatus = 'partial';
 
-    if (sent > 0) {
+    // Only deduct for actually sent messages
+    if (totalSent > 0) {
       await c.env.DB.prepare(
         'UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ?'
-      ).bind(sent, sent, user.id).run();
+      ).bind(totalSent, totalSent, user.id).run();
     }
 
     const historyId = crypto.randomUUID();
     await c.env.DB.prepare(
       'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, status, cost) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, 'delivered', sent).run();
+    ).bind(historyId, user.id, trimmedMessage, validRecipients.join(','), validRecipients.length, historyStatus, totalSent).run();
 
     const updated = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?')
       .bind(user.id).first();
 
     return c.json({ 
       ok: true,
-      sent,
-      failed: 0,
+      sent: totalSent,
+      failed: totalFailed,
       remaining_credits: updated?.balance || 0,
       message_id: historyId,
+      details: results
     });
 
   } catch (e) {
-    console.error('SMS Leopard exception:', e.message);
+    console.error('MOBITECH OUTER EXCEPTION:', e.message, e.stack);
     return c.json({ error: 'Failed to send SMS.', details: e.message }, 500);
   }
 });
