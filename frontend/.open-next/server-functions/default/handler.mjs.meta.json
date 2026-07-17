@@ -3694,7 +3694,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/profile/[id]/page.js": {
-      "bytes": 51050,
+      "bytes": 50798,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4421,8 +4421,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/login/page.js": {
-      "bytes": 18317,
+    ".open-next/server-functions/default/.next/server/app/about/page.js": {
+      "bytes": 16860,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4487,8 +4487,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/about/page.js": {
-      "bytes": 16860,
+    ".open-next/server-functions/default/.next/server/app/login/page.js": {
+      "bytes": 18317,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4765,14 +4765,14 @@
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\admin\\page.js"
         },
         {
-          "path": ".open-next/server-functions/default/.next/server/app/login/page.js",
-          "kind": "require-call",
-          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\login\\page.js"
-        },
-        {
           "path": ".open-next/server-functions/default/.next/server/app/about/page.js",
           "kind": "require-call",
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\about\\page.js"
+        },
+        {
+          "path": ".open-next/server-functions/default/.next/server/app/login/page.js",
+          "kind": "require-call",
+          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\login\\page.js"
         },
         {
           "path": ".open-next/server-functions/default/.next/server/pages/_error.js",
@@ -6919,7 +6919,7 @@
           "bytesInOutput": 1773
         },
         ".open-next/server-functions/default/.next/server/app/profile/[id]/page.js": {
-          "bytesInOutput": 51881
+          "bytesInOutput": 51623
         },
         ".open-next/server-functions/default/.next/server/app/_not-found/page.js": {
           "bytesInOutput": 15084
@@ -6978,11 +6978,11 @@
         ".open-next/server-functions/default/.next/server/app/admin/page.js": {
           "bytesInOutput": 26930
         },
-        ".open-next/server-functions/default/.next/server/app/login/page.js": {
-          "bytesInOutput": 18508
-        },
         ".open-next/server-functions/default/.next/server/app/about/page.js": {
           "bytesInOutput": 16989
+        },
+        ".open-next/server-functions/default/.next/server/app/login/page.js": {
+          "bytesInOutput": 18508
         },
         ".open-next/server-functions/default/.next/server/pages/_error.js": {
           "bytesInOutput": 82999
@@ -7105,7 +7105,7 @@
           "bytesInOutput": 59557
         }
       },
-      "bytes": 2602696
+      "bytes": 2602438
     }
   }
 }

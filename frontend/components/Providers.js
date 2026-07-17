@@ -13,7 +13,7 @@ export default function Providers({ children }) {
         <Script src="https://upload-widget.cloudinary.com/global/all.js" strategy="afterInteractive" />
       )}
       <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
-      <Script src="https://js.paystack.co/v1/inline.js" strategy="afterInteractive" />
+      <Script src="https://js.paystack.co/v2/inline.js" strategy="afterInteractive" />
       <AuthProvider>
         <StoreProvider>{children}</StoreProvider>
       </AuthProvider>

@@ -4,10 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, CreditCard, Smartphone, Check, Loader2, AlertCircle } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '';
 
-// Fallback used only if the /payments/packages request fails, so the modal
-// still works even if the backend is briefly unreachable.
 const FALLBACK_PACKAGES = [
   { id: 'sms_10', name: '10 SMS', credits: 10, amount: 1000 },
   { id: 'sms_50', name: '50 SMS', credits: 50, amount: 5000, popular: true },
@@ -29,45 +26,45 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
   const [step, setStep] = useState('select');
   const [error, setError] = useState('');
 
-  // Load packages from the backend so pricing always matches the server
-  // (which is the source of truth actually charged via Paystack).
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/payments/packages`, { credentials: 'include' });
         const data = await res.json();
         if (!cancelled && res.ok && Array.isArray(data.packages) && data.packages.length > 0) {
-          setPackages(
-            data.packages.map((p) => ({
-              ...p,
-              popular: p.id === 'sms_50',
-            }))
-          );
+          setPackages(data.packages.map(p => ({ ...p, popular: p.id === 'sms_50' })));
         }
-      } catch (e) {
-        // Silently keep the fallback list — the modal still works.
-      } finally {
-        if (!cancelled) setPackagesLoading(false);
-      }
+      } catch (e) { /* keep fallback */ }
+      finally { if (!cancelled) setPackagesLoading(false); }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  const pkg = packages.find((p) => p.id === selected) || packages[0];
+  const pkg = packages.find(p => p.id === selected) || packages[0];
+
+  const verifyPayment = async (reference) => {
+    try {
+      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, {
+        credentials: 'include',
+      });
+      const verifyData = await verifyRes.json();
+
+      if (verifyRes.ok && verifyData.verified && verifyData.status === 'success') {
+        setStep('success');
+        if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
+      } else {
+        setError('Payment verification failed. If you were charged, contact support with reference: ' + reference);
+      }
+    } catch (e) {
+      setError('Could not confirm payment. If you were charged, contact support with reference: ' + reference);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handlePayment = async () => {
     if (!pkg) return;
-
-    if (!PAYSTACK_PUBLIC_KEY) {
-      setError('Payment system is misconfigured. Please contact support.');
-      return;
-    }
-
     setLoading(true);
     setError('');
 
@@ -80,10 +77,8 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
       });
 
       let data;
-      try {
-        data = await res.json();
-      } catch (e) {
-        setError('Payment initialization failed. Please try again.');
+      try { data = await res.json(); } catch (e) {
+        setError('Payment initialization failed.');
         setLoading(false);
         return;
       }
@@ -94,59 +89,32 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         return;
       }
 
-      const openCheckout = () => {
-        const handler = window.PaystackPop.setup({
-          key: PAYSTACK_PUBLIC_KEY,
-          email: data.email || '',
-          amount: pkg.amount,
-          currency: 'KES',
-          ref: data.reference,
-          channels: ['card', 'mobile_money'],
-          metadata: {
-            package: pkg.name,
-            credits: pkg.credits,
+      // Use Paystack v2 Inline — resumeTransaction with access_code
+      const accessCode = data.access_code;
+      if (!accessCode) {
+        setError('Payment system error. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      if (window.PaystackPop) {
+        const paystack = new window.PaystackPop();
+        paystack.resumeTransaction(accessCode, {
+          onSuccess: (response) => {
+            verifyPayment(response.reference);
           },
           onClose: () => {
             setLoading(false);
           },
-          callback: (response) => {
-            // Paystack expects this callback to run synchronously; kick off
-            // async verification without returning a promise from it.
-            verifyPayment(response.reference);
+          onError: (err) => {
+            setError('Payment failed. Please try again.');
+            setLoading(false);
           },
         });
-
-        handler.openIframe();
-      };
-
-      const verifyPayment = async (reference) => {
-        try {
-          const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, {
-            credentials: 'include',
-          });
-          const verifyData = await verifyRes.json();
-
-          if (verifyRes.ok && verifyData.verified && verifyData.status === 'success') {
-            setStep('success');
-            if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
-          } else {
-            setError('Payment verification failed. If you were charged, please contact support with your reference: ' + reference);
-          }
-        } catch (e) {
-          setError('Could not confirm payment. If you were charged, please contact support with your reference: ' + reference);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      if (window.PaystackPop) {
-        openCheckout();
       } else if (data.authorization_url) {
-        // Inline script isn't ready yet — fall back to Paystack's hosted
-        // checkout page instead of failing outright.
         window.location.href = data.authorization_url;
       } else {
-        setError('Payment system is loading. Please refresh the page and try again.');
+        setError('Payment system is loading. Please refresh and try again.');
         setLoading(false);
       }
     } catch (e) {
@@ -174,24 +142,18 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
             </div>
             <p className="text-lg font-semibold mb-2">{pkg.credits} credits added!</p>
             <p className="text-sm text-ink-400 mb-6">You can now send {pkg.credits} SMS messages.</p>
-            <button onClick={onClose} className="btn-primary w-full py-2.5 rounded-sm text-sm">
-              Got it
-            </button>
+            <button onClick={onClose} className="btn-primary w-full py-2.5 rounded-sm text-sm">Got it</button>
           </div>
         ) : (
           <div className="p-5 space-y-5">
             <div>
               <p className="text-xs font-semibold text-ink-400 mb-3">Select a package</p>
               <div className="space-y-2">
-                {packages.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelected(p.id)}
-                    disabled={loading}
+                {packages.map(p => (
+                  <button key={p.id} onClick={() => setSelected(p.id)} disabled={loading}
                     className={`w-full flex items-center justify-between p-3 rounded-sm border text-left disabled:opacity-50 ${
                       selected === p.id ? 'border-ink bg-ink-50' : 'border-wire hover:border-ink'
-                    }`}
-                  >
+                    }`}>
                     <div>
                       <p className="text-sm font-semibold">{p.name}</p>
                       <p className="text-xs text-ink-400">≈ KES 1/SMS</p>
@@ -228,30 +190,16 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
             )}
 
             <div className="border-t border-wire pt-4 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">{pkg?.name}</p>
-                <p className="text-xs text-ink-400">{pkg?.credits} credits</p>
-              </div>
+              <div><p className="text-sm font-semibold">{pkg?.name}</p><p className="text-xs text-ink-400">{pkg?.credits} credits</p></div>
               <p className="text-lg font-bold">{pkg && formatKes(pkg.amount)}</p>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handlePayment(); }}>
-              <button
-                type="submit"
-                disabled={loading || packagesLoading || !pkg}
-                className="btn-primary w-full py-3 rounded-sm text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {loading ? (
-                  <><Loader2 size={16} className="animate-spin" /> Processing...</>
-                ) : (
-                  <>Pay {pkg && formatKes(pkg.amount)} — Get {pkg?.credits} Credits</>
-                )}
-              </button>
-            </form>
+            <button onClick={handlePayment} disabled={loading || packagesLoading || !pkg}
+              className="btn-primary w-full py-3 rounded-sm text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
+              {loading ? <><Loader2 size={16} className="animate-spin" /> Processing...</> : <>Pay {pkg && formatKes(pkg.amount)} — Get {pkg?.credits} Credits</>}
+            </button>
 
-            <p className="text-xs text-ink-400 text-center">
-              Secured by Paystack. M-Pesa, Visa, Mastercard accepted.
-            </p>
+            <p className="text-xs text-ink-400 text-center">Secured by Paystack. M-Pesa, Visa, Mastercard accepted.</p>
           </div>
         )}
       </div>
