@@ -170,17 +170,19 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
               <p className="text-lg font-bold">{pkg.price}</p>
             </div>
 
-            <button
-              onClick={handlePayment}
-              disabled={loading}
-              className="btn-primary w-full py-3 rounded-sm text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {loading ? (
-                <><Loader2 size={16} className="animate-spin" /> Processing...</>
-              ) : (
-                <>Pay {pkg.price} — Get {pkg.credits} Credits</>
-              )}
-            </button>
+            <form onSubmit={(e) => { e.preventDefault(); handlePayment(); }}>
+  <button
+    type="submit"
+    disabled={loading}
+    className="btn-primary w-full py-3 rounded-sm text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
+  >
+    {loading ? (
+      <><Loader2 size={16} className="animate-spin" /> Processing...</>
+    ) : (
+      <>Pay {pkg.price} — Get {pkg.credits} Credits</>
+    )}
+  </button>
+</form>
 
             <p className="text-xs text-ink-400 text-center">
               Secured by Paystack. M-Pesa, Visa, Mastercard accepted.
