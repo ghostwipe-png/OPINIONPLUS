@@ -12,7 +12,7 @@ const PACKAGES = [
   { id: 'sms_1000', name: '1000 SMS', amount: 100000, credits: 1000 },
 ];
 
-const PRO_PLAN_CODE = 'PLN_g5x72h8k3q'; // Replace with your Paystack plan code
+const PRO_PLAN_CODE = 'PLN_gilbf69mzasj1q6'; // Replace with your Paystack plan code
 const PRO_PLAN_AMOUNT = 30000; // KES 300 in kobo
 
 // ---------------------------------------------------------------------------
