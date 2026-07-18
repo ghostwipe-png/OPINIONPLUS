@@ -13,8 +13,14 @@ export default function PricingPage() {
   const subscribe = async (tier) => {
     setLoading(tier);
     try {
+      const ref = typeof window !== 'undefined' ? localStorage.getItem('op_referral') : null;
       const url = tier === 'partner' ? `${API_BASE}/partner/subscribe/partner` : `${API_BASE}/partner/subscribe/pro`;
-      const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ref ? { ref } : {}),
+      });
       const data = await res.json();
       if (data.authorization_url) window.location.href = data.authorization_url;
     } catch (e) { /* ignore */ }
@@ -40,7 +46,6 @@ export default function PricingPage() {
       <p className="text-ink-400 text-center mb-12 max-w-lg mx-auto">Unlock earning features. Refer publishers, earn from engagement, withdraw to M-Pesa.</p>
 
       <div className="grid sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
-        {/* Partner */}
         <div className="border border-wire rounded-sm p-6 flex flex-col">
           <h2 className="editorial-h text-xl font-bold mb-2">Partner</h2>
           <p className="text-3xl font-black mb-4">KES 500</p>
@@ -56,7 +61,6 @@ export default function PricingPage() {
           </button>
         </div>
 
-        {/* Pro Partner */}
         <div className="border-2 border-ink rounded-sm p-6 flex flex-col relative">
           <span className="absolute -top-3 left-4 bg-signal text-white text-xs px-3 py-1 rounded-full font-semibold">Best Value</span>
           <h2 className="editorial-h text-xl font-bold mb-2 flex items-center gap-2">Pro Partner <Zap size={16} className="text-signal" /></h2>
