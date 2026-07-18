@@ -1,0 +1,20 @@
+name = "opinionplus-api-staging"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "opinionplus-staging"
+database_id = "710cfee7-3540-4ca2-b6b4-c2eb1202e756"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "opinionplus-files-staging"
+
+[vars]
+GOOGLE_CLIENT_ID = "231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com"
+ROOT_ADMIN_EMAIL = "adipotech@gmail.com"
+ALLOWED_ORIGIN = "http://localhost:3000,https://staging.opinionplus.online"
+R2_PUBLIC_BASE = ""
+
+# Deploy with: npx wrangler deploy --config wrangler.staging.toml

@@ -3,7 +3,6 @@ import { requireAuth } from '../middleware/auth.js';
 
 const payments = new Hono();
 
-// Credit packages
 const PACKAGES = [
   { id: 'sms_10', name: '10 SMS', amount: 1000, credits: 10 },
   { id: 'sms_50', name: '50 SMS', amount: 5000, credits: 50 },
@@ -15,19 +14,32 @@ const PACKAGES = [
 const PRO_PLAN_CODE = 'PLN_gilbf69mzasj1q6';
 const PRO_PLAN_AMOUNT = 30000;
 const REFERRAL_BONUS = 10000;
+const MAX_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, options);
+      return response;
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+}
+
 async function finalizeTransaction(db, reference, expectedUserId, credits) {
+  if (!expectedUserId || !credits || credits <= 0) return { credited: false };
   const update = await db
     .prepare('UPDATE payment_transactions SET status = ? WHERE reference = ? AND status = ?')
     .bind('completed', reference, 'pending')
     .run();
   const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
   if (!flipped) return { credited: false };
-  if (!expectedUserId || !credits) return { credited: false };
   await db
     .prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?')
     .bind(expectedUserId, credits, credits)
@@ -43,6 +55,7 @@ async function activateProSubscription(db, userId, planCode, subscriptionCode) {
 }
 
 async function handlePartnerSubscription(db, userId, tier, referralCode) {
+  if (!tier) return;
   await db.prepare('UPDATE users SET tier = ? WHERE id = ?').bind(tier, userId).run();
   await db.prepare('INSERT INTO wallets (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING').bind(userId).run();
 
@@ -61,7 +74,7 @@ async function handlePartnerSubscription(db, userId, tier, referralCode) {
 }
 
 async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
-  if (!signatureHeader) return false;
+  if (!signatureHeader || !secretKey) return false;
   try {
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey('raw', enc.encode(secretKey), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
@@ -94,6 +107,8 @@ payments.post('/initialize', requireAuth, async (c) => {
   if (typeof packageId !== 'string') return c.json({ error: 'Invalid package.' }, 400);
   const pkg = PACKAGES.find((p) => p.id === packageId);
   if (!pkg) return c.json({ error: 'Invalid package.' }, 400);
+  if (pkg.amount <= 0 || pkg.credits <= 0) return c.json({ error: 'Invalid package configuration.' }, 500);
+
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
 
@@ -103,7 +118,7 @@ payments.post('/initialize', requireAuth, async (c) => {
     .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending').run();
 
   try {
-    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+    const response = await fetchWithRetry('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
       body: JSON.stringify({ email: user.email, amount: pkg.amount, reference, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, transaction_id: txnId, credits: pkg.credits, package: pkg.name, type: 'sms_credits' } }),
@@ -115,6 +130,7 @@ payments.post('/initialize', requireAuth, async (c) => {
     }
     return c.json({ reference, email: user.email, authorization_url: data.data.authorization_url, access_code: data.data.access_code });
   } catch (e) {
+    console.error('PAYSTACK INITIALIZE ERROR:', e.message);
     await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE id = ?').bind('failed', txnId).run();
     return c.json({ error: 'Payment initialization failed.' }, 500);
   }
@@ -125,7 +141,7 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
   try {
-    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+    const response = await fetchWithRetry('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: user.email, amount: PRO_PLAN_AMOUNT, plan: PRO_PLAN_CODE, currency: 'KES', metadata: { user_id: user.id, type: 'api_pro_subscription' } }),
@@ -134,18 +150,16 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
     if (!data.status) return c.json({ error: data.message || 'Subscription initialization failed.' }, 502);
     return c.json({ authorization_url: data.data.authorization_url, reference: data.data.reference, access_code: data.data.access_code });
   } catch (e) {
+    console.error('PAYSTACK SUBSCRIBE ERROR:', e.message);
     return c.json({ error: 'Subscription initialization failed.' }, 500);
   }
 });
 
 payments.get('/api-usage', requireAuth, async (c) => {
   const user = c.get('user');
-
-  // Admins always get pro
   if (user.role === 'admin' || user.role === 'root') {
     return c.json({ tier: 'pro', calls_today: 0, limit: 'Unlimited', subscription_active: true });
   }
-
   const usage = await c.env.DB.prepare('SELECT * FROM api_usage WHERE user_id = ?').bind(user.id).first();
   return c.json({
     tier: usage?.tier || 'free',
@@ -160,7 +174,7 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
   try {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${secretKey}` } });
+    const response = await fetchWithRetry(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${secretKey}` } });
     const data = await response.json();
     if (!data.status) return c.json({ verified: false, message: 'Payment not found.' });
     const txn = data.data;
@@ -177,6 +191,7 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
     }
     return c.json({ verified: true, status: txn.status, amount: txn.amount / 100, credits: txn.metadata?.credits || 0, type: txn.metadata?.type, reference });
   } catch (e) {
+    console.error('PAYSTACK VERIFY ERROR:', e.message);
     return c.json({ error: 'Verification failed.' }, 500);
   }
 });
@@ -185,9 +200,18 @@ payments.post('/webhook', async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   const signature = c.req.header('x-paystack-signature');
   const rawBody = await c.req.text();
-  if (!secretKey) return c.json({ received: true });
+
+  if (!secretKey) {
+    console.error('PAYSTACK WEBHOOK - No secret key configured, rejecting');
+    return c.json({ error: 'Not configured.' }, 500);
+  }
+
   const validSignature = await verifyPaystackSignature(secretKey, rawBody, signature);
-  if (!validSignature) return c.json({ error: 'Invalid signature.' }, 401);
+  if (!validSignature) {
+    console.error('PAYSTACK WEBHOOK - Invalid signature, rejecting');
+    return c.json({ error: 'Invalid signature.' }, 401);
+  }
+
   let body;
   try { body = JSON.parse(rawBody); } catch (e) { return c.json({ error: 'Invalid payload.' }, 400); }
 
@@ -203,7 +227,9 @@ payments.post('/webhook', async (c) => {
       } else {
         await finalizeTransaction(c.env.DB, txn.reference, userId, txn.metadata?.credits || 0);
       }
-    } catch (e) { console.error('PAYSTACK WEBHOOK - error:', e.message); }
+    } catch (e) {
+      console.error('PAYSTACK WEBHOOK - error:', e.message);
+    }
   }
   return c.json({ received: true });
 });
