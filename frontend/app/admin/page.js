@@ -3,19 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  Users as UsersIcon,
-  FileText,
-  Flag,
-  ShieldPlus,
-  Activity,
-  ScrollText,
-  Lock,
-  CreditCard,
-  MessageSquare,
-  Eye,
-  EyeOff,
-  Search,
-  Filter,
+  Users as UsersIcon, FileText, Flag, ShieldPlus, Activity, ScrollText, Lock,
+  CreditCard, MessageSquare, Search, Wallet, CheckCircle, XCircle, ArrowUpRight,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -55,6 +44,7 @@ export default function AdminPage() {
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [smsHistory, setSmsHistory] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const idleTimer = useRef(null);
 
@@ -68,7 +58,6 @@ export default function AdminPage() {
     resetIdle();
     const events = ['mousemove', 'keydown', 'click'];
     events.forEach((ev) => window.addEventListener(ev, resetIdle));
-    if (isRoot) loadAllData();
     return () => {
       events.forEach((ev) => window.removeEventListener(ev, resetIdle));
       if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -77,13 +66,26 @@ export default function AdminPage() {
 
   const loadAllData = async () => {
     try {
-      const [txnRes, smsRes] = await Promise.all([
+      const [txnRes, smsRes, wdRes] = await Promise.all([
         fetch(`${API_BASE}/payments/history`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ transactions: [] })),
         fetch(`${API_BASE}/sms/history`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ history: [] })),
+        fetch(`${API_BASE}/partner/earnings`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ withdrawals: [] })),
       ]);
       setTransactions(txnRes.transactions || []);
       setSmsHistory(smsRes.history || []);
+      setWithdrawals(wdRes.withdrawals || []);
     } catch (e) { /* ignore */ }
+  };
+
+  const markWithdrawalComplete = async (id) => {
+    try {
+      await fetch(`${API_BASE}/partner/withdrawal/${id}/complete`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      loadAllData();
+    } catch (e) { console.error(e); }
   };
 
   if (!ready) return null;
@@ -112,12 +114,15 @@ export default function AdminPage() {
     filterStatus === 'blocked' ? activeStories.filter(s => s.mediaBlocked) : activeStories;
 
   const openReports = reports.filter(r => !r.resolved);
+  const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending');
+  const proUsers = users.filter(u => u.tier === 'partner' || u.tier === 'pro_partner');
 
   const TABS = [
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'users', label: `Users (${users.length})`, icon: UsersIcon },
     { id: 'content', label: `Content (${activeStories.length})`, icon: FileText },
     { id: 'reports', label: `Reports${openReports.length ? ` (${openReports.length})` : ''}`, icon: Flag },
+    { id: 'withdrawals', label: `Withdrawals${pendingWithdrawals.length ? ` (${pendingWithdrawals.length})` : ''}`, icon: Wallet },
     { id: 'transactions', label: 'Transactions', icon: CreditCard },
     { id: 'sms', label: 'SMS Logs', icon: MessageSquare },
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
@@ -131,11 +136,11 @@ export default function AdminPage() {
 
       <p className="wire-tag mb-2">{isRoot ? 'Root admin' : 'Admin'} console</p>
       <h1 className="editorial-h text-3xl font-bold mb-2">Platform Control</h1>
-      <p className="text-xs text-ink-400 mb-8">{users.length} users · {activeStories.length} stories · {openReports.length} open reports</p>
+      <p className="text-xs text-ink-400 mb-8">{users.length} users · {activeStories.length} stories · {proUsers.length} pro · {openReports.length} open reports</p>
 
       <div className="flex gap-2 flex-wrap mb-8 text-xs font-semibold">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); if (t.id === 'transactions' || t.id === 'sms') loadAllData(); }}
+          <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals'].includes(t.id)) loadAllData(); }}
             className={`px-3 py-2 rounded-sm border flex items-center gap-1.5 ${tab === t.id ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
             <t.icon size={13} /> {t.label}
           </button>
@@ -147,12 +152,12 @@ export default function AdminPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             ['Total Users', users.length, '👥'],
+            ['Pro Users', proUsers.length, '⭐'],
             ['Active Stories', activeStories.filter(s => s.privacy === 'public').length, '📝'],
             ['Suspended', users.filter(u => u.suspended).length, '🚫'],
             ['Open Reports', openReports.length, '🚩'],
+            ['Pending Withdrawals', pendingWithdrawals.length, '💳'],
             ['Blocked Media', activeStories.filter(s => s.mediaBlocked).length, '🖼️'],
-            ['Admins', admins.length + 1, '🛡️'],
-            ['API Keys', '—', '🔑'],
             ['SMS Sent', smsHistory.length, '💬'],
           ].map(([label, value, emoji]) => (
             <div key={label} className="border border-wire rounded-sm p-4 hover:border-ink transition-colors">
@@ -182,7 +187,10 @@ export default function AdminPage() {
                   <div>
                     <p className="text-sm font-semibold">{u.publisherName}</p>
                     <p className="text-xs text-ink-400">{u.email}</p>
-                    <p className="text-xs text-ink-400">Joined {new Date(u.createdAt).toLocaleDateString()} · {stories.filter(s => s.authorId === u.id && !s.deleted).length} stories</p>
+                    <p className="text-xs text-ink-400">
+                      Joined {new Date(u.createdAt).toLocaleDateString()} · {stories.filter(s => s.authorId === u.id && !s.deleted).length} stories
+                      {(u.tier === 'partner' || u.tier === 'pro_partner') && <span className="text-signal font-semibold"> · Pro</span>}
+                    </p>
                   </div>
                   {u.suspended && <span className="text-xs text-signal font-semibold">Suspended</span>}
                   {u.role === 'root' && <span className="text-xs text-ink-600 font-semibold">Root</span>}
@@ -257,6 +265,48 @@ export default function AdminPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Withdrawals */}
+      {tab === 'withdrawals' && (
+        <div>
+          <div className="flex gap-2 mb-4">
+            {['all', 'pending', 'completed'].map(f => (
+              <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs px-3 py-1.5 rounded-full border ${filterStatus === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="border border-wire rounded-sm divide-y divide-wire">
+            {withdrawals.length === 0 && <p className="p-4 text-sm text-ink-400">No withdrawal requests yet.</p>}
+            {withdrawals
+              .filter(w => filterStatus === 'all' ? true : w.status === filterStatus)
+              .map(w => (
+                <div key={w.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">KES {(w.amount / 100).toFixed(0)}</p>
+                    <p className="text-xs text-ink-400">
+                      Phone: {w.phone} · {new Date(w.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                      w.status === 'completed' ? 'bg-ink-50 text-ink-600' :
+                      w.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'
+                    }`}>{w.status}</span>
+                    {w.status === 'pending' && (
+                      <button
+                        onClick={() => runGated(`Mark withdrawal of KES ${(w.amount / 100).toFixed(0)} as completed?`, () => markWithdrawalComplete(w.id))}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-ink text-ink hover:bg-ink hover:text-paper flex items-center gap-1"
+                      >
+                        <CheckCircle size={12} /> Complete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
       )}
 

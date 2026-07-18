@@ -158,4 +158,15 @@ partner.post('/withdraw', requireAuth, async (c) => {
   return c.json({ id, amount, fee: WITHDRAWAL_FEE, status: 'pending', message: 'Withdrawal queued. Will be processed within 24 hours.' });
 });
 
+// Mark withdrawal as completed (admin only)
+partner.post('/withdrawal/:id/complete', requireAuth, async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'admin' && user.role !== 'root') {
+    return c.json({ error: 'Unauthorized.' }, 403);
+  }
+  const id = c.req.param('id');
+  await c.env.DB.prepare('UPDATE withdrawals SET status = ? WHERE id = ?').bind('completed', id).run();
+  return c.json({ ok: true });
+});
+
 export default partner;
