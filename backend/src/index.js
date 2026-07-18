@@ -91,63 +91,131 @@ app.route('/payments', payments);
 app.route('/partner', partner);
 
 // ---------------------------------------------------------------------------
-// News Aggregator
+// News Aggregator — fetches RSS feeds from multiple trusted sources
 // ---------------------------------------------------------------------------
 
-async function fetchNews(env) {
-  const NEWS_USER_ID = 'u_newsdesk';
-  const SOURCES = [
-    { url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml', name: 'BBC Africa' },
-    { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
-  ];
+const NEWS_USER_ID = 'u_newsdesk';
+const NEWS_SOURCES = [
+  { url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml', name: 'BBC Africa' },
+  { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
+  { url: 'https://nation.africa/service/rss/kenya/1954666', name: 'Nation Africa' },
+  { url: 'https://www.capitalfm.co.ke/feed/', name: 'Capital FM' },
+  { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
+];
+const MAX_NEWS_PER_DAY = 30;
+const MAX_ITEMS_PER_SOURCE = 3;
 
+function parseRSSItems(xmlText) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  let match;
+  while ((match = itemRegex.exec(xmlText)) !== null) {
+    const block = match[1];
+    const title = extractTag(block, 'title');
+    const link = extractTag(block, 'link');
+    const description = extractTag(block, 'description');
+    if (title && link) {
+      items.push({
+        title: stripHtml(title).trim(),
+        link: link.trim(),
+        description: stripHtml(description).trim().slice(0, 300),
+      });
+    }
+  }
+  return items;
+}
+
+function extractTag(block, tag) {
+  const cdata = block.match(new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]><\\/${tag}>`, 'i'));
+  if (cdata) return cdata[1];
+  const plain = block.match(new RegExp(`<${tag}[^>]*>(.*?)<\\/${tag}>`, 'i'));
+  return plain ? plain[1] : '';
+}
+
+function stripHtml(str) {
+  return str.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
+async function fetchNews(env) {
   let totalInserted = 0;
 
-  for (const source of SOURCES) {
+  for (const source of NEWS_SOURCES) {
+    let items = [];
+    let insertedFromSource = 0;
+
     try {
-      const response = await fetch(source.url, { headers: { 'User-Agent': 'OPINIONPLUS/1.0' } });
-      const text = await response.text();
-      const items = [];
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      let match;
-      while ((match = itemRegex.exec(text)) !== null) {
-        const item = match[1];
-        const title = (item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/))?.[1] || '';
-        const link = (item.match(/<link>(.*?)<\/link>/))?.[1] || '';
-        const description = (item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || item.match(/<description>(.*?)<\/description>/))?.[1] || '';
-        if (title && link) {
-          items.push({ title: title.replace(/<[^>]*>/g, '').trim(), link, description: description.replace(/<[^>]*>/g, '').trim().slice(0, 300) });
-        }
+      const response = await fetch(source.url, {
+        headers: { 'User-Agent': 'OPINIONPLUS/1.0 (news aggregator)' },
+        cf: { cacheTtl: 300 },
+      });
+
+      if (!response.ok) {
+        console.error(`News fetch failed (${source.name}): HTTP ${response.status}`);
+        continue;
       }
 
-      for (const item of items.slice(0, 3)) {
-        const existing = await env.DB.prepare('SELECT id FROM stories WHERE title = ? AND author_id = ?').bind(item.title, NEWS_USER_ID).first();
+      const text = await response.text();
+
+      if (!text || text.length < 100) {
+        console.error(`News fetch failed (${source.name}): Empty or too short response`);
+        continue;
+      }
+
+      items = parseRSSItems(text);
+      console.log(`${source.name}: ${items.length} items parsed`);
+
+    } catch (e) {
+      console.error(`News fetch error (${source.name}): ${e.message}`);
+      continue;
+    }
+
+    for (const item of items.slice(0, MAX_ITEMS_PER_SOURCE)) {
+      try {
+        const existing = await env.DB.prepare(
+          'SELECT id FROM stories WHERE title = ? AND author_id = ?'
+        ).bind(item.title, NEWS_USER_ID).first();
         if (existing) continue;
 
         const today = new Date().toISOString().slice(0, 10);
-        const row = await env.DB.prepare("SELECT COUNT(*) as count FROM stories WHERE author_id = ? AND date(created_at) = ?").bind(NEWS_USER_ID, today).first();
-        if (parseInt(row?.count || 0) >= 20) break;
+        const row = await env.DB.prepare(
+          "SELECT COUNT(*) as count FROM stories WHERE author_id = ? AND date(created_at) = ?"
+        ).bind(NEWS_USER_ID, today).first();
+
+        if (parseInt(row?.count || 0) >= MAX_NEWS_PER_DAY) {
+          console.log(`Daily news limit (${MAX_NEWS_PER_DAY}) reached`);
+          break;
+        }
 
         const id = crypto.randomUUID();
-        const excerpt = item.description + '...';
-        const body = `<p>${item.description}</p><p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
+        const excerpt = item.description ? item.description + '...' : `Read the full article on ${source.name}.`;
+        const body = `<p>${item.description || 'Click below to read the full article.'}</p><p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
 
         await env.DB.prepare(
           "INSERT INTO stories (id, author_id, title, excerpt, body, type, privacy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'story', 'public', datetime('now'), datetime('now'))"
         ).bind(id, NEWS_USER_ID, item.title, excerpt, body).run();
 
+        insertedFromSource++;
         totalInserted++;
+      } catch (e) {
+        console.error(`News insert error (${source.name}): ${e.message}`);
       }
-    } catch (e) {
-      console.error(`News fetch error (${source.name}):`, e.message);
     }
+
+    console.log(`${source.name}: ${insertedFromSource} inserted out of ${items.length} parsed`);
   }
+
+  console.log(`News fetch complete: ${totalInserted} total inserted`);
   return totalInserted;
 }
 
 app.get('/news-fetch', async (c) => {
-  const count = await fetchNews(c.env);
-  return c.json({ ok: true, inserted: count });
+  try {
+    const count = await fetchNews(c.env);
+    return c.json({ ok: true, inserted: count });
+  } catch (e) {
+    console.error('News fetch route error:', e.message);
+    return c.json({ ok: false, error: 'News fetch failed' }, 500);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -157,10 +225,19 @@ app.get('/news-fetch', async (c) => {
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 app.onError((err, c) => {
-  console.error(err);
+  console.error('Unhandled error:', err.message, err.stack);
   return c.json({ error: 'Something went wrong.' }, 500);
 });
 
+// Wrap Hono app to handle cron triggers
+const worker = {
+  fetch: app.fetch,
+  async scheduled(event, env, ctx) {
+    if (event.cron === '*/30 * * * *') {
+      console.log('News cron triggered');
+      await fetchNews(env);
+    }
+  },
+};
 
-
-export default app;
+export default worker;
