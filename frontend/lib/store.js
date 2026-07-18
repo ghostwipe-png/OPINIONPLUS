@@ -72,26 +72,35 @@ export function StoreProvider({ children }) {
   }, []);
 
   // Persist to localStorage in dev mode
-  useEffect(() => {
-    if (!USE_API && ready && typeof window !== 'undefined') {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    }
-  }, [data, ready]);
+  
+   useEffect(() => {
+   setData(loadLocal());
+  setReady(true);
+  if (USE_API) {
+    loadFromAPI();
+  }
+   }, []);
 
     async function loadFromAPI() {
-    try {
-      const [storiesRes, meRes] = await Promise.all([
-        api('/stories'),
-        api('/auth/me'),
-      ]);
+  try {
+    const [storiesRes, meRes] = await Promise.all([
+      api('/stories').catch(() => ({ stories: [] })),
+      api('/auth/me').catch(() => ({ user: null })),
+    ]);
+
+    setData(d => {
+      const apiStories = (storiesRes.stories || []).map(s => normalizeStory(s));
+      const existingIds = new Set(apiStories.map(s => s.id));
+      const seedStories = d.stories.filter(s => !existingIds.has(s.id));
 
       const newData = {
-        stories: (storiesRes.stories || []).map(s => normalizeStory(s)),
+        ...d,
+        stories: [...apiStories, ...seedStories],
       };
 
       if (meRes.user) {
         const u = meRes.user;
-        newData.users = [{
+        newData.users = [...d.users.filter(user => user.id !== u.id), {
           id: u.id,
           email: u.email,
           name: u.name,
@@ -105,13 +114,12 @@ export function StoreProvider({ children }) {
         }];
       }
 
-      setData(d => ({ ...d, ...newData }));
-    } catch (e) {
-      console.error('Failed to load from API, using local fallback:', e);
-      setData(loadLocal());
-    }
-    setReady(true);
+      return newData;
+    });
+  } catch (e) {
+    console.error('Failed to load from API, using local fallback:', e);
   }
+}
 
   // Normalize backend field names to frontend camelCase
   function normalizeStory(s) {
