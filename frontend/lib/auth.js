@@ -57,19 +57,20 @@ export function AuthProvider({ children }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // Set ready immediately so the UI renders without waiting
+    setReady(true);
+
     if (USE_API) {
       api('/auth/me')
         .then(data => {
           if (data.user) setUser(normalizeUser(data.user));
         })
-        .catch(() => {})
-        .finally(() => setReady(true));
+        .catch(() => {});
     } else {
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (raw) setUser(JSON.parse(raw));
       } catch (e) { /* ignore */ }
-      setReady(true);
     }
   }, []);
 
