@@ -45,6 +45,9 @@ export default function ProfilePage() {
   const [apiUsage, setApiUsage] = useState(null);
   const [upgrading, setUpgrading] = useState(false);
 
+  const isAdminUser = user?.role === 'admin' || user?.role === 'root';
+  const isPro = isAdminUser || (apiUsage?.tier === 'pro' && apiUsage?.subscription_active);
+
   const fetchKeys = async () => {
     try {
       const data = await api('/keys');
@@ -126,9 +129,6 @@ export default function ProfilePage() {
     openCloudinaryWidget({ onSuccess: (r) => setForm((f) => ({ ...f, logoUrl: r.url })) });
   };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'root';
-  const isPro = isAdmin || (apiUsage?.tier === 'pro' && apiUsage?.subscription_active);
-
   return (
     <div className="max-w-4xl mx-auto px-5 py-12">
       {showApiGuide && <ApiGuideModal onClose={() => setShowApiGuide(false)} />}
@@ -199,7 +199,7 @@ export default function ProfilePage() {
               {isPro ? 'Pro — Unlimited' : `Free — ${apiUsage?.calls_today || 0}/50 calls today`}
             </span>
           </div>
-          {!isPro && (
+          {!isPro && !isAdminUser && (
             <div className="bg-ink-50 border border-wire rounded-sm p-4 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold">Upgrade to Pro</p>
@@ -209,6 +209,9 @@ export default function ProfilePage() {
                 {upgrading ? 'Redirecting...' : 'Upgrade'}
               </button>
             </div>
+          )}
+          {isAdminUser && (
+            <p className="text-xs text-ink-400">Admin access — all features unlocked.</p>
           )}
         </div>
       )}
@@ -260,14 +263,18 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Add before the Published section: */}
-       <div className="rule mt-10 pt-8">
-       <StoryTimeline userId={id} />
-       </div>
-       {isOwner && <WalletDashboard />}
+      {/* Publishing Timeline */}
+      <div className="rule mt-10 pt-8">
+        <StoryTimeline userId={id} />
+      </div>
 
+      {/* Partner Wallet */}
+      {isOwner && <WalletDashboard />}
+
+      {/* SMS Dashboard */}
       {isOwner && <SmsDashboard />}
 
+      {/* Published Stories */}
       <div className="rule mt-10 pt-8">
         <h2 className="wire-tag mb-5">Published</h2>
         {theirStories.length === 0 ? (

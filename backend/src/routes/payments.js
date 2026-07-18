@@ -14,8 +14,7 @@ const PACKAGES = [
 
 const PRO_PLAN_CODE = 'PLN_gilbf69mzasj1q6';
 const PRO_PLAN_AMOUNT = 30000;
-
-const REFERRAL_BONUS = 10000; // KES 100 in kobo
+const REFERRAL_BONUS = 10000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -141,8 +140,19 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
 
 payments.get('/api-usage', requireAuth, async (c) => {
   const user = c.get('user');
+
+  // Admins always get pro
+  if (user.role === 'admin' || user.role === 'root') {
+    return c.json({ tier: 'pro', calls_today: 0, limit: 'Unlimited', subscription_active: true });
+  }
+
   const usage = await c.env.DB.prepare('SELECT * FROM api_usage WHERE user_id = ?').bind(user.id).first();
-  return c.json({ tier: usage?.tier || 'free', calls_today: usage?.calls_today || 0, limit: usage?.tier === 'pro' && usage?.subscription_active ? 'Unlimited' : 50, subscription_active: !!usage?.subscription_active });
+  return c.json({
+    tier: usage?.tier || 'free',
+    calls_today: usage?.calls_today || 0,
+    limit: usage?.tier === 'pro' && usage?.subscription_active ? 'Unlimited' : 50,
+    subscription_active: !!usage?.subscription_active,
+  });
 });
 
 payments.get('/verify/:reference', requireAuth, async (c) => {
