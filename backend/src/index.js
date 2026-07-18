@@ -11,6 +11,7 @@ import keys from './routes/keys.js';
 import sms from './routes/sms.js';
 import payments from './routes/payments.js';
 import { apiLimit } from './middleware/apiLimit.js';
+import partner from './routes/partner.js';
 
 const app = new Hono();
 
@@ -56,6 +57,7 @@ app.route('/admin', admin);
 app.route('/keys', keys);
 app.route('/sms', sms);
 app.route('/payments', payments);
+app.route('/partner', partner);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {

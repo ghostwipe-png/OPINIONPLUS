@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X, Bookmark } from 'lucide-react';
+import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X, Bookmark, Gift } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 
 export default function Navbar() {
@@ -21,8 +21,9 @@ export default function Navbar() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-            <Link href="/" className="hover:text-signal transition-colors">
-              Feed
+            <Link href="/" className="hover:text-signal transition-colors">Feed</Link>
+            <Link href="/pricing" className="hover:text-signal transition-colors flex items-center gap-1">
+              <Gift size={14} /> Partner
             </Link>
             {isAuthenticated && (
               <Link href="/publish" className="hover:text-signal transition-colors flex items-center gap-1.5">
@@ -41,7 +42,6 @@ export default function Navbar() {
               <div className="flex items-center gap-3 pl-3 border-l border-wire">
                 <Link href={`/profile/${user.id}`} className="nameplate">
                   {user.logoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal" />
                   ) : (
                     <span className="nameplate-seal grid place-items-center">
@@ -50,19 +50,12 @@ export default function Navbar() {
                   )}
                   <span className="text-sm font-semibold">{user.publisherName}</span>
                 </Link>
-                <button
-                  onClick={logout}
-                  className="text-ink-400 hover:text-signal transition-colors"
-                  aria-label="Sign out"
-                  title="Sign out"
-                >
+                <button onClick={logout} className="text-ink-400 hover:text-signal transition-colors" aria-label="Sign out" title="Sign out">
                   <LogOut size={16} />
                 </button>
               </div>
             ) : (
-              <Link href="/login" className="btn-primary px-4 py-2 text-sm rounded-sm">
-                Sign in
-              </Link>
+              <Link href="/login" className="btn-primary px-4 py-2 text-sm rounded-sm">Sign in</Link>
             )}
           </nav>
 
@@ -75,6 +68,9 @@ export default function Navbar() {
       {open && (
         <div className="md:hidden border-t border-wire px-5 py-4 flex flex-col gap-4 text-sm font-medium">
           <Link href="/" onClick={() => setOpen(false)}>Feed</Link>
+          <Link href="/pricing" onClick={() => setOpen(false)} className="flex items-center gap-2">
+            <Gift size={15} /> Partner Program
+          </Link>
           {isAuthenticated && (
             <Link href="/publish" onClick={() => setOpen(false)} className="flex items-center gap-2">
               <PenSquare size={15} /> Publish
@@ -98,9 +94,7 @@ export default function Navbar() {
               </button>
             </>
           ) : (
-            <Link href="/login" onClick={() => setOpen(false)} className="btn-primary px-4 py-2 text-center rounded-sm">
-              Sign in
-            </Link>
+            <Link href="/login" onClick={() => setOpen(false)} className="btn-primary px-4 py-2 text-center rounded-sm">Sign in</Link>
           )}
         </div>
       )}

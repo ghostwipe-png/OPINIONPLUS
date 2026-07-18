@@ -10,6 +10,7 @@ import ApiGuideModal from '../../../components/ApiGuideModal';
 import SmsDashboard from '../../../components/SmsDashboard';
 import { openCloudinaryWidget } from '../../../lib/mediaUpload';
 import StoryTimeline from '../../../components/StoryTimeline';
+import WalletDashboard from '../../../components/WalletDashboard';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -262,6 +263,7 @@ export default function ProfilePage() {
        <div className="rule mt-10 pt-8">
        <StoryTimeline userId={id} />
        </div>
+       {isOwner && <WalletDashboard />}
 
       {isOwner && <SmsDashboard />}
 
