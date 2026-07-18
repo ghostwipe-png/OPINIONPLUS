@@ -228,4 +228,19 @@ stories.post('/collaborations/:id/accept', requireAuth, async (c) => {
   return c.json({ ok: true, message: `You are now a co-author.` });
 });
 
+// GET /stories/timeline/:userId — publishing history for visual timeline
+stories.get('/timeline/:userId', async (c) => {
+  const userId = c.req.param('userId');
+  const { results } = await c.env.DB.prepare(
+    `SELECT date(created_at) as date, COUNT(*) as count, type
+     FROM stories 
+     WHERE author_id = ? AND deleted = 0 AND privacy = 'public'
+     GROUP BY date(created_at), type
+     ORDER BY date DESC
+     LIMIT 365`
+  ).bind(userId).all();
+  
+  return c.json({ timeline: results });
+});
+
 export default stories;

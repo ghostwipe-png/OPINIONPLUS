@@ -83,22 +83,28 @@ export default function ProfilePage() {
   };
 
   const handleUpgrade = async () => {
-    setUpgrading(true);
-    try {
-      const res = await fetch(`${API_BASE}/payments/subscribe/pro`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await res.json();
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-      }
-    } catch (e) {
-      console.error(e);
-      setUpgrading(false);
+  setUpgrading(true);
+  try {
+    const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const csrfData = await csrfRes.json();
+
+    const res = await fetch(`${API_BASE}/payments/subscribe/pro`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfData.token || '',
+      },
+    });
+    const data = await res.json();
+    if (data.authorization_url) {
+      window.location.href = data.authorization_url;
     }
-  };
+  } catch (e) {
+    console.error(e);
+    setUpgrading(false);
+  }
+};
 
   useEffect(() => {
     if (isOwner) {
