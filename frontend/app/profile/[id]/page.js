@@ -209,10 +209,10 @@ export default function ProfilePage() {
             <div className="bg-ink-50 border border-wire rounded-sm p-4 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold">Upgrade to Pro</p>
-                <p className="text-xs text-ink-400">Unlimited API calls · KES 300/month</p>
+                <p className="text-xs text-ink-400">Unlimited API calls · KES 400 one-time</p>
               </div>
               <button onClick={handleUpgrade} disabled={upgrading} className="btn-primary px-4 py-2 rounded-sm text-sm">
-                {upgrading ? 'Redirecting...' : 'Upgrade'}
+                {upgrading ? 'Redirecting...' : 'Upgrade — KES 400'}
               </button>
             </div>
           )}
