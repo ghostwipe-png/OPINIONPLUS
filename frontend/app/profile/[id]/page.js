@@ -14,10 +14,26 @@ import WalletDashboard from '../../../components/WalletDashboard';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
+let csrfToken = null;
+async function fetchCsrfToken() {
+  if (csrfToken) return csrfToken;
+  try {
+    const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const data = await res.json();
+    csrfToken = data.token;
+    return csrfToken;
+  } catch (e) { return ''; }
+}
+
 async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (options.method && options.method !== 'GET') {
+    const token = await fetchCsrfToken();
+    if (token) headers['X-CSRF-Token'] = token;
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers,
     ...options,
   });
   if (!res.ok) throw new Error('API request failed');
