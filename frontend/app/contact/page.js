@@ -13,7 +13,7 @@ export default function ContactPage() {
     // the Worker once Phase 2 email is set up (see README).
     const subject = encodeURIComponent(`OpinionPlus contact — ${form.name}`);
     const body = encodeURIComponent(`${form.message}\n\n— ${form.name} (${form.email})`);
-    window.location.href = `mailto:hello@opinionplus.example?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:info@opinionplus.online?subject=${subject}&body=${body}`;
     setSent(true);
   };
 
@@ -63,8 +63,8 @@ export default function ContactPage() {
 
       <p className="text-xs text-ink-400 mt-8">
         Or write to us directly at{' '}
-        <a href="mailto:hello@opinionplus.example" className="underline">
-          hello@opinionplus.example
+        <a href="mailto:info@opinionplus.online" className="underline">
+          info@opinionplus.online
         </a>
         .
       </p>
