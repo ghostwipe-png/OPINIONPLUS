@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { verifyGoogleIdToken } from '../lib/google.js';
 import { createSessionToken, sessionCookieHeader, clearSessionCookieHeader } from '../lib/session.js';
+import { generateCsrfToken } from '../middleware/auth.js';
 
 const auth = new Hono();
 
@@ -27,8 +28,6 @@ auth.post('/google', async (c) => {
       .run();
     user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
   } else if (role === 'root' && user.role !== 'root') {
-    // Promote to root if the email matches ROOT_ADMIN_EMAIL, even if it
-    // registered before this env var was set.
     await c.env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind('root', user.id).run();
     user.role = 'root';
   }
@@ -49,6 +48,11 @@ auth.get('/me', async (c) => {
   const user = c.get('user');
   if (!user) return c.json({ user: null });
   return c.json({ user });
+});
+
+auth.get('/csrf', async (c) => {
+  const token = await generateCsrfToken(c.env.SESSION_SECRET);
+  return c.json({ token });
 });
 
 export default auth;

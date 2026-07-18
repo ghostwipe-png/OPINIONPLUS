@@ -1,5 +1,5 @@
 'use client';
-
+import DOMPurify from 'dompurify';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Bold,
@@ -323,7 +323,15 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
     sel.addRange(savedRange.current);
   };
 
-  const emitChange = () => onChange(ref.current.innerHTML);
+  const emitChange = () => {
+  const html = ref.current.innerHTML;
+  const clean = typeof window !== 'undefined' ? DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 's', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'hr', 'span', 'div', 'font', 'mark', 'video', 'iframe', 'source'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'style', 'class', 'size', 'color', 'align', 'width', 'height', 'allowfullscreen', 'loading', 'frameborder', 'contenteditable', 'data-issue', 'data-caret-marker'],
+    ALLOW_DATA_ATTR: true,
+  }) : html;
+  onChange(clean);
+};
 
   const withSelection = (fn) => {
     restoreSelection();

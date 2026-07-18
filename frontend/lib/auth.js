@@ -23,10 +23,29 @@ function roleForEmail(email) {
   return 'user';
 }
 
+let csrfToken = null;
+
+async function fetchCsrfToken() {
+  if (csrfToken) return csrfToken;
+  try {
+    const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const data = await res.json();
+    csrfToken = data.token;
+    return csrfToken;
+  } catch (e) { return null; }
+}
+
 async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+
+  if (options.method && options.method !== 'GET') {
+    const token = await fetchCsrfToken();
+    if (token) headers['X-CSRF-Token'] = token;
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -57,14 +76,10 @@ export function AuthProvider({ children }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Set ready immediately so the UI renders without waiting
     setReady(true);
-
     if (USE_API) {
       api('/auth/me')
-        .then(data => {
-          if (data.user) setUser(normalizeUser(data.user));
-        })
+        .then(data => { if (data.user) setUser(normalizeUser(data.user)); })
         .catch(() => {});
     } else {
       try {
@@ -90,10 +105,7 @@ export function AuthProvider({ children }) {
 
   const loginWithGoogle = useCallback(async (credential) => {
     if (USE_API) {
-      const data = await api('/auth/google', {
-        method: 'POST',
-        body: JSON.stringify({ id_token: credential }),
-      });
+      const data = await api('/auth/google', { method: 'POST', body: JSON.stringify({ id_token: credential }) });
       const normalized = normalizeUser(data.user);
       persist(normalized);
       return normalized;
@@ -120,15 +132,11 @@ export function AuthProvider({ children }) {
   }, [persist]);
 
   const value = {
-    user,
-    ready,
+    user, ready,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin' || user?.role === 'root',
     isRoot: user?.role === 'root',
-    login,
-    loginWithGoogle,
-    updateProfile,
-    logout,
+    login, loginWithGoogle, updateProfile, logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

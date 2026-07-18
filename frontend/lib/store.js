@@ -40,11 +40,31 @@ function loadLocal() {
   return JSON.parse(JSON.stringify(SEED));
 }
 
+let csrfToken = null;
+
+async function fetchCsrfToken() {
+  if (csrfToken) return csrfToken;
+  try {
+    const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const data = await res.json();
+    csrfToken = data.token;
+    return csrfToken;
+  } catch (e) { return null; }
+}
+
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers };
+
+  // Add CSRF token for state-changing requests
+  if (options.method && options.method !== 'GET') {
+    const token = await fetchCsrfToken();
+    if (token) headers['X-CSRF-Token'] = token;
+  }
+
   if (path.startsWith('/admin') && adminPin) {
     headers['X-Admin-Pin'] = adminPin;
   }
+
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     headers,
@@ -61,67 +81,55 @@ export function StoreProvider({ children }) {
   const [data, setData] = useState(SEED);
   const [ready, setReady] = useState(false);
 
-  // Initialize data
+  // Initialize data — show seed instantly, load API in background
   useEffect(() => {
+    setData(loadLocal());
+    setReady(true);
     if (USE_API) {
       loadFromAPI();
-    } else {
-      setData(loadLocal());
-      setReady(true);
     }
   }, []);
 
-  // Persist to localStorage in dev mode
-  
-   useEffect(() => {
-   setData(loadLocal());
-  setReady(true);
-  if (USE_API) {
-    loadFromAPI();
+  async function loadFromAPI() {
+    try {
+      const [storiesRes, meRes] = await Promise.all([
+        api('/stories').catch(() => ({ stories: [] })),
+        api('/auth/me').catch(() => ({ user: null })),
+      ]);
+
+      setData(d => {
+        const apiStories = (storiesRes.stories || []).map(s => normalizeStory(s));
+        const existingIds = new Set(apiStories.map(s => s.id));
+        const seedStories = d.stories.filter(s => !existingIds.has(s.id));
+
+        const newData = {
+          ...d,
+          stories: [...apiStories, ...seedStories],
+        };
+
+        if (meRes.user) {
+          const u = meRes.user;
+          newData.users = [...d.users.filter(user => user.id !== u.id), {
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            publisherName: u.publisher_name || u.name,
+            logoUrl: u.logo_url || null,
+            bio: u.bio || '',
+            socialLink: u.social_link || '',
+            role: u.role || 'user',
+            suspended: !!u.suspended,
+            createdAt: u.created_at || new Date().toISOString(),
+          }];
+        }
+
+        return newData;
+      });
+    } catch (e) {
+      console.error('Failed to load from API, using local fallback:', e);
+    }
   }
-   }, []);
 
-    async function loadFromAPI() {
-  try {
-    const [storiesRes, meRes] = await Promise.all([
-      api('/stories').catch(() => ({ stories: [] })),
-      api('/auth/me').catch(() => ({ user: null })),
-    ]);
-
-    setData(d => {
-      const apiStories = (storiesRes.stories || []).map(s => normalizeStory(s));
-      const existingIds = new Set(apiStories.map(s => s.id));
-      const seedStories = d.stories.filter(s => !existingIds.has(s.id));
-
-      const newData = {
-        ...d,
-        stories: [...apiStories, ...seedStories],
-      };
-
-      if (meRes.user) {
-        const u = meRes.user;
-        newData.users = [...d.users.filter(user => user.id !== u.id), {
-          id: u.id,
-          email: u.email,
-          name: u.name,
-          publisherName: u.publisher_name || u.name,
-          logoUrl: u.logo_url || null,
-          bio: u.bio || '',
-          socialLink: u.social_link || '',
-          role: u.role || 'user',
-          suspended: !!u.suspended,
-          createdAt: u.created_at || new Date().toISOString(),
-        }];
-      }
-
-      return newData;
-    });
-  } catch (e) {
-    console.error('Failed to load from API, using local fallback:', e);
-  }
-}
-
-  // Normalize backend field names to frontend camelCase
   function normalizeStory(s) {
     return {
       id: s.id,
@@ -149,350 +157,116 @@ export function StoreProvider({ children }) {
     };
   }
 
-  // ===== USER OPERATIONS =====
-
   const upsertUser = useCallback((profile) => {
     setData(d => {
       const exists = d.users.find(u => u.id === profile.id);
-      return {
-        ...d,
-        users: exists
-          ? d.users.map(u => u.id === profile.id ? { ...u, ...profile } : u)
-          : [...d.users, profile],
-      };
+      return { ...d, users: exists ? d.users.map(u => u.id === profile.id ? { ...u, ...profile } : u) : [...d.users, profile] };
     });
     if (USE_API) {
-      api('/users/me', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          publisherName: profile.publisherName,
-          logoUrl: profile.logoUrl,
-          bio: profile.bio,
-          socialLink: profile.socialLink,
-        }),
-      }).catch(e => console.error('API upsertUser failed:', e));
+      api('/users/me', { method: 'PATCH', body: JSON.stringify({ publisherName: profile.publisherName, logoUrl: profile.logoUrl, bio: profile.bio, socialLink: profile.socialLink }) })
+        .catch(e => console.error('API upsertUser failed:', e));
     }
   }, []);
 
-  // ===== STORY OPERATIONS =====
-
   const createStory = useCallback((story) => {
     const id = uid('s');
-    const newStory = {
-      id,
-      authorId: story.authorId,
-      title: story.title,
-      excerpt: story.excerpt || '',
-      body: story.body,
-      type: story.type || 'story',
-      privacy: story.privacy || 'public',
-      coverImage: story.coverImage || null,
-      files: story.files || [],
-      likes: [],
-      ratings: {},
-      comments: [],
-      mediaBlocked: false,
-      deleted: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    const newStory = { id, authorId: story.authorId, title: story.title, excerpt: story.excerpt || '', body: story.body, type: story.type || 'story', privacy: story.privacy || 'public', coverImage: story.coverImage || null, files: story.files || [], likes: [], ratings: {}, comments: [], mediaBlocked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     setData(d => ({ ...d, stories: [newStory, ...d.stories] }));
     if (USE_API) {
-      api('/stories', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: story.title,
-          excerpt: story.excerpt,
-          body: story.body,
-          type: story.type,
-          privacy: story.privacy,
-          coverImage: story.coverImage,
-          files: story.files,
-        }),
-      })
-        .then(res => {
-          // Update local id to match backend id
-          setData(d => ({
-            ...d,
-            stories: d.stories.map(s => s.id === id ? { ...s, id: res.id } : s),
-          }));
-        })
+      api('/stories', { method: 'POST', body: JSON.stringify({ title: story.title, excerpt: story.excerpt, body: story.body, type: story.type, privacy: story.privacy, coverImage: story.coverImage, files: story.files }) })
+        .then(res => setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id } : s) })))
         .catch(e => console.error('API createStory failed:', e));
     }
     return id;
   }, []);
 
   const updateStory = useCallback((id, patch) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s =>
-        s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s
-      ),
-    }));
-    if (USE_API) {
-      api(`/stories/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }).catch(e => console.error('API updateStory failed:', e));
-    }
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s) }));
+    if (USE_API) { api(`/stories/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }).catch(e => console.error('API updateStory failed:', e)); }
   }, []);
 
   const deleteStory = useCallback((id) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s => s.id === id ? { ...s, deleted: true } : s),
-    }));
-    if (USE_API) {
-      api(`/stories/${id}`, { method: 'DELETE' })
-        .catch(e => console.error('API deleteStory failed:', e));
-    }
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, deleted: true } : s) }));
+    if (USE_API) { api(`/stories/${id}`, { method: 'DELETE' }).catch(e => console.error('API deleteStory failed:', e)); }
   }, []);
 
-  // ===== ENGAGEMENT =====
-
   const toggleLike = useCallback((storyId, userId) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s => {
-        if (s.id !== storyId) return s;
-        const has = s.likes.includes(userId);
-        return {
-          ...s,
-          likes: has ? s.likes.filter(id => id !== userId) : [...s.likes, userId],
-        };
-      }),
-    }));
-    if (USE_API) {
-      api(`/stories/${storyId}/like`, { method: 'POST' })
-        .catch(e => console.error('API toggleLike failed:', e));
-    }
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id !== storyId ? s : { ...s, likes: s.likes.includes(userId) ? s.likes.filter(id => id !== userId) : [...s.likes, userId] }) }));
+    if (USE_API) { api(`/stories/${storyId}/like`, { method: 'POST' }).catch(e => console.error('API toggleLike failed:', e)); }
   }, []);
 
   const rateStory = useCallback((storyId, userId, score) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s =>
-        s.id === storyId
-          ? { ...s, ratings: { ...s.ratings, [userId]: score } }
-          : s
-      ),
-    }));
-    if (USE_API) {
-      api(`/stories/${storyId}/rate`, {
-        method: 'POST',
-        body: JSON.stringify({ score }),
-      }).catch(e => console.error('API rateStory failed:', e));
-    }
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, ratings: { ...s.ratings, [userId]: score } } : s) }));
+    if (USE_API) { api(`/stories/${storyId}/rate`, { method: 'POST', body: JSON.stringify({ score }) }).catch(e => console.error('API rateStory failed:', e)); }
   }, []);
 
   const addComment = useCallback((storyId, comment) => {
-    const newComment = {
-      id: uid('c'),
-      userId: comment.userId,
-      body: comment.body,
-      parentId: comment.parentId || null,
-      createdAt: new Date().toISOString(),
-    };
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s =>
-        s.id === storyId
-          ? { ...s, comments: [...s.comments, newComment] }
-          : s
-      ),
-    }));
+    const newComment = { id: uid('c'), userId: comment.userId, body: comment.body, parentId: comment.parentId || null, createdAt: new Date().toISOString() };
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: [...s.comments, newComment] } : s) }));
     if (USE_API) {
-      api(`/stories/${storyId}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          body: comment.body,
-          parentId: comment.parentId || null,
-        }),
-      })
-        .then(res => {
-          setData(d => ({
-            ...d,
-            stories: d.stories.map(s =>
-              s.id === storyId
-                ? {
-                    ...s,
-                    comments: s.comments.map(c =>
-                      c.id === newComment.id ? { ...c, id: res.id } : c
-                    ),
-                  }
-                : s
-            ),
-          }));
-        })
+      api(`/stories/${storyId}/comments`, { method: 'POST', body: JSON.stringify({ body: comment.body, parentId: comment.parentId || null }) })
+        .then(res => setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: s.comments.map(c => c.id === newComment.id ? { ...c, id: res.id } : c) } : s) })))
         .catch(e => console.error('API addComment failed:', e));
     }
   }, []);
 
   const toggleFollow = useCallback((userId, publisherId) => {
-    setData(d => {
-      const current = d.follows[userId] || [];
-      const has = current.includes(publisherId);
-      return {
-        ...d,
-        follows: {
-          ...d.follows,
-          [userId]: has
-            ? current.filter(id => id !== publisherId)
-            : [...current, publisherId],
-        },
-      };
-    });
-    if (USE_API) {
-      api(`/users/${publisherId}/follow`, { method: 'POST' })
-        .catch(e => console.error('API toggleFollow failed:', e));
-    }
+    setData(d => { const current = d.follows[userId] || []; const has = current.includes(publisherId); return { ...d, follows: { ...d.follows, [userId]: has ? current.filter(id => id !== publisherId) : [...current, publisherId] } }; });
+    if (USE_API) { api(`/users/${publisherId}/follow`, { method: 'POST' }).catch(e => console.error('API toggleFollow failed:', e)); }
   }, []);
 
   const reportStory = useCallback((storyId, reporterId, reason) => {
-    const newReport = {
-      id: uid('r'),
-      storyId,
-      reporterId,
-      reason,
-      resolved: false,
-      createdAt: new Date().toISOString(),
-    };
+    const newReport = { id: uid('r'), storyId, reporterId, reason, resolved: false, createdAt: new Date().toISOString() };
     setData(d => ({ ...d, reports: [...d.reports, newReport] }));
-    if (USE_API) {
-      api(`/stories/${storyId}/report`, {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
-      }).catch(e => console.error('API reportStory failed:', e));
-    }
+    if (USE_API) { api(`/stories/${storyId}/report`, { method: 'POST', body: JSON.stringify({ reason }) }).catch(e => console.error('API reportStory failed:', e)); }
   }, []);
 
-  // ===== ADMIN OPERATIONS =====
-
   const logAdminAction = useCallback((actorEmail, action, target) => {
-    setData(d => ({
-      ...d,
-      adminLogs: [
-        { id: uid('log'), actorEmail, action, target, timestamp: new Date().toISOString() },
-        ...d.adminLogs,
-      ],
-    }));
+    setData(d => ({ ...d, adminLogs: [{ id: uid('log'), actorEmail, action, target, timestamp: new Date().toISOString() }, ...d.adminLogs] }));
   }, []);
 
   const resolveReport = useCallback((reportId) => {
-    setData(d => ({
-      ...d,
-      reports: d.reports.map(r => r.id === reportId ? { ...r, resolved: true } : r),
-    }));
-    if (USE_API) {
-      api(`/admin/reports/${reportId}/resolve`, { method: 'POST' })
-        .catch(e => console.error('API resolveReport failed:', e));
-    }
+    setData(d => ({ ...d, reports: d.reports.map(r => r.id === reportId ? { ...r, resolved: true } : r) }));
+    if (USE_API) { api(`/admin/reports/${reportId}/resolve`, { method: 'POST' }).catch(e => console.error('API resolveReport failed:', e)); }
   }, []);
 
   const setUserSuspended = useCallback((userId, suspended, actorEmail) => {
-    setData(d => ({
-      ...d,
-      users: d.users.map(u => u.id === userId ? { ...u, suspended } : u),
-    }));
+    setData(d => ({ ...d, users: d.users.map(u => u.id === userId ? { ...u, suspended } : u) }));
     logAdminAction(actorEmail, suspended ? 'suspend_user' : 'unsuspend_user', userId);
-    if (USE_API) {
-      const endpoint = suspended ? 'suspend' : 'unsuspend';
-      api(`/admin/users/${userId}/${endpoint}`, { method: 'POST' })
-        .catch(e => console.error('API setUserSuspended failed:', e));
-    }
+    if (USE_API) { api(`/admin/users/${userId}/${suspended ? 'suspend' : 'unsuspend'}`, { method: 'POST' }).catch(e => console.error('API setUserSuspended failed:', e)); }
   }, [logAdminAction]);
 
   const setMediaBlocked = useCallback((storyId, blocked, actorEmail) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s => s.id === storyId ? { ...s, mediaBlocked: blocked } : s),
-    }));
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, mediaBlocked: blocked } : s) }));
     logAdminAction(actorEmail, blocked ? 'block_media' : 'unblock_media', storyId);
-    if (USE_API) {
-      const endpoint = blocked ? 'block-media' : 'unblock-media';
-      api(`/admin/stories/${storyId}/${endpoint}`, { method: 'POST' })
-        .catch(e => console.error('API setMediaBlocked failed:', e));
-    }
+    if (USE_API) { api(`/admin/stories/${storyId}/${blocked ? 'block-media' : 'unblock-media'}`, { method: 'POST' }).catch(e => console.error('API setMediaBlocked failed:', e)); }
   }, [logAdminAction]);
 
-  // Admin delete — uses admin endpoint directly, NOT the user delete endpoint
   const adminDeleteStory = useCallback((storyId, actorEmail) => {
-    setData(d => ({
-      ...d,
-      stories: d.stories.map(s => s.id === storyId ? { ...s, deleted: true } : s),
-    }));
+    setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, deleted: true } : s) }));
     logAdminAction(actorEmail, 'delete_post', storyId);
-    if (USE_API) {
-      api(`/admin/stories/${storyId}`, { method: 'DELETE' })
-        .catch(e => console.error('API adminDeleteStory failed:', e));
-    }
+    if (USE_API) { api(`/admin/stories/${storyId}`, { method: 'DELETE' }).catch(e => console.error('API adminDeleteStory failed:', e)); }
   }, [logAdminAction]);
 
   const addAdmin = useCallback((email, actorEmail) => {
-    setData(d => ({
-      ...d,
-      admins: d.admins.includes(email) ? d.admins : [...d.admins, email],
-    }));
+    setData(d => ({ ...d, admins: d.admins.includes(email) ? d.admins : [...d.admins, email] }));
     logAdminAction(actorEmail, 'add_admin', email);
-    if (USE_API) {
-      api('/admin/admins', {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      }).catch(e => console.error('API addAdmin failed:', e));
-    }
+    if (USE_API) { api('/admin/admins', { method: 'POST', body: JSON.stringify({ email }) }).catch(e => console.error('API addAdmin failed:', e)); }
   }, [logAdminAction]);
 
   const removeAdmin = useCallback((email, actorEmail) => {
-    setData(d => ({
-      ...d,
-      admins: d.admins.filter(e => e !== email),
-    }));
+    setData(d => ({ ...d, admins: d.admins.filter(e => e !== email) }));
     logAdminAction(actorEmail, 'remove_admin', email);
-    if (USE_API) {
-      api(`/admin/admins/${email}`, { method: 'DELETE' })
-        .catch(e => console.error('API removeAdmin failed:', e));
-    }
+    if (USE_API) { api(`/admin/admins/${email}`, { method: 'DELETE' }).catch(e => console.error('API removeAdmin failed:', e)); }
   }, [logAdminAction]);
 
-  const isEmailAdmin = useCallback(
-    (email) => email === 'adipotech@gmail.com' || data.admins.includes(email),
-    [data.admins]
-  );
-
-  // ===== CONTEXT VALUE =====
+  const isEmailAdmin = useCallback((email) => email === 'adipotech@gmail.com' || data.admins.includes(email), [data.admins]);
 
   const value = useMemo(() => ({
-    users: data.users,
-    stories: data.stories,
-    follows: data.follows,
-    reports: data.reports,
-    admins: data.admins,
-    adminLogs: data.adminLogs,
-    ready,
-    upsertUser,
-    createStory,
-    updateStory,
-    deleteStory,
-    toggleLike,
-    rateStory,
-    addComment,
-    toggleFollow,
-    reportStory,
-    resolveReport,
-    setUserSuspended,
-    setMediaBlocked,
-    adminDeleteStory,
-    addAdmin,
-    removeAdmin,
-    isEmailAdmin,
-  }), [
-    data, ready,
-    upsertUser, createStory, updateStory, deleteStory,
-    toggleLike, rateStory, addComment, toggleFollow,
-    reportStory, resolveReport,
-    setUserSuspended, setMediaBlocked, adminDeleteStory,
-    addAdmin, removeAdmin, isEmailAdmin,
-  ]);
+    users: data.users, stories: data.stories, follows: data.follows, reports: data.reports, admins: data.admins, adminLogs: data.adminLogs, ready,
+    upsertUser, createStory, updateStory, deleteStory, toggleLike, rateStory, addComment, toggleFollow, reportStory, resolveReport,
+    setUserSuspended, setMediaBlocked, adminDeleteStory, addAdmin, removeAdmin, isEmailAdmin,
+  }), [data, ready]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

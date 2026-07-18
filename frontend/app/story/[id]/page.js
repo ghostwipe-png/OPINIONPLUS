@@ -12,6 +12,7 @@ import CommentThread from '../../../components/CommentThread';
 import StoryCard from '../../../components/StoryCard';
 import ReadLaterButton from '../../../components/ReadLaterButton';
 import CollaborateButton from '../../../components/CollaborateButton';
+import DOMPurify from 'dompurify';
 
 export default function StoryPage() {
   const { id } = useParams();
