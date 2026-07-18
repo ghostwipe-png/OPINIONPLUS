@@ -12,7 +12,11 @@ export default function HomePage() {
   const visible = useMemo(() => {
     return stories
       .filter((s) => !s.deleted && s.privacy === 'public')
-      .filter((s) => (filter === 'all' ? true : s.type === filter))
+      .filter((s) => {
+  if (filter === 'all') return true;
+  if (filter === 'news') return s.authorId === 'u_newsdesk';
+  return s.type === filter;
+})
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [stories, filter]);
 
@@ -44,7 +48,7 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
           <h2 className="editorial-h text-2xl font-bold">The feed</h2>
           <div className="flex gap-2 text-xs font-semibold">
-            {['all', 'story', 'documentary'].map((f) => (
+            {['all', 'story', 'documentary', 'news'].map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -52,7 +56,7 @@ export default function HomePage() {
                   filter === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'
                 }`}
               >
-                {f === 'all' ? 'All' : f === 'story' ? 'Stories' : 'Documentaries'}
+                {f === 'all' ? 'All' : f === 'story' ? 'Stories' : f === 'documentary' ? 'Documentaries' : 'News'}
               </button>
             ))}
           </div>
