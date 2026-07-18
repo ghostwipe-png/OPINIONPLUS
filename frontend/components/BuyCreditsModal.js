@@ -18,6 +18,14 @@ function formatKes(amountInCents) {
   return `KES ${kes.toLocaleString('en-KE')}`;
 }
 
+async function fetchCsrfToken() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const data = await res.json();
+    return data.token || '';
+  } catch (e) { return ''; }
+}
+
 export default function BuyCreditsModal({ onClose, onSuccess }) {
   const [packages, setPackages] = useState(FALLBACK_PACKAGES);
   const [packagesLoading, setPackagesLoading] = useState(true);
@@ -45,11 +53,8 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
 
   const verifyPayment = async (reference) => {
     try {
-      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, {
-        credentials: 'include',
-      });
+      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, { credentials: 'include' });
       const verifyData = await verifyRes.json();
-
       if (verifyRes.ok && verifyData.verified && verifyData.status === 'success') {
         setStep('success');
         if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
@@ -69,10 +74,15 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
     setError('');
 
     try {
+      const csrfToken = await fetchCsrfToken();
+
       const res = await fetch(`${API_BASE}/payments/initialize`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({ packageId: selected }),
       });
 
@@ -89,7 +99,6 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         return;
       }
 
-      // Use Paystack v2 Inline — resumeTransaction with access_code
       const accessCode = data.access_code;
       if (!accessCode) {
         setError('Payment system error. Please try again.');
@@ -100,16 +109,9 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
       if (window.PaystackPop) {
         const paystack = new window.PaystackPop();
         paystack.resumeTransaction(accessCode, {
-          onSuccess: (response) => {
-            verifyPayment(response.reference);
-          },
-          onClose: () => {
-            setLoading(false);
-          },
-          onError: (err) => {
-            setError('Payment failed. Please try again.');
-            setLoading(false);
-          },
+          onSuccess: (response) => { verifyPayment(response.reference); },
+          onClose: () => { setLoading(false); },
+          onError: (err) => { setError('Payment failed. Please try again.'); setLoading(false); },
         });
       } else if (data.authorization_url) {
         window.location.href = data.authorization_url;
@@ -127,19 +129,13 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
     <div className="fixed inset-0 bg-ink/60 z-50 grid place-items-center px-4">
       <div className="bg-paper rounded-sm border border-wire w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-wire">
-          <h2 className="editorial-h text-xl font-bold">
-            {step === 'success' ? 'Payment Successful!' : 'Buy SMS Credits'}
-          </h2>
-          <button onClick={onClose} className="w-8 h-8 grid place-items-center rounded-full hover:bg-ink-50">
-            <X size={18} />
-          </button>
+          <h2 className="editorial-h text-xl font-bold">{step === 'success' ? 'Payment Successful!' : 'Buy SMS Credits'}</h2>
+          <button onClick={onClose} className="w-8 h-8 grid place-items-center rounded-full hover:bg-ink-50"><X size={18} /></button>
         </div>
 
         {step === 'success' ? (
           <div className="p-8 text-center">
-            <div className="w-16 h-16 bg-ink-50 rounded-full grid place-items-center mx-auto mb-4">
-              <Check size={32} className="text-ink-600" />
-            </div>
+            <div className="w-16 h-16 bg-ink-50 rounded-full grid place-items-center mx-auto mb-4"><Check size={32} className="text-ink-600" /></div>
             <p className="text-lg font-semibold mb-2">{pkg.credits} credits added!</p>
             <p className="text-sm text-ink-400 mb-6">You can now send {pkg.credits} SMS messages.</p>
             <button onClick={onClose} className="btn-primary w-full py-2.5 rounded-sm text-sm">Got it</button>
@@ -151,17 +147,9 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
               <div className="space-y-2">
                 {packages.map(p => (
                   <button key={p.id} onClick={() => setSelected(p.id)} disabled={loading}
-                    className={`w-full flex items-center justify-between p-3 rounded-sm border text-left disabled:opacity-50 ${
-                      selected === p.id ? 'border-ink bg-ink-50' : 'border-wire hover:border-ink'
-                    }`}>
-                    <div>
-                      <p className="text-sm font-semibold">{p.name}</p>
-                      <p className="text-xs text-ink-400">≈ KES 1/SMS</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold">{formatKes(p.amount)}</p>
-                      {p.popular && <span className="text-xs text-signal font-semibold">Popular</span>}
-                    </div>
+                    className={`w-full flex items-center justify-between p-3 rounded-sm border text-left disabled:opacity-50 ${selected === p.id ? 'border-ink bg-ink-50' : 'border-wire hover:border-ink'}`}>
+                    <div><p className="text-sm font-semibold">{p.name}</p><p className="text-xs text-ink-400">≈ KES 1/SMS</p></div>
+                    <div className="text-right"><p className="text-sm font-bold">{formatKes(p.amount)}</p>{p.popular && <span className="text-xs text-signal font-semibold">Popular</span>}</div>
                   </button>
                 ))}
               </div>
@@ -170,24 +158,13 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
             <div>
               <p className="text-xs font-semibold text-ink-400 mb-3">Payment method</p>
               <div className="grid grid-cols-2 gap-2">
-                <div className="border border-wire rounded-sm p-3 text-center">
-                  <Smartphone size={20} className="mx-auto mb-1" />
-                  <p className="text-xs font-semibold">M-Pesa</p>
-                </div>
-                <div className="border border-wire rounded-sm p-3 text-center">
-                  <CreditCard size={20} className="mx-auto mb-1" />
-                  <p className="text-xs font-semibold">Card</p>
-                </div>
+                <div className="border border-wire rounded-sm p-3 text-center"><Smartphone size={20} className="mx-auto mb-1" /><p className="text-xs font-semibold">M-Pesa</p></div>
+                <div className="border border-wire rounded-sm p-3 text-center"><CreditCard size={20} className="mx-auto mb-1" /><p className="text-xs font-semibold">Card</p></div>
               </div>
               <p className="text-xs text-ink-400 mt-2">Paystack accepts M-Pesa, Visa, Mastercard & more.</p>
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-signal rounded-sm p-3 text-sm text-signal flex items-start gap-2">
-                <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
+            {error && <div className="bg-red-50 border border-signal rounded-sm p-3 text-sm text-signal flex items-start gap-2"><AlertCircle size={16} className="shrink-0 mt-0.5" /><span>{error}</span></div>}
 
             <div className="border-t border-wire pt-4 flex items-center justify-between">
               <div><p className="text-sm font-semibold">{pkg?.name}</p><p className="text-xs text-ink-400">{pkg?.credits} credits</p></div>
