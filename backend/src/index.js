@@ -102,7 +102,7 @@ const NEWS_SOURCES = [
   { url: 'https://www.capitalfm.co.ke/feed/', name: 'Capital FM' },
   { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
 ];
-const MAX_NEWS_PER_DAY = 30;
+const MAX_NEWS_PER_DAY = 60;
 const MAX_ITEMS_PER_SOURCE = 3;
 
 function parseRSSItems(xmlText) {

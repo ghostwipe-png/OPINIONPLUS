@@ -19,64 +19,59 @@ export default function StoryCard({ story }) {
   });
 
   const isNews = story.authorId === 'u_newsdesk';
-  // Extract source name from body if it's a news article
   const sourceMatch = isNews ? story.body?.match(/Read full article on (.*?) →/) : null;
   const sourceName = sourceMatch ? sourceMatch[1] : null;
-  // Extract original link
   const linkMatch = isNews ? story.body?.match(/href="(https:\/\/[^"]+)"/) : null;
   const originalLink = linkMatch ? linkMatch[1] : null;
 
+  const cardLink = isNews && originalLink ? originalLink : `/story/${story.id}`;
+  const cardTarget = isNews && originalLink ? '_blank' : '_self';
+
   return (
-    <article className="card-clip rounded-sm overflow-hidden">
-      <Link href={isNews && originalLink ? originalLink : `/story/${story.id}`} 
-        target={isNews && originalLink ? '_blank' : '_self'}
-        rel={isNews && originalLink ? 'noopener' : ''}
-        className="block">
+    <article className="card-clip rounded-sm overflow-hidden hover:border-ink transition-colors border border-wire">
+      <Link href={cardLink} target={cardTarget} rel={cardTarget === '_blank' ? 'noopener' : ''} className="block">
         {story.coverImage && !story.mediaBlocked && (
-          <div className="aspect-[16/9] overflow-hidden bg-ink-100">
-            <img src={story.coverImage} alt="" className="w-full h-full object-cover" />
+          <div className="aspect-[2/1] overflow-hidden bg-ink-50">
+            <img src={story.coverImage} alt="" className="w-full h-full object-cover" loading="lazy" />
           </div>
         )}
         {story.mediaBlocked && (
-          <div className="aspect-[16/9] bg-ink-100 grid place-items-center px-6 text-center">
-            <p className="text-sm text-ink-400">This content has been removed for violating OPINIONPLUS guidelines.</p>
+          <div className="aspect-[2/1] bg-ink-50 grid place-items-center px-4 text-center">
+            <p className="text-xs text-ink-400">Content removed</p>
           </div>
         )}
       </Link>
 
-      <div className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <span className="wire-tag flex items-center gap-1.5">
-            {isNews ? <ExternalLink size={12} /> : story.type === 'documentary' ? <Film size={12} /> : <FileText size={12} />}
+      <div className="p-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-ink-400 flex items-center gap-1">
+            {isNews ? <ExternalLink size={10} /> : story.type === 'documentary' ? <Film size={10} /> : <FileText size={10} />}
             {isNews ? 'News' : story.type}
-            {sourceName && <span className="text-ink-400">· via {sourceName}</span>}
+            {sourceName && <span className="text-ink-300">· {sourceName}</span>}
           </span>
-          <span className="text-xs text-ink-400">{date}</span>
+          <span className="text-[10px] text-ink-400">{date}</span>
         </div>
 
-        <Link href={isNews && originalLink ? originalLink : `/story/${story.id}`}
-          target={isNews && originalLink ? '_blank' : '_self'}
-          rel={isNews && originalLink ? 'noopener' : ''}>
-          <h3 className="editorial-h text-xl font-bold leading-snug mb-2 hover:text-signal transition-colors">
+        <Link href={cardLink} target={cardTarget} rel={cardTarget === '_blank' ? 'noopener' : ''}>
+          <h3 className="editorial-h text-sm font-bold leading-snug mb-1 hover:text-signal transition-colors line-clamp-2">
             {story.title}
           </h3>
         </Link>
-        <p className="text-sm text-ink-600 mb-4 line-clamp-2">{story.excerpt}</p>
+        <p className="text-xs text-ink-500 mb-2 line-clamp-2">{story.excerpt}</p>
 
         {author && (
-          <Link href={isNews ? '#' : `/profile/${author.id}`} 
+          <Link href={isNews ? '#' : `/profile/${author.id}`}
             onClick={isNews ? (e) => e.preventDefault() : undefined}
-            className={`nameplate mb-4 ${isNews ? 'pointer-events-none' : ''}`}>
-            <img src={author.logoUrl} alt={author.publisherName} className="nameplate-seal" />
-            <span className="text-sm font-semibold">{author.publisherName}</span>
-            {author.suspended && <span className="text-xs text-signal font-medium ml-1">Account suspended</span>}
+            className={`flex items-center gap-1.5 mb-2 ${isNews ? 'pointer-events-none' : ''}`}>
+            <img src={author.logoUrl} alt="" className="w-5 h-5 rounded-full object-cover border border-wire" />
+            <span className="text-xs font-medium text-ink-600">{author.publisherName}</span>
           </Link>
         )}
 
-        <div className="flex items-center gap-4 text-xs text-ink-400 rule pt-3">
-          <span className="flex items-center gap-1"><Heart size={13} /> {story.likes.length}</span>
-          <span className="flex items-center gap-1"><MessageSquare size={13} /> {story.comments.length}</span>
-          {rating && <span className="flex items-center gap-1"><Star size={13} fill="#C99A3B" stroke="#C99A3B" /> {rating}</span>}
+        <div className="flex items-center gap-3 text-[11px] text-ink-400 rule pt-2">
+          <span className="flex items-center gap-1"><Heart size={11} /> {story.likes.length}</span>
+          <span className="flex items-center gap-1"><MessageSquare size={11} /> {story.comments.length}</span>
+          {rating && <span className="flex items-center gap-1"><Star size={11} fill="#C99A3B" stroke="#C99A3B" /> {rating}</span>}
         </div>
       </div>
     </article>
