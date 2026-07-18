@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { Wallet, Users, Gift, ArrowUpRight, Copy, Check, Loader2 } from 'lucide-react';
+import { useAuth } from '../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 export default function WalletDashboard() {
+  const { user } = useAuth();
   const [wallet, setWallet] = useState(null);
   const [earnings, setEarnings] = useState({ referrals: [], posts: [], withdrawals: [] });
   const [referralCode, setReferralCode] = useState('');
@@ -68,7 +70,8 @@ export default function WalletDashboard() {
 
   if (loading) return <p className="text-sm text-ink-400">Loading wallet...</p>;
 
-  const isPartner = wallet?.tier === 'partner' || wallet?.tier === 'pro_partner';
+  const isAdmin = user?.role === 'admin' || user?.role === 'root';
+  const isPartner = isAdmin || wallet?.tier === 'partner' || wallet?.tier === 'pro_partner';
   const balanceKes = ((wallet?.balance || 0) / 100).toFixed(2);
 
   return (
@@ -92,7 +95,6 @@ export default function WalletDashboard() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-3">
             <div className="border border-wire rounded-sm p-3 text-center">
               <p className="text-xl font-bold editorial-h">{wallet?.referral_count || 0}</p>
@@ -108,7 +110,6 @@ export default function WalletDashboard() {
             </div>
           </div>
 
-          {/* Referral link */}
           <div>
             <p className="text-xs font-semibold mb-2 flex items-center gap-1"><Users size={12} /> Your Referral Link</p>
             <div className="flex gap-2">
@@ -122,7 +123,6 @@ export default function WalletDashboard() {
             <p className="text-xs text-ink-400 mt-1">Earn KES 100 when someone subscribes using your link.</p>
           </div>
 
-          {/* Withdraw */}
           <div>
             <button onClick={() => setShowWithdraw(!showWithdraw)} className="text-xs font-semibold text-signal flex items-center gap-1">
               <ArrowUpRight size={12} /> {showWithdraw ? 'Cancel' : 'Withdraw to M-Pesa'}
@@ -139,7 +139,6 @@ export default function WalletDashboard() {
             )}
           </div>
 
-          {/* Earnings log */}
           <details className="text-xs">
             <summary className="cursor-pointer text-ink-400 hover:text-ink-600">Earnings History</summary>
             <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">

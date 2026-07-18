@@ -126,7 +126,8 @@ export default function ProfilePage() {
     openCloudinaryWidget({ onSuccess: (r) => setForm((f) => ({ ...f, logoUrl: r.url })) });
   };
 
-  const isPro = apiUsage?.tier === 'pro' && apiUsage?.subscription_active;
+  const isAdmin = user?.role === 'admin' || user?.role === 'root';
+  const isPro = isAdmin || (apiUsage?.tier === 'pro' && apiUsage?.subscription_active);
 
   return (
     <div className="max-w-4xl mx-auto px-5 py-12">

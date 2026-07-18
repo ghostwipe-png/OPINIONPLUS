@@ -1,11 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Zap } from 'lucide-react';
+import { Check, Zap, ShieldCheck } from 'lucide-react';
+import { useAuth } from '../../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 export default function PricingPage() {
+  const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState('');
 
   const subscribe = async (tier) => {
@@ -18,6 +20,19 @@ export default function PricingPage() {
     } catch (e) { /* ignore */ }
     setLoading('');
   };
+
+  if (isAdmin) {
+    return (
+      <div className="max-w-2xl mx-auto px-5 py-32 text-center">
+        <div className="w-16 h-16 bg-ink-50 rounded-full grid place-items-center mx-auto mb-4">
+          <ShieldCheck size={32} className="text-ink-600" />
+        </div>
+        <p className="editorial-h text-2xl font-bold mb-2">Admin Access</p>
+        <p className="text-sm text-ink-400 mb-1">As an admin, you have full access to all Partner and Pro features at no cost.</p>
+        <p className="text-xs text-ink-400">Use this to assist publishers and manage the platform.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-5 py-16">

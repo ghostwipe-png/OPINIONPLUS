@@ -14,6 +14,15 @@ const WITHDRAWAL_FEE = 500; // KES 5
 // Get wallet balance
 partner.get('/wallet', requireAuth, async (c) => {
   const user = c.get('user');
+
+  // Admins get auto-pro
+  if (user.role === 'admin' || user.role === 'root') {
+    await c.env.DB.prepare('UPDATE users SET tier = ? WHERE id = ? AND tier = ?')
+      .bind('pro_partner', user.id, 'basic').run();
+    await c.env.DB.prepare('INSERT INTO wallets (user_id, balance) VALUES (?, 0) ON CONFLICT(user_id) DO NOTHING')
+      .bind(user.id).run();
+  }
+
   let wallet = await c.env.DB.prepare('SELECT * FROM wallets WHERE user_id = ?').bind(user.id).first();
   if (!wallet) {
     await c.env.DB.prepare('INSERT INTO wallets (user_id, balance) VALUES (?, 0)').bind(user.id).run();
