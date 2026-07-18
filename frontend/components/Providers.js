@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import Script from 'next/script';
 import { AuthProvider } from '../lib/auth';
 import { StoreProvider } from '../lib/store';
@@ -7,6 +8,12 @@ import { StoreProvider } from '../lib/store';
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
 
 export default function Providers({ children }) {
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  }, []);
+
   return (
     <>
       {CLOUDINARY_CLOUD_NAME && (
@@ -17,7 +24,6 @@ export default function Providers({ children }) {
       <AuthProvider>
         <StoreProvider>{children}</StoreProvider>
       </AuthProvider>
-
     </>
   );
 }
