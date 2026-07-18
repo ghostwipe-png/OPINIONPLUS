@@ -11,8 +11,7 @@ const PACKAGES = [
   { id: 'sms_1000', name: '1000 SMS', amount: 100000, credits: 1000 },
 ];
 
-const PRO_PLAN_CODE = 'PLN_gilbf69mzasj1q6';
-const PRO_PLAN_AMOUNT = 30000;
+const PRO_PLAN_AMOUNT = 40000; // KES 400 in kobo
 const REFERRAL_BONUS = 10000;
 const MAX_RETRIES = 3;
 
@@ -47,10 +46,10 @@ async function finalizeTransaction(db, reference, expectedUserId, credits) {
   return { credited: true };
 }
 
-async function activateProSubscription(db, userId, planCode, subscriptionCode) {
+async function activateProSubscription(db, userId) {
   await db
-    .prepare(`INSERT INTO api_usage (user_id, tier, subscription_active, plan_code, subscription_code) VALUES (?, 'pro', 1, ?, ?) ON CONFLICT(user_id) DO UPDATE SET tier = 'pro', subscription_active = 1, plan_code = ?, subscription_code = ?`)
-    .bind(userId, planCode, subscriptionCode, planCode, subscriptionCode)
+    .prepare(`INSERT INTO api_usage (user_id, tier, subscription_active) VALUES (?, 'pro', 1) ON CONFLICT(user_id) DO UPDATE SET tier = 'pro', subscription_active = 1`)
+    .bind(userId)
     .run();
 }
 
@@ -141,12 +140,16 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
   try {
-    const response = await fetchWithRetry('https://api.paystack.co/transaction/initialize', {
+    const requestBody = { email: user.email, amount: PRO_PLAN_AMOUNT, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, type: 'api_pro_subscription' } };
+
+    const response = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: user.email, amount: PRO_PLAN_AMOUNT, plan: PRO_PLAN_CODE, currency: 'KES', metadata: { user_id: user.id, type: 'api_pro_subscription' } }),
+      body: JSON.stringify(requestBody),
     });
+
     const data = await response.json();
+
     if (!data.status) return c.json({ error: data.message || 'Subscription initialization failed.' }, 502);
     return c.json({ authorization_url: data.data.authorization_url, reference: data.data.reference, access_code: data.data.access_code });
   } catch (e) {
@@ -182,7 +185,7 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
       const type = txn.metadata?.type;
       const userId = txn.metadata?.user_id;
       if (type === 'api_pro_subscription') {
-        await activateProSubscription(c.env.DB, userId, txn.plan, txn.subscription_code);
+        await activateProSubscription(c.env.DB, userId);
       } else if (type === 'partner_subscription') {
         await handlePartnerSubscription(c.env.DB, userId, txn.metadata?.tier, txn.metadata?.referral_code);
       } else {
@@ -221,7 +224,7 @@ payments.post('/webhook', async (c) => {
     const userId = txn.metadata?.user_id;
     try {
       if (type === 'api_pro_subscription') {
-        await activateProSubscription(c.env.DB, userId, txn.plan, txn.subscription_code);
+        await activateProSubscription(c.env.DB, userId);
       } else if (type === 'partner_subscription') {
         await handlePartnerSubscription(c.env.DB, userId, txn.metadata?.tier, txn.metadata?.referral_code);
       } else {

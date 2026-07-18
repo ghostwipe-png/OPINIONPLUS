@@ -41,10 +41,12 @@ app.use('*', attachUser);
 // CSRF protection on state-changing requests
 app.use('*', csrfProtection);
 
-// Rate limiting on auth endpoints
+// Rate limiting on auth endpoints (exclude CSRF)
 app.use('/auth/*', async (c, next) => {
+  if (c.req.path === '/auth/csrf') return await next();
+
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
-  const limiter = createRateLimiter(c.env.DB, 60, 5);
+  const limiter = createRateLimiter(c.env.DB, 60, 10);
   const allowed = await limiter(ip, 'auth');
   if (!allowed) return c.json({ error: 'Too many attempts. Try again later.' }, 429);
   await next();
