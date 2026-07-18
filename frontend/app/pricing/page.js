@@ -15,10 +15,18 @@ export default function PricingPage() {
     try {
       const ref = typeof window !== 'undefined' ? localStorage.getItem('op_referral') : null;
       const url = tier === 'partner' ? `${API_BASE}/partner/subscribe/partner` : `${API_BASE}/partner/subscribe/pro`;
+
+      // Fetch CSRF token
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+      const csrfData = await csrfRes.json();
+
       const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token || '',
+        },
         body: JSON.stringify(ref ? { ref } : {}),
       });
       const data = await res.json();
