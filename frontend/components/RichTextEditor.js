@@ -33,7 +33,18 @@ import {
   X,
   Clock,
   BarChart3,
+  Sparkles,
+  FileText,
+  Maximize2,
+  Minimize2,
+  HelpCircle,
+  Users,
+  ChevronDown,
+  Loader2,
+  Wand2,
 } from 'lucide-react';
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 const INLINE_TOOLS = [
   { cmd: 'bold', icon: Bold, label: 'Bold (Ctrl+B)' },
@@ -99,6 +110,51 @@ const WORDY_PHRASES = [
 
 const MAX_VERSIONS = 20;
 const AUTOSAVE_INTERVAL_MS = 30000;
+const PRESENCE_INTERVAL_MS = 8000;
+
+// ---------- New in v10: AI actions, templates, shortcuts ----------
+
+const AI_ACTIONS = [
+  { key: 'improve', label: 'Improve writing', icon: Wand2, prompt: 'Improve the writing quality, clarity, and flow of the following text while preserving its meaning and voice. Return only the improved text.' },
+  { key: 'summarize', label: 'Summarize', icon: FileText, prompt: 'Write a concise summary of the following text in 2-3 sentences. Return only the summary.' },
+  { key: 'grammar', label: 'Fix grammar', icon: Sparkles, prompt: 'Correct grammar, spelling, and punctuation in the following text while preserving its meaning. Return only the corrected text.' },
+];
+
+const TONE_OPTIONS = ['Professional', 'Casual', 'Persuasive', 'Journalistic'];
+
+const TEMPLATES = {
+  news: {
+    label: 'News Article',
+    html: `<h1>Headline Goes Here</h1><p><strong>Lead paragraph:</strong> Summarize the who, what, when, where, why in 1-2 sentences.</p><p>Supporting detail and context. Add quotes and sourcing here.</p><p>Additional background information, ordered from most to least important (inverted pyramid).</p><p><br></p>`,
+  },
+  opinion: {
+    label: 'Opinion Piece',
+    html: `<h1>Opinion Title</h1><p><strong>Thesis:</strong> State your central argument clearly.</p><h2>Supporting argument 1</h2><p>Evidence and reasoning.</p><h2>Supporting argument 2</h2><p>Evidence and reasoning.</p><h2>Conclusion</h2><p>Restate your position and its implications.</p><p><br></p>`,
+  },
+  feature: {
+    label: 'Feature Story',
+    html: `<h1>Feature Title</h1><p><em>Narrative hook — open with a scene, anecdote, or striking detail.</em></p><h2>Scene one</h2><p>Set the stage.</p><h2>Scene two</h2><p>Develop the story.</p><h2>Resolution</h2><p>Bring the narrative to a close.</p><p><br></p>`,
+  },
+  interview: {
+    label: 'Interview',
+    html: `<h1>Interview with [Name]</h1><p><em>Brief introduction of the subject and context for the interview.</em></p><p><strong>Q:</strong> First question?</p><p><strong>A:</strong> Response.</p><p><strong>Q:</strong> Second question?</p><p><strong>A:</strong> Response.</p><p><br></p>`,
+  },
+  press: {
+    label: 'Press Release',
+    html: `<p><strong>FOR IMMEDIATE RELEASE</strong></p><h1>Press Release Headline</h1><p><strong>CITY, State — Date —</strong> Opening paragraph with the core announcement.</p><p>"Quote from a spokesperson or executive," said Name, Title.</p><p>Additional details and background.</p><p><strong>About [Organization]:</strong> Boilerplate description.</p><p><br></p>`,
+  },
+};
+
+const SHORTCUTS = [
+  { keys: 'Ctrl+B', desc: 'Bold' },
+  { keys: 'Ctrl+I', desc: 'Italic' },
+  { keys: 'Ctrl+U', desc: 'Underline' },
+  { keys: 'Ctrl+K', desc: 'Insert link' },
+  { keys: 'Ctrl+Space', desc: 'Open AI writing assistant' },
+  { keys: 'Ctrl+Z', desc: 'Undo' },
+  { keys: 'Ctrl+Shift+Z', desc: 'Redo' },
+  { keys: 'Esc', desc: 'Exit focus mode' },
+];
 
 // ---------- Text analysis helpers ----------
 
@@ -121,6 +177,14 @@ function gradeLabel(grade) {
   if (g <= 12) return `Grade ${g} · Standard`;
   if (g <= 16) return `Grade ${g} · Fairly difficult`;
   return `Grade ${g}+ · Difficult`;
+}
+
+// Flesch reading ease (0-100, higher = easier). Separate from the FK grade
+// used elsewhere, since the readability panel wants both.
+function readingEase(wordCount, sentenceCount, syllableCount) {
+  if (!wordCount || !sentenceCount) return 0;
+  const ease = 206.835 - 1.015 * (wordCount / sentenceCount) - 84.6 * (syllableCount / wordCount);
+  return Math.max(0, Math.min(100, Math.round(ease)));
 }
 
 function analyzeText(text) {
@@ -150,17 +214,94 @@ function analyzeText(text) {
 
   const longSentences = sentenceMatches.filter(
     (s) => (s.match(/[A-Za-z'-]+/g) || []).length > 28
-  ).length;
+  );
 
   return {
     wordCount,
     sentenceCount,
     readingTime,
     grade,
+    ease: readingEase(wordCount, sentenceCount, syllableCount),
+    avgSentenceLength: sentenceCount ? Math.round((wordCount / sentenceCount) * 10) / 10 : 0,
     passiveCount: passiveMatches.length,
     adverbCount: adverbMatches.length,
-    wordyCount: wordyCount + longSentences,
+    wordyCount: wordyCount + longSentences.length,
+    hardSentences: longSentences.slice(0, 5).map((s) => s.trim()),
   };
+}
+
+// ---------- Markdown -> HTML (paste support) ----------
+
+function looksLikeMarkdown(text) {
+  return /(\*\*[^*]+\*\*|^#{1,3}\s|^-\s|^\d+\.\s|\[[^\]]+\]\([^)]+\)|```)/m.test(text);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function markdownToHtml(md) {
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  let html = '';
+  let inList = null; // 'ul' | 'ol' | null
+  let inCode = false;
+  let codeBuf = [];
+
+  const inlineFormat = (line) =>
+    escapeHtml(line)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+  const closeList = () => {
+    if (inList) {
+      html += inList === 'ul' ? '</ul>' : '</ol>';
+      inList = null;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw;
+    if (line.trim().startsWith('```')) {
+      if (!inCode) {
+        inCode = true;
+        codeBuf = [];
+      } else {
+        inCode = false;
+        html += `<pre><code>${escapeHtml(codeBuf.join('\n'))}</code></pre>`;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeBuf.push(line);
+      continue;
+    }
+    const h3 = line.match(/^###\s+(.*)/);
+    const h2 = line.match(/^##\s+(.*)/);
+    const h1 = line.match(/^#\s+(.*)/);
+    const ul = line.match(/^[-*]\s+(.*)/);
+    const ol = line.match(/^\d+\.\s+(.*)/);
+
+    if (h3) { closeList(); html += `<h3>${inlineFormat(h3[1])}</h3>`; continue; }
+    if (h2) { closeList(); html += `<h2>${inlineFormat(h2[1])}</h2>`; continue; }
+    if (h1) { closeList(); html += `<h1>${inlineFormat(h1[1])}</h1>`; continue; }
+    if (ul) {
+      if (inList !== 'ul') { closeList(); html += '<ul>'; inList = 'ul'; }
+      html += `<li>${inlineFormat(ul[1])}</li>`;
+      continue;
+    }
+    if (ol) {
+      if (inList !== 'ol') { closeList(); html += '<ol>'; inList = 'ol'; }
+      html += `<li>${inlineFormat(ol[1])}</li>`;
+      continue;
+    }
+    closeList();
+    if (line.trim() === '') { html += '<p><br></p>'; continue; }
+    html += `<p>${inlineFormat(line)}</p>`;
+  }
+  closeList();
+  if (inCode && codeBuf.length) html += `<pre><code>${escapeHtml(codeBuf.join('\n'))}</code></pre>`;
+  return html;
 }
 
 // ---------- UI subcomponents ----------
@@ -256,6 +397,17 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [pendingDraft, setPendingDraft] = useState(null);
 
+  // ---- v10 additions: state ----
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+  const [aiTone, setAiTone] = useState('Professional');
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [readabilityOpen, setReadabilityOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [collaborators, setCollaborators] = useState([]);
+
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== value) {
       ref.current.innerHTML = value || '';
@@ -309,6 +461,34 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autosave]);
 
+  // ---- v10: Real-time collaboration presence heartbeat (best-effort) ----
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    let cancelled = false;
+    const beat = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/presence/${encodeURIComponent(draftId)}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.collaborators)) {
+          setCollaborators(data.collaborators);
+        }
+      } catch {
+        // presence endpoint is best-effort; silently ignore if unavailable
+      }
+    };
+    beat();
+    const interval = setInterval(beat, PRESENCE_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [draftId]);
+
   const saveSelection = () => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && ref.current && ref.current.contains(sel.anchorNode)) {
@@ -324,14 +504,14 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
   };
 
   const emitChange = () => {
-  const html = ref.current.innerHTML;
-  const clean = typeof window !== 'undefined' ? DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 's', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'hr', 'span', 'div', 'font', 'mark', 'video', 'iframe', 'source'],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'style', 'class', 'size', 'color', 'align', 'width', 'height', 'allowfullscreen', 'loading', 'frameborder', 'contenteditable', 'data-issue', 'data-caret-marker'],
-    ALLOW_DATA_ATTR: true,
-  }) : html;
-  onChange(clean);
-};
+    const html = ref.current.innerHTML;
+    const clean = typeof window !== 'undefined' ? DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'u', 's', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'ul', 'ol', 'li', 'a', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'hr', 'span', 'div', 'font', 'mark', 'video', 'iframe', 'source'],
+      ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target', 'rel', 'style', 'class', 'size', 'color', 'align', 'width', 'height', 'allowfullscreen', 'loading', 'frameborder', 'contenteditable', 'data-issue', 'data-caret-marker'],
+      ALLOW_DATA_ATTR: true,
+    }) : html;
+    onChange(clean);
+  };
 
   const withSelection = (fn) => {
     restoreSelection();
@@ -382,9 +562,17 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
     if (url) exec('createLink', url);
   };
 
+  // v10: image insertion now supports an optional caption -> <figure><figcaption>
   const addImage = () => {
     const url = prompt('Image URL (include https://)');
-    if (url) exec('insertImage', url);
+    if (!url) return;
+    const caption = prompt('Caption (optional, leave blank to skip)');
+    if (caption && caption.trim()) {
+      const html = `<figure contenteditable="false"><img src="${url}" alt="${caption.trim().replace(/"/g, '&quot;')}" /><figcaption>${caption.trim()}</figcaption></figure><p><br></p>`;
+      exec('insertHTML', html);
+    } else {
+      exec('insertImage', url);
+    }
   };
 
   const addVideo = () => {
@@ -427,6 +615,87 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
       document.execCommand('removeFormat');
       document.execCommand('unlink');
     });
+  };
+
+  // ---- v10: Writing templates ----
+  const insertTemplate = (key) => {
+    const tpl = TEMPLATES[key];
+    if (!tpl) return;
+    ref.current?.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertHTML', false, tpl.html);
+    emitChange();
+    setStats(analyzeText(ref.current.innerText || ''));
+    setTemplatesOpen(false);
+  };
+
+  // ---- v10: AI writing assistant ----
+  const getSelectedTextOrAll = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && ref.current && ref.current.contains(sel.anchorNode) && !sel.isCollapsed) {
+      return { text: sel.toString(), hasSelection: true };
+    }
+    return { text: ref.current?.innerText || '', hasSelection: false };
+  };
+
+  const runAiAction = async (actionKey, toneOverride) => {
+    const action = AI_ACTIONS.find((a) => a.key === actionKey) || { key: 'tone', prompt: `Rewrite the following text in a ${toneOverride} tone, preserving its meaning. Return only the rewritten text.` };
+    const { text, hasSelection } = getSelectedTextOrAll();
+    if (!text.trim()) {
+      setAiError('Select some text or write a draft first.');
+      return;
+    }
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/ai/writing-assist`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: action.prompt, text, action: action.key, tone: toneOverride || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI request failed');
+      const resultText = data.result || data.text || '';
+      if (!resultText) throw new Error('No result returned');
+
+      saveSelection();
+      ref.current?.focus();
+      restoreSelection();
+      const sel = window.getSelection();
+      const html = resultText
+        .split(/\n{2,}/)
+        .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+        .join('');
+      if (hasSelection && sel && sel.rangeCount > 0) {
+        document.execCommand('insertHTML', false, html);
+      } else {
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertHTML', false, html);
+      }
+      emitChange();
+      setStats(analyzeText(ref.current.innerText || ''));
+    } catch (e) {
+      setAiError(e.message || 'AI writing assistant is unavailable right now.');
+    }
+    setAiLoading(false);
+  };
+
+  const simplifyReadability = () => runAiAction('improve', null).then(() => {});
+
+  // ---- v10: Markdown paste support ----
+  const handlePaste = (e) => {
+    const text = e.clipboardData?.getData('text/plain');
+    const html = e.clipboardData?.getData('text/html');
+    if (text && !html && looksLikeMarkdown(text)) {
+      e.preventDefault();
+      const converted = markdownToHtml(text);
+      restoreSelection();
+      ref.current?.focus();
+      document.execCommand('insertHTML', false, converted);
+      emitChange();
+      scheduleAnalysis();
+    }
   };
 
   // ---- Issue highlighting (passive voice / adverbs) ----
@@ -559,6 +828,21 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
     return () => clearTimeout(analyzeTimer.current);
   }, []);
 
+  // ---- v10: global keyboard shortcuts (Ctrl+Space for AI, Escape for focus mode) ----
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.ctrlKey && e.code === 'Space') {
+        e.preventDefault();
+        saveSelection();
+        setAiPanelOpen((o) => !o);
+      } else if (e.key === 'Escape' && focusMode) {
+        setFocusMode(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [focusMode]);
+
   // ---- Draft / version history controls ----
   const restoreDraft = (entry) => {
     if (!ref.current || !entry) return;
@@ -608,8 +892,16 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
     return d.toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
   };
 
+  const easeLabel = (ease) => {
+    if (ease >= 80) return 'Very easy';
+    if (ease >= 60) return 'Easy';
+    if (ease >= 50) return 'Fairly easy';
+    if (ease >= 30) return 'Difficult';
+    return 'Very difficult';
+  };
+
   return (
-    <div className="border border-wire rounded-sm overflow-hidden">
+    <div className={focusMode ? 'fixed inset-0 z-50 bg-paper flex flex-col' : 'border border-wire rounded-sm overflow-hidden'}>
       {pendingDraft && (
         <div className="flex items-center justify-between gap-3 bg-amber-50 border-b border-wire px-3 py-2 text-xs text-ink-600">
           <span>
@@ -634,7 +926,7 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
         </div>
       )}
 
-      <div className="flex items-center gap-0.5 border-b border-wire p-2 flex-wrap">
+      <div className={`flex items-center gap-0.5 border-b border-wire p-2 flex-wrap ${focusMode ? 'opacity-40 hover:opacity-100 transition-opacity' : ''}`}>
         <ToolbarButton icon={Undo2} label="Undo (Ctrl+Z)" onClick={() => exec('undo')} />
         <ToolbarButton icon={Redo2} label="Redo (Ctrl+Shift+Z)" onClick={() => exec('redo')} />
         <Divider />
@@ -713,7 +1005,7 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
         <Divider />
 
         <ToolbarButton icon={LinkIcon} label="Insert link" onClick={addLink} />
-        <ToolbarButton icon={ImageIcon} label="Insert image" onClick={addImage} />
+        <ToolbarButton icon={ImageIcon} label="Insert image (with optional caption)" onClick={addImage} />
         <ToolbarButton icon={VideoIcon} label="Insert video (YouTube, Vimeo, or direct link)" onClick={addVideo} />
         <ToolbarButton icon={Table2} label="Insert table" onClick={insertTable} />
         <ToolbarButton icon={Minus} label="Horizontal rule" onClick={() => exec('insertHorizontalRule')} />
@@ -740,6 +1032,95 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
           active={showAdverb}
           onClick={() => setShowAdverb((v) => !v)}
         />
+        <Divider />
+
+        {/* v10: Templates */}
+        <div className="relative">
+          <button
+            type="button"
+            title="Writing templates"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setTemplatesOpen((o) => !o)}
+            className={`h-8 px-2 flex items-center gap-1 rounded-sm text-xs font-semibold ${templatesOpen ? 'bg-ink text-paper' : 'hover:bg-ink-50 text-ink-600'}`}
+          >
+            <FileText size={14} /> Templates <ChevronDown size={12} />
+          </button>
+          {templatesOpen && (
+            <div className="absolute z-20 top-9 left-0 w-56 bg-paper border border-wire rounded-sm shadow-lg py-1" onMouseDown={(e) => e.preventDefault()}>
+              {Object.entries(TEMPLATES).map(([key, t]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => insertTemplate(key)}
+                  className="w-full text-left px-3 py-1.5 text-xs text-ink-600 hover:bg-ink-50"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* v10: AI writing assistant */}
+        <div className="relative">
+          <button
+            type="button"
+            title="AI writing assistant (Ctrl+Space)"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              saveSelection();
+            }}
+            onClick={() => setAiPanelOpen((o) => !o)}
+            className={`h-8 px-2 flex items-center gap-1 rounded-sm text-xs font-semibold ${aiPanelOpen ? 'bg-ink text-paper' : 'hover:bg-ink-50 text-ink-600'}`}
+          >
+            <Sparkles size={14} /> AI
+          </button>
+          {aiPanelOpen && (
+            <div className="absolute z-30 top-9 right-0 w-72 bg-paper border border-wire rounded-sm shadow-lg p-3" onMouseDown={(e) => e.preventDefault()}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-ink">AI writing assistant</span>
+                <button type="button" onClick={() => setAiPanelOpen(false)} className="text-ink-400 hover:text-ink"><X size={14} /></button>
+              </div>
+              <p className="text-[11px] text-ink-400 mb-2">Acts on your selected text, or the whole draft if nothing is selected.</p>
+              <div className="flex flex-col gap-1 mb-2">
+                {AI_ACTIONS.map((a) => (
+                  <button
+                    key={a.key}
+                    type="button"
+                    disabled={aiLoading}
+                    onClick={() => runAiAction(a.key)}
+                    className="flex items-center gap-2 text-xs px-2 py-1.5 rounded-sm border border-wire hover:bg-ink-50 disabled:opacity-50"
+                  >
+                    <a.icon size={13} /> {a.label}
+                  </button>
+                ))}
+              </div>
+              <div className="border-t border-wire pt-2">
+                <p className="text-[11px] font-semibold text-ink-600 mb-1">Change tone</p>
+                <div className="flex flex-wrap gap-1">
+                  {TONE_OPTIONS.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      disabled={aiLoading}
+                      onClick={() => {
+                        setAiTone(t);
+                        runAiAction('tone', t);
+                      }}
+                      className={`text-[11px] px-2 py-1 rounded-sm border ${aiTone === t ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600 hover:bg-ink-50'} disabled:opacity-50`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {aiLoading && (
+                <p className="mt-2 text-xs text-ink-400 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Thinking…</p>
+              )}
+              {aiError && <p className="mt-2 text-xs text-signal">{aiError}</p>}
+            </div>
+          )}
+        </div>
         <Divider />
 
         <ToolbarButton icon={Save} label="Save version now" onClick={saveVersionNow} />
@@ -782,6 +1163,37 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
             </div>
           )}
         </div>
+        <Divider />
+
+        {/* v10: collaboration presence */}
+        {collaborators.length > 0 && (
+          <div className="flex items-center gap-1 px-1" title={collaborators.map((c) => c.name).join(', ') + ' also editing'}>
+            <Users size={13} className="text-ink-400" />
+            <div className="flex -space-x-1.5">
+              {collaborators.slice(0, 4).map((c, i) => (
+                <img
+                  key={c.id || i}
+                  src={c.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(c.name || 'U')}`}
+                  alt={c.name}
+                  className="w-5 h-5 rounded-full border border-paper object-cover"
+                />
+              ))}
+            </div>
+            <span className="text-[10px] text-ink-400 hidden sm:inline">
+              {collaborators.length === 1 ? `${collaborators[0].name} is also editing` : `${collaborators.length} editing`}
+            </span>
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-0.5">
+          <ToolbarButton icon={HelpCircle} label="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)} />
+          <ToolbarButton
+            icon={focusMode ? Minimize2 : Maximize2}
+            label={focusMode ? 'Exit focus mode (Esc)' : 'Focus mode'}
+            active={focusMode}
+            onClick={() => setFocusMode((v) => !v)}
+          />
+        </div>
       </div>
 
       <div
@@ -791,11 +1203,12 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
         spellCheck
         lang="en"
         onInput={handleInput}
+        onPaste={handlePaste}
         onMouseUp={saveSelection}
         onKeyUp={saveSelection}
         onSelect={saveSelection}
         data-placeholder={placeholder}
-        className="prose-story min-h-[300px] max-h-[600px] overflow-y-auto p-4 text-[1.02rem] outline-none break-words [word-break:break-word] [overflow-wrap:anywhere]
+        className={`prose-story overflow-y-auto p-4 text-[1.02rem] outline-none break-words [word-break:break-word] [overflow-wrap:anywhere] ${focusMode ? 'flex-1 max-w-3xl mx-auto w-full' : 'min-h-[300px] max-h-[600px]'}
           [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mt-5 [&_h1]:mb-3 [&_h1]:break-words
           [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-bold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:break-words
           [&_h3]:font-display [&_h3]:text-lg [&_h3]:font-bold [&_h3]:mt-3 [&_h3]:mb-2 [&_h3]:break-words
@@ -805,11 +1218,12 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
           [&_ol]:list-decimal [&_ol]:pl-6
           [&_a]:text-signal [&_a]:underline [&_a]:break-words
           [&_img]:max-w-full [&_img]:rounded-sm [&_img]:my-3
+          [&_figure]:my-3 [&_figcaption]:text-xs [&_figcaption]:italic [&_figcaption]:text-ink-400 [&_figcaption]:mt-1 [&_figcaption]:text-center
           [&_table]:w-full [&_table]:border-collapse [&_table]:my-3 [&_table]:block [&_table]:overflow-x-auto
           [&_td]:border [&_td]:border-wire [&_td]:p-2 [&_td]:break-words
           [&_th]:border [&_th]:border-wire [&_th]:p-2 [&_th]:bg-ink-50 [&_th]:break-words
           [&_hr]:border-wire [&_hr]:my-4
-          empty:before:content-[attr(data-placeholder)] empty:before:text-ink-400"
+          empty:before:content-[attr(data-placeholder)] empty:before:text-ink-400`}
       />
 
       <div className="flex items-center justify-between gap-3 border-t border-wire px-3 py-1.5 text-[11px] flex-wrap">
@@ -821,11 +1235,15 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
             value={`${stats.readingTime} min`}
             title="Estimated reading time at 200 wpm"
           />
-          <StatBadge
-            label="readability"
-            value={gradeLabel(stats.grade)}
-            title="Flesch-Kincaid grade level"
-          />
+          <button
+            type="button"
+            onClick={() => setReadabilityOpen((o) => !o)}
+            className={`px-2 py-0.5 rounded-sm whitespace-nowrap flex items-center gap-1 ${readabilityOpen ? 'bg-ink text-paper' : 'bg-ink-50 text-ink-600'}`}
+            title="Expand readability panel"
+          >
+            <span className="font-semibold">{gradeLabel(stats.grade)}</span>
+            <ChevronDown size={11} className={readabilityOpen ? 'rotate-180' : ''} />
+          </button>
           <StatBadge
             label="passive"
             value={stats.passiveCount}
@@ -842,6 +1260,79 @@ export default function RichTextEditor({ value, onChange, placeholder, draftId =
           <span>{lastSavedAt ? `Autosaved ${formatTime(lastSavedAt)}` : autosave ? 'Not yet saved' : 'Autosave off'}</span>
         </div>
       </div>
+
+      {/* v10: Enhanced readability panel */}
+      {readabilityOpen && (
+        <div className="border-t border-wire px-4 py-3 text-xs bg-ink-50/50 flex flex-col gap-2">
+          <div className="flex flex-wrap gap-4">
+            <div>
+              <p className="text-ink-400">Flesch-Kincaid grade</p>
+              <p className="font-semibold text-ink">{gradeLabel(stats.grade)}</p>
+            </div>
+            <div>
+              <p className="text-ink-400">Reading ease</p>
+              <p className="font-semibold text-ink">{stats.ease}/100 · {easeLabel(stats.ease)}</p>
+            </div>
+            <div>
+              <p className="text-ink-400">Avg sentence length</p>
+              <p className="font-semibold text-ink">{stats.avgSentenceLength} words</p>
+            </div>
+            <div>
+              <p className="text-ink-400">Target range</p>
+              <p className="font-semibold text-ink">Grade 6–8 (good for general public)</p>
+            </div>
+          </div>
+          {stats.hardSentences.length > 0 && (
+            <div>
+              <p className="text-ink-400 mb-1">Hard sentences (28+ words)</p>
+              <ul className="flex flex-col gap-1">
+                {stats.hardSentences.map((s, i) => (
+                  <li key={i} className="text-ink-600 bg-paper border border-wire rounded-sm px-2 py-1">{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={simplifyReadability}
+            disabled={aiLoading}
+            className="self-start flex items-center gap-1 px-2 py-1.5 rounded-sm bg-ink text-paper text-xs font-semibold disabled:opacity-50"
+          >
+            {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />} Simplify with AI
+          </button>
+        </div>
+      )}
+
+      {/* v10: Keyboard shortcuts modal */}
+      {shortcutsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          className="fixed inset-0 z-[60] bg-ink/40 flex items-center justify-center p-4"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="bg-paper border border-wire rounded-sm shadow-lg w-full max-w-sm p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-ink">Keyboard shortcuts</h3>
+              <button type="button" onClick={() => setShortcutsOpen(false)} aria-label="Close" className="text-ink-400 hover:text-ink">
+                <X size={16} />
+              </button>
+            </div>
+            <ul className="flex flex-col gap-1.5">
+              {SHORTCUTS.map((s) => (
+                <li key={s.keys} className="flex items-center justify-between text-xs">
+                  <span className="text-ink-600">{s.desc}</span>
+                  <kbd className="px-1.5 py-0.5 rounded-sm bg-ink-50 border border-wire font-mono text-[11px]">{s.keys}</kbd>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

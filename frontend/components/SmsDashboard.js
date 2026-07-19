@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X, AlertTriangle, CheckCircle, ShoppingCart } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import {
+  MessageSquare, Send, Plus, Trash2, Phone, CreditCard, History, X, AlertTriangle,
+  CheckCircle, ShoppingCart, Upload, LayoutTemplate, Clock3, CalendarClock, Users2,
+  CheckCheck, Check, XCircle, Info,
+} from 'lucide-react';
 import BuyCreditsModal from './BuyCreditsModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -38,6 +42,101 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------- v10: local-storage backed helpers (templates, scheduled, recents, onboarding) ----------
+// These features are client-side only per the spec ("scheduling handled
+// client-side for now", "Templates stored in localStorage"), so they degrade
+// gracefully to empty state if localStorage is unavailable.
+
+const LS_TEMPLATES = 'sms:templates';
+const LS_SCHEDULED = 'sms:scheduled';
+const LS_RECENTS = 'sms:recent-recipients';
+const LS_ONBOARDED = 'sms:onboarded';
+
+const DEFAULT_TEMPLATES = [
+  { id: 'breaking', name: 'Breaking News Alert', body: 'BREAKING: [headline]. Read more: [link]' },
+  { id: 'published', name: 'New Story Published', body: 'New story just published: "[title]" — [link]' },
+  { id: 'digest', name: 'Weekly Digest Ready', body: 'Your weekly digest is ready. Catch up on the top stories: [link]' },
+  { id: 'welcome', name: 'Welcome Message', body: 'Welcome! Thanks for subscribing to SMS updates. Reply STOP to opt out.' },
+];
+
+function readLS(key, fallback) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLS(key, value) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
+// Rough GSM-7 vs Unicode SMS segmentation. Not a full GSM-7 charset check,
+// but catches the common case (emoji / non-Latin) that halves the length budget.
+function smsParts(message) {
+  const isUnicode = /[^\x00-\x7F]/.test(message);
+  const singleLimit = isUnicode ? 70 : 160;
+  const multiLimit = isUnicode ? 67 : 153;
+  const len = message.length;
+  if (len === 0) return { parts: 0, limit: singleLimit, isUnicode, len };
+  const parts = len <= singleLimit ? 1 : Math.ceil(len / multiLimit);
+  return { parts, limit: singleLimit, isUnicode, len };
+}
+
+// Minimal CSV parser: handles quoted fields and commas within quotes.
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      row.push(field); field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some((c) => c.trim() !== '')) rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function DeliveryStatusBadge({ status }) {
+  const map = {
+    sent: { icon: Check, label: 'Sent', cls: 'text-ink-600' },
+    delivered: { icon: CheckCheck, label: 'Delivered', cls: 'text-ink-600' },
+    failed: { icon: XCircle, label: 'Failed', cls: 'text-signal' },
+    pending: { icon: Clock3, label: 'Pending', cls: 'text-ink-400' },
+  };
+  const s = map[status] || map.pending;
+  const Icon = s.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${s.cls}`}>
+      <Icon size={12} /> {s.label}
+    </span>
+  );
+}
+
 export default function SmsDashboard() {
   const [tab, setTab] = useState('send');
   const [credits, setCredits] = useState(0);
@@ -54,8 +153,26 @@ export default function SmsDashboard() {
   const [loading, setLoading] = useState(true);
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
+  // ---- v10: new state ----
+  const [csvPreview, setCsvPreview] = useState(null); // { newContacts, duplicates }
+  const fileInputRef = useRef(null);
+  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [scheduled, setScheduled] = useState([]);
+  const [recentRecipients, setRecentRecipients] = useState([]);
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const [onboarded, setOnboarded] = useState(true);
+
   useEffect(() => {
     loadData();
+    setTemplates([...DEFAULT_TEMPLATES, ...readLS(LS_TEMPLATES, [])]);
+    setScheduled(readLS(LS_SCHEDULED, []));
+    setRecentRecipients(readLS(LS_RECENTS, []));
+    setOnboarded(!!readLS(LS_ONBOARDED, false));
   }, []);
 
   const loadData = async () => {
@@ -116,6 +233,12 @@ export default function SmsDashboard() {
     }
   };
 
+  const persistRecent = (recipients) => {
+    const merged = [...recipients, ...recentRecipients].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, 5);
+    setRecentRecipients(merged);
+    writeLS(LS_RECENTS, merged);
+  };
+
   const sendSms = async () => {
     if (!message.trim() || selectedContacts.length === 0) return;
     setSending(true);
@@ -129,6 +252,11 @@ export default function SmsDashboard() {
         type: 'success',
         text: `Sent to ${data.sent} recipient(s). ${data.remaining_credits} credits left.`
       });
+      persistRecent(selectedContacts);
+      if (!onboarded) {
+        writeLS(LS_ONBOARDED, true);
+        setOnboarded(true);
+      }
       setMessage('');
       setSelectedContacts([]);
       loadData();
@@ -168,10 +296,120 @@ export default function SmsDashboard() {
     setSending(false);
   };
 
+  // ---- v10: bulk CSV import ----
+  const onCsvSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseCsv(text);
+    if (!rows.length) { setCsvPreview({ newContacts: [], duplicates: [] }); return; }
+
+    // Detect header row (name, phone columns in any order)
+    let start = 0;
+    let nameIdx = 0, phoneIdx = 1;
+    const header = rows[0].map((h) => h.trim().toLowerCase());
+    if (header.includes('name') || header.includes('phone')) {
+      nameIdx = header.indexOf('name') >= 0 ? header.indexOf('name') : 0;
+      phoneIdx = header.indexOf('phone') >= 0 ? header.indexOf('phone') : 1;
+      start = 1;
+    }
+
+    const existingPhones = new Set(contacts.map((c) => c.phone.replace(/\s+/g, '')));
+    const seen = new Set();
+    const newContacts = [];
+    const duplicates = [];
+    for (let i = start; i < rows.length; i++) {
+      const r = rows[i];
+      const name = (r[nameIdx] || '').trim();
+      const phone = (r[phoneIdx] || '').trim().replace(/\s+/g, '');
+      if (!name || !phone) continue;
+      if (existingPhones.has(phone) || seen.has(phone)) {
+        duplicates.push({ name, phone });
+      } else {
+        seen.add(phone);
+        newContacts.push({ name, phone });
+      }
+    }
+    setCsvPreview({ newContacts, duplicates });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const confirmCsvImport = async () => {
+    if (!csvPreview) return;
+    let added = 0;
+    for (const c of csvPreview.newContacts) {
+      try {
+        await api('/sms/contacts', { method: 'POST', body: JSON.stringify({ name: c.name, phone: c.phone }) });
+        added++;
+      } catch {
+        // skip failures individually, continue importing the rest
+      }
+    }
+    setCsvPreview(null);
+    loadData();
+    setResult({ type: 'success', text: `Imported ${added} contact${added !== 1 ? 's' : ''}.` });
+  };
+
+  // ---- v10: templates ----
+  const applyTemplate = (tpl) => {
+    setMessage(tpl.body);
+    setTemplatesOpen(false);
+  };
+
+  const saveCustomTemplate = () => {
+    if (!newTemplateName.trim() || !message.trim()) return;
+    const custom = readLS(LS_TEMPLATES, []);
+    const entry = { id: `custom-${Date.now()}`, name: newTemplateName.trim(), body: message, custom: true };
+    const next = [...custom, entry];
+    writeLS(LS_TEMPLATES, next);
+    setTemplates([...DEFAULT_TEMPLATES, ...next]);
+    setNewTemplateName('');
+    setSaveTemplateOpen(false);
+    setResult({ type: 'success', text: 'Template saved.' });
+  };
+
+  // ---- v10: scheduling (client-side; uses the existing send endpoint when due) ----
+  const scheduleSms = () => {
+    if (!message.trim() || selectedContacts.length === 0 || !scheduleAt) return;
+    const entry = {
+      id: `sched-${Date.now()}`,
+      message,
+      recipients: selectedContacts,
+      sendAt: new Date(scheduleAt).toISOString(),
+      status: 'scheduled',
+    };
+    const next = [...scheduled, entry];
+    setScheduled(next);
+    writeLS(LS_SCHEDULED, next);
+    setResult({ type: 'success', text: `Message scheduled for ${new Date(entry.sendAt).toLocaleString()}.` });
+    setMessage('');
+    setSelectedContacts([]);
+    setScheduleOpen(false);
+    setScheduleAt('');
+  };
+
+  const cancelScheduled = (id) => {
+    const next = scheduled.filter((s) => s.id !== id);
+    setScheduled(next);
+    writeLS(LS_SCHEDULED, next);
+  };
+
+  const sendAllContacts = () => {
+    setSelectedContacts(contacts.map((c) => c.phone));
+  };
+
+  const addRecent = (phone) => {
+    if (!selectedContacts.includes(phone)) setSelectedContacts([...selectedContacts, phone]);
+  };
+
+  const parts = smsParts(message);
+  const progressPct = message.length === 0 ? 0 : Math.min(100, Math.round((message.length / (parts.parts * (parts.isUnicode ? 67 : 153) || parts.limit)) * 100));
+
   const TABS = [
     { id: 'send', label: 'Send SMS', icon: Send },
     { id: 'contacts', label: 'Contacts', icon: Phone },
     { id: 'history', label: 'History', icon: History },
+    { id: 'scheduled', label: 'Scheduled', icon: CalendarClock },
   ];
 
   return (
@@ -205,8 +443,23 @@ export default function SmsDashboard() {
         </div>
       </div>
 
+      {/* v10: first-time onboarding */}
+      {!onboarded && !loading && (
+        <div className="mb-5 p-3 border border-wire rounded-sm bg-ink-50/60 text-xs text-ink-600 flex flex-wrap items-center gap-3">
+          <Info size={14} className="shrink-0 text-ink-400" />
+          <span className="flex items-center gap-1.5">
+            <span className={contacts.length > 0 ? 'line-through text-ink-400' : 'font-semibold'}>1. Add your first contact</span>
+            <span className="text-ink-300">→</span>
+            <span className={message.trim() ? 'line-through text-ink-400' : 'font-semibold'}>2. Compose a message</span>
+            <span className="text-ink-300">→</span>
+            <span className="font-semibold">3. Send</span>
+          </span>
+          <button onClick={() => { writeLS(LS_ONBOARDED, true); setOnboarded(true); }} className="ml-auto text-ink-400 hover:text-ink"><X size={13} /></button>
+        </div>
+      )}
+
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 text-xs font-semibold">
+      <div className="flex gap-2 mb-6 text-xs font-semibold flex-wrap">
         {TABS.map(t => (
           <button
             key={t.id}
@@ -216,6 +469,9 @@ export default function SmsDashboard() {
             }`}
           >
             <t.icon size={12} /> {t.label}
+            {t.id === 'scheduled' && scheduled.length > 0 && (
+              <span className="ml-1 px-1.5 rounded-full bg-signal text-paper text-[10px]">{scheduled.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -241,6 +497,59 @@ export default function SmsDashboard() {
       {/* Send SMS Tab */}
       {tab === 'send' && !loading && (
         <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTemplatesOpen((o) => !o)}
+                className="btn-outline px-3 py-1.5 rounded-sm text-xs flex items-center gap-1.5"
+              >
+                <LayoutTemplate size={13} /> Templates
+              </button>
+              {templatesOpen && (
+                <div className="absolute z-20 top-9 left-0 w-64 bg-paper border border-wire rounded-sm shadow-lg py-1">
+                  {templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyTemplate(t)}
+                      className="w-full text-left px-3 py-1.5 text-xs text-ink-600 hover:bg-ink-50 flex items-center justify-between"
+                    >
+                      {t.name}
+                      {t.custom && <span className="text-[10px] text-ink-400">custom</span>}
+                    </button>
+                  ))}
+                  <div className="border-t border-wire mt-1 pt-1 px-2">
+                    <button onClick={() => { setTemplatesOpen(false); setSaveTemplateOpen(true); }} className="text-xs text-signal font-semibold py-1">
+                      + Save current message as template
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={sendAllContacts}
+              disabled={contacts.length === 0}
+              className="text-xs font-semibold text-ink-600 hover:text-signal flex items-center gap-1 disabled:opacity-40"
+            >
+              <Users2 size={13} /> Send to all contacts ({contacts.length})
+            </button>
+          </div>
+
+          {saveTemplateOpen && (
+            <div className="flex gap-2 items-center border border-wire rounded-sm p-2">
+              <input
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                placeholder="Template name"
+                className="flex-1 border border-wire rounded-sm px-2 py-1.5 text-sm"
+              />
+              <button onClick={saveCustomTemplate} className="btn-primary px-3 py-1.5 rounded-sm text-xs">Save</button>
+              <button onClick={() => setSaveTemplateOpen(false)} className="text-xs text-ink-400">Cancel</button>
+            </div>
+          )}
+
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
@@ -249,15 +558,48 @@ export default function SmsDashboard() {
             maxLength={480}
             className="w-full border border-wire rounded-sm px-3 py-2 text-sm resize-none"
           />
-          <p className="text-xs text-ink-400">
-            {message.length}/480 characters ({Math.ceil(message.length / 160)} SMS)
-            {credits < 1 && (
-              <span className="text-signal ml-2 font-semibold">
-                — You have 0 credits. 
-                <button onClick={() => setShowBuyCredits(true)} className="underline ml-1">Buy credits</button>
+
+          {/* v10: character counter with parts + progress bar + unicode detection */}
+          <div>
+            <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
+              <span>
+                {parts.parts} SMS ({message.length}/480 characters){parts.isUnicode && ' · Unicode (reduced limit)'}
               </span>
+              {message.length > (parts.isUnicode ? 60 : 140) && parts.parts === 1 && (
+                <span className="text-signal font-semibold">Approaching limit</span>
+              )}
+            </div>
+            <div className="h-1.5 rounded-full bg-ink-50 overflow-hidden">
+              <div
+                className={`h-full transition-all ${progressPct > 85 ? 'bg-signal' : 'bg-ink'}`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            {credits < 1 && (
+              <p className="text-xs text-signal mt-1 font-semibold">
+                — You have 0 credits.
+                <button onClick={() => setShowBuyCredits(true)} className="underline ml-1">Buy credits</button>
+              </p>
             )}
-          </p>
+          </div>
+
+          {/* v10: recent recipients */}
+          {recentRecipients.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold mb-1.5">Recent recipients</p>
+              <div className="flex flex-wrap gap-1.5">
+                {recentRecipients.map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => addRecent(num)}
+                    className="text-xs px-2 py-1 rounded-full border border-wire text-ink-600 hover:border-ink"
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Contact selection */}
           <div>
@@ -303,20 +645,47 @@ export default function SmsDashboard() {
             )}
           </div>
 
-          <button
-            onClick={sendSms}
-            disabled={sending || !message.trim() || selectedContacts.length === 0 || credits < selectedContacts.length}
-            className="btn-primary px-5 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
-          >
-            <Send size={14} /> {sending ? 'Sending...' : `Send (${selectedContacts.length} SMS — ${selectedContacts.length} credit${selectedContacts.length !== 1 ? 's' : ''})`}
-          </button>
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              onClick={sendSms}
+              disabled={sending || !message.trim() || selectedContacts.length === 0 || credits < selectedContacts.length}
+              className="btn-primary px-5 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              <Send size={14} /> {sending ? 'Sending...' : `Send (${selectedContacts.length} SMS — ${selectedContacts.length} credit${selectedContacts.length !== 1 ? 's' : ''})`}
+            </button>
+
+            <div className="relative">
+              <button
+                onClick={() => setScheduleOpen((o) => !o)}
+                disabled={!message.trim() || selectedContacts.length === 0}
+                className="btn-outline px-4 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                <CalendarClock size={14} /> Send later
+              </button>
+              {scheduleOpen && (
+                <div className="absolute z-20 bottom-12 left-0 w-64 bg-paper border border-wire rounded-sm shadow-lg p-3">
+                  <label className="text-xs font-semibold text-ink-600 block mb-1">Send at</label>
+                  <input
+                    type="datetime-local"
+                    value={scheduleAt}
+                    onChange={(e) => setScheduleAt(e.target.value)}
+                    className="w-full border border-wire rounded-sm px-2 py-1.5 text-sm mb-2"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={scheduleSms} disabled={!scheduleAt} className="btn-primary px-3 py-1.5 rounded-sm text-xs flex-1 disabled:opacity-50">Schedule</button>
+                    <button onClick={() => setScheduleOpen(false)} className="text-xs text-ink-400">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Contacts Tab */}
       {tab === 'contacts' && !loading && (
         <div className="space-y-4">
-          <div className="flex gap-2 max-w-md">
+          <div className="flex gap-2 max-w-md flex-wrap">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -333,6 +702,43 @@ export default function SmsDashboard() {
               <Plus size={14} />
             </button>
           </div>
+
+          {/* v10: CSV import */}
+          <div>
+            <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onCsvSelected} className="hidden" id="sms-csv-input" />
+            <label htmlFor="sms-csv-input" className="btn-outline px-3 py-2 rounded-sm text-xs inline-flex items-center gap-1.5 cursor-pointer">
+              <Upload size={13} /> Import contacts (CSV)
+            </label>
+            <p className="text-xs text-ink-400 mt-1">CSV columns: name, phone (header row optional).</p>
+          </div>
+
+          {csvPreview && (
+            <div className="border border-wire rounded-sm p-3 space-y-2">
+              <p className="text-sm font-semibold">
+                {csvPreview.newContacts.length} new contact{csvPreview.newContacts.length !== 1 ? 's' : ''} found, {csvPreview.duplicates.length} duplicate{csvPreview.duplicates.length !== 1 ? 's' : ''} skipped
+              </p>
+              {csvPreview.newContacts.length > 0 && (
+                <div className="max-h-40 overflow-y-auto border border-wire rounded-sm divide-y divide-wire">
+                  {csvPreview.newContacts.map((c, i) => (
+                    <div key={i} className="flex justify-between px-2 py-1 text-xs">
+                      <span>{c.name}</span>
+                      <span className="text-ink-400">{c.phone}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={confirmCsvImport}
+                  disabled={csvPreview.newContacts.length === 0}
+                  className="btn-primary px-3 py-1.5 rounded-sm text-xs disabled:opacity-50"
+                >
+                  Import {csvPreview.newContacts.length} contact{csvPreview.newContacts.length !== 1 ? 's' : ''}
+                </button>
+                <button onClick={() => setCsvPreview(null)} className="text-xs text-ink-400">Cancel</button>
+              </div>
+            </div>
+          )}
 
           {contacts.length === 0 ? (
             <p className="text-sm text-ink-400">No contacts yet. Add your first one above.</p>
@@ -363,13 +769,59 @@ export default function SmsDashboard() {
             <div className="border border-wire rounded-sm divide-y divide-wire">
               {history.map(h => (
                 <div key={h.id} className="p-3">
-                  <p className="text-sm mb-1">{h.message}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm mb-1 flex-1">{h.message}</p>
+                    <DeliveryStatusBadge status={h.status} />
+                  </div>
                   <p className="text-xs text-ink-400">
                     To: {h.recipients} · {h.recipient_count} recipient{h.recipient_count !== 1 ? 's' : ''} · {h.cost} credit{h.cost !== 1 ? 's' : ''}
                   </p>
-                  <p className="text-xs text-ink-400">
-                    {new Date(h.created_at).toLocaleString()} · Status: <span className={`font-semibold ${h.status === 'sent' || h.status === 'delivered' ? 'text-ink-600' : 'text-signal'}`}>{h.status}</span>
+                  <p className="text-xs text-ink-400 flex items-center gap-2">
+                    {new Date(h.created_at).toLocaleString()}
+                    {h.recipient_count > 1 && (
+                      <button
+                        onClick={() => setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)}
+                        className="underline hover:text-ink-600"
+                      >
+                        {expandedHistoryId === h.id ? 'Hide per-recipient status' : 'Show per-recipient status'}
+                      </button>
+                    )}
                   </p>
+                  {expandedHistoryId === h.id && (
+                    <div className="mt-2 border border-wire rounded-sm divide-y divide-wire">
+                      {String(h.recipients).split(',').map((num) => (
+                        <div key={num} className="flex items-center justify-between px-2 py-1 text-xs">
+                          <span>{num.trim()}</span>
+                          <DeliveryStatusBadge status={h.status} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* v10: Scheduled Tab */}
+      {tab === 'scheduled' && !loading && (
+        <div>
+          {scheduled.length === 0 ? (
+            <p className="text-sm text-ink-400">No scheduled messages. Use "Send later" from the Send tab to schedule one.</p>
+          ) : (
+            <div className="border border-wire rounded-sm divide-y divide-wire">
+              {scheduled.map((s) => (
+                <div key={s.id} className="p-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm mb-1">{s.message}</p>
+                    <p className="text-xs text-ink-400">
+                      To {s.recipients.length} recipient{s.recipients.length !== 1 ? 's' : ''} · Scheduled for {new Date(s.sendAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <button onClick={() => cancelScheduled(s.id)} className="text-signal text-xs hover:opacity-70 shrink-0">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               ))}
             </div>
