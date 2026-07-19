@@ -117,11 +117,11 @@ const AFFILIATE_PROGRAMS = {
 };
 
 const COVER_IMAGES = {
-  'BBC Africa': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-bbc.jpg',
-  'Al Jazeera': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-aljazeera.jpg',
-  'Nation Africa': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-nation.jpg',
-  'Capital FM': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-capital.jpg',
-  'Tuko': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-tuko.jpg',
+  'BBC Africa': 'https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?w=800&h=400&fit=crop',
+  'Al Jazeera': 'https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=400&fit=crop',
+  'Nation Africa': 'https://images.unsplash.com/photo-1547471080-7cc2caa01a7e?w=800&h=400&fit=crop',
+  'Capital FM': 'https://images.unsplash.com/photo-1504711434969-e33886168d6c?w=800&h=400&fit=crop',
+  'Tuko': 'https://images.unsplash.com/photo-1503694978374-8a2fa686963a?w=800&h=400&fit=crop',
 };
 
 const xmlParser = new XMLParser({
@@ -192,6 +192,36 @@ function injectAffiliateLinks(html) {
   return html + `<div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;"><p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p><p style="margin:0 0 8px;"><a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online</p><p style="margin:0;"><a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more</p></div>`;
 }
 
+// ---------------------------------------------------------------------------
+// AI Summarizer — Gemini Flash (free tier)
+// ---------------------------------------------------------------------------
+async function summarizeWithAI(title, description, sourceName, apiKey) {
+  if (!apiKey) return null;
+  
+  try {
+    const prompt = `Write a 2-3 sentence news summary for this headline. Make it original, journalistic, and engaging. Do NOT copy the original text. Write in your own words as a news reporter for OPINIONPLUS.\n\nHeadline: ${title}\nSource: ${sourceName}\n\nSummary:`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
+        }),
+      }
+    );
+
+    const data = await response.json();
+    const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return summary?.trim() || null;
+  } catch (e) {
+    console.error('AI summarization error:', e.message);
+    return null;
+  }
+}
+
 async function fetchNews(env) {
   let totalInserted = 0;
   for (const source of NEWS_SOURCES) {
@@ -214,12 +244,13 @@ async function fetchNews(env) {
         if (parseInt(row?.count || 0) >= MAX_ARCHIVE_PER_DAY) break;
 
         const id = crypto.randomUUID();
-        const excerpt = item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`;
+        const aiSummary = await summarizeWithAI(item.title, item.description, source.name, env.GEMINI_API_KEY);
+        const excerpt = aiSummary ? aiSummary.slice(0, 250) + '...' : (item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`);
         const coverImage = item.image || COVER_IMAGES[source.name] || null;
         let body = '';
         if (coverImage) body += `<img src="${coverImage}" alt="" style="max-width:100%;border-radius:4px;margin-bottom:12px;" />`;
-        if (item.description) body += `<p>${cleanText(item.description)}</p>`; else body += '<p>Click below to read the full article.</p>';
-        body += `<p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
+        body += `<p>${aiSummary || cleanText(item.description) || 'Read the full article below.'}</p>`;
+        body += `<p style="font-size:12px;color:#6b7180;">📰 Original source: <a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;">${source.name}</a></p>`;
         body = injectAffiliateLinks(body);
 
         await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending')").bind(id, source.name, item.link, item.title, excerpt, body, coverImage).run();

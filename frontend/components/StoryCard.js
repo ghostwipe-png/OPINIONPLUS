@@ -15,7 +15,7 @@ export default function StoryCard({ story }) {
   const date = new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   const isNews = story.authorId === 'u_newsdesk';
-  const sourceMatch = isNews ? story.body?.match(/Read full article on (.*?) →/) : null;
+  const sourceMatch = isNews ? story.body?.match(/Original source: <a[^>]*>([^<]+)<\/a>/) : null;
   const sourceName = sourceMatch ? sourceMatch[1] : null;
   const linkMatch = isNews ? story.body?.match(/href="(https:\/\/[^"]+)"/) : null;
   const originalLink = linkMatch ? linkMatch[1] : null;

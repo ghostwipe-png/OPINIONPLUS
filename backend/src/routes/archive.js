@@ -2,7 +2,23 @@ import { Hono } from 'hono';
 
 const archive = new Hono();
 
-// Get archive items (admin only)
+// ---------------------------------------------------------------------------
+// Helper — upscale known thumbnail URLs to full-size images
+// ---------------------------------------------------------------------------
+function fixImageUrl(url) {
+  if (!url) return null;
+  // BBC: /240/cpsprodpb → /1024/cpsprodpb
+  if (url.includes('ichef.bbci.co.uk')) {
+    return url.replace(/\/\d+\/cpsprodpb/, '/1024/cpsprodpb');
+  }
+  // Al Jazeera / Nation / Capital FM / Tuko — use as-is
+  return url;
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
 archive.get('/', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
@@ -22,16 +38,13 @@ archive.get('/', async (c) => {
   if (search) { sql += ' AND (title LIKE ? OR excerpt LIKE ?)'; binds.push(`%${search}%`, `%${search}%`); }
 
   const countRow = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM (${sql})`).bind(...binds).first();
-
   sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
   binds.push(limit, offset);
 
   const { results } = await c.env.DB.prepare(sql).bind(...binds).all();
-
   return c.json({ items: results, total: countRow?.count || 0, page, totalPages: Math.ceil((countRow?.count || 0) / limit) });
 });
 
-// Approve and publish to feed
 archive.post('/:id/approve', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
@@ -44,27 +57,25 @@ archive.post('/:id/approve', async (c) => {
   const feedId = crypto.randomUUID();
   await c.env.DB.prepare(
     "INSERT INTO stories (id, author_id, title, excerpt, body, cover_image, type, privacy, created_at, updated_at) VALUES (?, 'u_newsdesk', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))"
-  ).bind(feedId, item.title, item.excerpt, item.body, item.cover_image, type || 'story', privacy || 'public').run();
+  ).bind(feedId, item.title, item.excerpt, item.body, fixImageUrl(item.cover_image), type || 'story', privacy || 'public').run();
 
-  await c.env.DB.prepare('UPDATE archive SET status = ?, feed_id = ?, reviewed_at = datetime(\'now\'), reviewed_by = ? WHERE id = ?')
-    .bind('approved', feedId, user.email, id).run();
+  await c.env.DB.prepare(
+    "UPDATE archive SET status = ?, feed_id = ?, reviewed_at = datetime('now'), reviewed_by = ? WHERE id = ?"
+  ).bind('approved', feedId, user.email, id).run();
 
   return c.json({ ok: true, feedId });
 });
 
-// Reject/delete archive item
 archive.delete('/:id', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
-
   const id = c.req.param('id');
-  await c.env.DB.prepare('UPDATE archive SET status = ?, reviewed_at = datetime(\'now\'), reviewed_by = ? WHERE id = ?')
-    .bind('rejected', user.email, id).run();
-
+  await c.env.DB.prepare(
+    "UPDATE archive SET status = ?, reviewed_at = datetime('now'), reviewed_by = ? WHERE id = ?"
+  ).bind('rejected', user.email, id).run();
   return c.json({ ok: true });
 });
 
-// Bulk approve
 archive.post('/bulk-approve', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
@@ -80,17 +91,17 @@ archive.post('/bulk-approve', async (c) => {
     const feedId = crypto.randomUUID();
     await c.env.DB.prepare(
       "INSERT INTO stories (id, author_id, title, excerpt, body, cover_image, type, privacy, created_at, updated_at) VALUES (?, 'u_newsdesk', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))"
-    ).bind(feedId, item.title, item.excerpt, item.body, item.cover_image, type || 'story', privacy || 'public').run();
+    ).bind(feedId, item.title, item.excerpt, item.body, fixImageUrl(item.cover_image), type || 'story', privacy || 'public').run();
 
-    await c.env.DB.prepare('UPDATE archive SET status = ?, feed_id = ?, reviewed_at = datetime(\'now\'), reviewed_by = ? WHERE id = ?')
-      .bind('approved', feedId, user.email, id).run();
+    await c.env.DB.prepare(
+      "UPDATE archive SET status = ?, feed_id = ?, reviewed_at = datetime('now'), reviewed_by = ? WHERE id = ?"
+    ).bind('approved', feedId, user.email, id).run();
     count++;
   }
 
   return c.json({ ok: true, count });
 });
 
-// Bulk delete
 archive.post('/bulk-delete', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
@@ -99,14 +110,14 @@ archive.post('/bulk-delete', async (c) => {
   if (!Array.isArray(ids)) return c.json({ error: 'No IDs provided' }, 400);
 
   for (const id of ids) {
-    await c.env.DB.prepare('UPDATE archive SET status = ?, reviewed_at = datetime(\'now\'), reviewed_by = ? WHERE id = ?')
-      .bind('rejected', user.email, id).run();
+    await c.env.DB.prepare(
+      "UPDATE archive SET status = ?, reviewed_at = datetime('now'), reviewed_by = ? WHERE id = ?"
+    ).bind('rejected', user.email, id).run();
   }
 
   return c.json({ ok: true, count: ids.length });
 });
 
-// Archive stats
 archive.get('/stats', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);

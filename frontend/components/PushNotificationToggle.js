@@ -7,10 +7,20 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return new Uint8Array([...rawData].map((char) => char.charCodeAt(0)));
+  if (!base64String) return null;
+  try {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (e) {
+    console.error('Invalid VAPID key format:', e);
+    return null;
+  }
 }
 
 export default function PushNotificationToggle() {
@@ -31,23 +41,14 @@ export default function PushNotificationToggle() {
     try {
       const res = await fetch(`${API_BASE}/notifications/status`, { credentials: 'include' });
       const data = await res.json();
+      if (data.subscribed) { setSubscribed(true); setLoading(false); return; }
 
-      if (data.subscribed) {
-        setSubscribed(true);
-        setLoading(false);
-        return;
-      }
-
-      // Auto-prompt: if permission is already granted, subscribe silently
       if (Notification.permission === 'granted') {
         await doSubscribe();
       } else if (Notification.permission === 'default') {
-        // Show a brief delay then request permission
         setTimeout(async () => {
           const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            await doSubscribe();
-          }
+          if (permission === 'granted') await doSubscribe();
         }, 3000);
       }
     } catch (e) { /* ignore */ }
@@ -57,9 +58,16 @@ export default function PushNotificationToggle() {
   const doSubscribe = async () => {
     try {
       const registration = await navigator.serviceWorker.ready;
+      
+      const convertedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      if (!convertedKey) {
+        console.error('Invalid VAPID public key');
+        return;
+      }
+
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: convertedKey,
       });
 
       await fetch(`${API_BASE}/notifications/subscribe`, {
@@ -70,7 +78,9 @@ export default function PushNotificationToggle() {
       });
 
       setSubscribed(true);
-    } catch (e) { console.error('Push subscribe error:', e); }
+    } catch (e) {
+      console.error('Push subscribe error:', e);
+    }
   };
 
   const toggle = async () => {
@@ -79,13 +89,7 @@ export default function PushNotificationToggle() {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         if (subscription) await subscription.unsubscribe();
-
-        await fetch(`${API_BASE}/notifications/unsubscribe`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        });
-
+        await fetch(`${API_BASE}/notifications/unsubscribe`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
         setSubscribed(false);
       } catch (e) { console.error('Push unsubscribe error:', e); }
     } else {
@@ -94,22 +98,15 @@ export default function PushNotificationToggle() {
         return;
       }
       const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        await doSubscribe();
-      }
+      if (permission === 'granted') await doSubscribe();
     }
   };
 
   if (!supported || loading) return null;
 
   return (
-    <button
-      onClick={toggle}
-      className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors ${
-        subscribed ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600 hover:border-ink'
-      }`}
-      title={subscribed ? 'Notifications on — click to turn off' : 'Get breaking news alerts'}
-    >
+    <button onClick={toggle} className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors ${subscribed ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600 hover:border-ink'}`}
+      title={subscribed ? 'Notifications on' : 'Get breaking news alerts'}>
       {subscribed ? <Bell size={13} /> : <BellOff size={13} />}
       {subscribed ? 'Alerts on' : 'Alerts'}
     </button>
