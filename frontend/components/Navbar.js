@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X, Bookmark, Gift } from 'lucide-react';
 import { useAuth } from '../lib/auth';
+import PushNotificationToggle from './PushNotificationToggle';
 
 export default function Navbar() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
@@ -20,11 +21,12 @@ export default function Navbar() {
             <span className="hidden sm:inline wire-tag">every voice, a masthead</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+          <nav className="hidden md:flex items-center gap-5 text-sm font-medium">
             <Link href="/" className="hover:text-signal transition-colors">Feed</Link>
             <Link href="/pricing" className="hover:text-signal transition-colors flex items-center gap-1">
               <Gift size={14} /> Partner
             </Link>
+            <PushNotificationToggle />
             {isAuthenticated && (
               <Link href="/publish" className="hover:text-signal transition-colors flex items-center gap-1.5">
                 <PenSquare size={15} /> Publish
@@ -44,9 +46,7 @@ export default function Navbar() {
                   {user.logoUrl ? (
                     <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal" />
                   ) : (
-                    <span className="nameplate-seal grid place-items-center">
-                      <UserIcon size={14} />
-                    </span>
+                    <span className="nameplate-seal grid place-items-center"><UserIcon size={14} /></span>
                   )}
                   <span className="text-sm font-semibold">{user.publisherName}</span>
                 </Link>
@@ -79,6 +79,9 @@ export default function Navbar() {
           <Link href="/read-later" onClick={() => setOpen(false)} className="flex items-center gap-2">
             <Bookmark size={15} /> Read Later
           </Link>
+          <div className="py-1">
+            <PushNotificationToggle />
+          </div>
           {isAdmin && (
             <Link href="/admin" onClick={() => setOpen(false)} className="flex items-center gap-2">
               <ShieldCheck size={15} /> Admin

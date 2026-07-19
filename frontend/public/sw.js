@@ -1,33 +1,10 @@
-const CACHE_NAME = 'opinionplus-v1';
-const ASSETS = [
-  '/',
-  '/about',
-  '/privacy',
-  '/contact',
-  '/login',
-  '/pricing',
-  '/site.webmanifest',
-  '/favicon.ico',
-  '/favicon-32x32.png',
-  '/favicon-16x16.png',
-  '/apple-touch-icon.png',
-  '/android-chrome-192x192.png',
-  '/android-chrome-512x512.png',
-];
+const CACHE_NAME = 'opinionplus-v2';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-    )
-  );
   self.clients.claim();
 });
 
@@ -42,6 +19,39 @@ self.addEventListener('fetch', (event) => {
         return response;
       });
       return cached || networked;
+    })
+  );
+});
+
+// Push notification handler
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  const data = event.data.json();
+  const options = {
+    body: data.body || '',
+    icon: '/android-chrome-192x192.png',
+    badge: '/favicon-32x32.png',
+    data: { url: data.url || '/' },
+    actions: data.actions || [],
+    vibrate: [200, 100, 200],
+    tag: data.tag || 'opinionplus',
+    renotify: true,
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title || 'OPINIONPLUS', options));
+});
+
+// Notification click handler
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((clientList) => {
+      for (const client of clientList) {
+        if (client.url === url && 'focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });

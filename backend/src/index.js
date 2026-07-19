@@ -13,6 +13,7 @@ import keys from './routes/keys.js';
 import sms from './routes/sms.js';
 import payments from './routes/payments.js';
 import partner from './routes/partner.js';
+import notifications from './routes/notifications.js';
 
 const app = new Hono();
 
@@ -89,6 +90,7 @@ app.route('/keys', keys);
 app.route('/sms', sms);
 app.route('/payments', payments);
 app.route('/partner', partner);
+app.route('/notifications', notifications);
 
 // ---------------------------------------------------------------------------
 // News Aggregator — fetches RSS feeds from multiple trusted sources
@@ -103,7 +105,7 @@ const NEWS_SOURCES = [
   { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
 ];
 const MAX_NEWS_PER_DAY = 60;
-const MAX_ITEMS_PER_SOURCE = 3;
+const MAX_ITEMS_PER_SOURCE = 5;
 
 function parseRSSItems(xmlText) {
   const items = [];

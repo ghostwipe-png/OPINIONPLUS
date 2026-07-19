@@ -17,5 +17,6 @@ NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME = "nf9phgej"
 NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET = "opinionplus_unsigned"
 NEXT_PUBLIC_API_BASE = "https://opinionplus-api.opinionplus.workers.dev"
 NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY = "pk_live_f7d268a4b96a8c0d489bc8f72fde6c038d7356e7"
+NEXT_PUBLIC_VAPID_PUBLIC_KEY = "BPKnBqM2IdBgYPksjurpJtVWmw4Jc9_IE2LDMySgw4qus1T5u-rS1weUjqtlucK90-v4FakgkpVm8ueNgNz0baI"
 
 

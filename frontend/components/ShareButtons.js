@@ -1,70 +1,88 @@
 'use client';
 
 import { useState } from 'react';
-import { Link2, MessageCircle, Facebook, Instagram, Check } from 'lucide-react';
+import { Link2, MessageCircle, Facebook, Instagram, Check, Share2 } from 'lucide-react';
 
 export default function ShareButtons({ url, title }) {
   const [copied, setCopied] = useState(false);
 
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}${url}` : url;
+  const encodedTitle = encodeURIComponent(title);
+  const encodedUrl = encodeURIComponent(shareUrl);
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-    } catch (e) {
-      /* clipboard unavailable */
-    }
+    } catch (e) { /* clipboard unavailable */ }
   };
 
   const targets = [
     {
       label: 'WhatsApp',
       icon: MessageCircle,
-      href: `https://wa.me/?text=${encodeURIComponent(`${title} — ${shareUrl}`)}`,
+      color: 'hover:bg-[#25D366] hover:border-[#25D366]',
+      href: `https://wa.me/?text=${encodedTitle}%0A%0A${encodedUrl}`,
+      primary: true,
     },
     {
       label: 'Facebook',
       icon: Facebook,
-      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+      color: 'hover:bg-[#1877F2] hover:border-[#1877F2]',
+      href: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
     },
     {
       label: 'X',
       icon: XIcon,
-      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(shareUrl)}`,
+      color: 'hover:bg-[#000000] hover:border-[#000000]',
+      href: `https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedUrl}`,
     },
   ];
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {targets.map((t) => (
-        <a
-          key={t.label}
-          href={t.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-9 h-9 rounded-full border border-wire grid place-items-center hover:border-ink hover:bg-ink hover:text-paper transition-colors"
-          aria-label={`Share to ${t.label}`}
-          title={`Share to ${t.label}`}
+      {/* WhatsApp — prominent button */}
+      <a
+        href={targets[0].href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="h-9 px-3 rounded-full bg-[#25D366] text-white flex items-center gap-1.5 text-xs font-semibold hover:bg-[#1ebe57] transition-colors"
+        aria-label="Share on WhatsApp"
+      >
+        <MessageCircle size={15} fill="white" /> WhatsApp
+      </a>
+
+      {/* Other share icons */}
+      <div className="flex items-center gap-1.5">
+        {targets.slice(1).map((t) => (
+          <a
+            key={t.label}
+            href={t.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`w-9 h-9 rounded-full border border-wire grid place-items-center hover:text-paper transition-colors ${t.color}`}
+            aria-label={`Share to ${t.label}`}
+            title={`Share to ${t.label}`}
+          >
+            <t.icon size={15} />
+          </a>
+        ))}
+        <span
+          className="w-9 h-9 rounded-full border border-wire grid place-items-center opacity-50"
+          title="Instagram doesn't support direct web share — copy the link instead"
+          aria-label="Instagram (copy link to share)"
         >
-          <t.icon size={16} />
-        </a>
-      ))}
-      <span
-        className="w-9 h-9 rounded-full border border-wire grid place-items-center opacity-50"
-        title="Instagram doesn't support direct web share — copy the link instead"
-        aria-label="Instagram (copy link to share)"
-      >
-        <Instagram size={16} />
-      </span>
-      <button
-        onClick={copy}
-        className="h-9 px-3 rounded-full border border-wire flex items-center gap-1.5 text-xs font-medium hover:border-ink transition-colors"
-      >
-        {copied ? <Check size={14} /> : <Link2 size={14} />}
-        {copied ? 'Copied' : 'Copy link'}
-      </button>
+          <Instagram size={15} />
+        </span>
+        <button
+          onClick={copy}
+          className="h-9 px-3 rounded-full border border-wire flex items-center gap-1.5 text-xs font-medium hover:border-ink transition-colors"
+        >
+          {copied ? <Check size={13} /> : <Link2 size={13} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
     </div>
   );
 }
