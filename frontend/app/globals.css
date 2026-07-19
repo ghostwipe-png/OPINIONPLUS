@@ -118,3 +118,101 @@ textarea, input {
   margin-bottom: 1.25em;
   line-height: 1.75;
 }
+
+/* ---------------------------------------------------------------------
+   Additions below. Nothing above this line was changed.
+--------------------------------------------------------------------- */
+
+/* Skeleton / shimmer loading state, used by StoryCard + feed grid */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #EDEAE0 25%, #F5F3EC 37%, #EDEAE0 63%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* Blur-up image fade-in, applied once an <img> finishes loading */
+@keyframes imgFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.img-fade-in {
+  animation: imgFadeIn 0.35s ease-out;
+}
+
+/* Pulse used for breaking-news / trending indicators */
+@keyframes softPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.pulse-dot {
+  animation: softPulse 1.6s ease-in-out infinite;
+}
+
+/* CSS containment for card-heavy grids — keeps layout/paint scoped per card */
+.contain-card {
+  contain: layout style paint;
+}
+
+/* Reading-progress bar (story page) */
+.reading-progress-track {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 50;
+  background: transparent;
+}
+
+.reading-progress-fill {
+  height: 100%;
+  background: #E0492B;
+  transform-origin: left;
+  transition: transform 0.1s linear;
+}
+
+/* Slimmer, brand-colored scrollbar (WebKit) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F4F1EA;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C3C7D1;
+  border-radius: 9999px;
+  border: 2px solid #F4F1EA;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6B7180;
+}
+
+/* Print styles — used by the story page */
+@media print {
+  header, footer, .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.75em;
+    color: #444;
+  }
+  .prose-story {
+    max-width: 100% !important;
+  }
+}

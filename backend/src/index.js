@@ -27,14 +27,44 @@ const ALLOWED_ORIGINS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Structured logging helper
+// ---------------------------------------------------------------------------
+// Cloudflare Workers don't have a persistent process, so there's no real
+// "uptime" or "queue depth" to report — those only make sense for long-running
+// servers. What we CAN do meaningfully: a request id for tracing across log
+// lines, structured (JSON) log entries with timestamps, and an actual DB
+// connectivity check for the health endpoint.
+function log(level, message, meta = {}) {
+  const entry = { level, message, ts: new Date().toISOString(), ...meta };
+  if (level === 'error') console.error(JSON.stringify(entry));
+  else console.log(JSON.stringify(entry));
+}
+
+// ---------------------------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------------------------
+
+// Request ID — attached to every request/response for tracing through logs.
+app.use('*', async (c, next) => {
+  const requestId = c.req.header('X-Request-ID') || crypto.randomUUID();
+  c.set('requestId', requestId);
+  const start = Date.now();
+  await next();
+  c.res.headers.set('X-Request-ID', requestId);
+  log('info', 'request', {
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+    status: c.res.status,
+    durationMs: Date.now() - start,
+  });
+});
 
 app.use('*', cors({
   origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : null,
   credentials: true,
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
 }));
 
 app.use('*', attachUser);
@@ -65,7 +95,24 @@ app.use('/sms/*', async (c, next) => {
 // Health check
 // ---------------------------------------------------------------------------
 
-app.get('/', (c) => c.json({ ok: true, service: 'opinionplus-api' }));
+app.get('/', async (c) => {
+  let dbStatus = 'unknown';
+  const dbStart = Date.now();
+  try {
+    await c.env.DB.prepare('SELECT 1').first();
+    dbStatus = 'ok';
+  } catch (e) {
+    dbStatus = 'error';
+    log('error', 'health check db failure', { error: e.message });
+  }
+  return c.json({
+    ok: dbStatus === 'ok',
+    service: 'opinionplus-api',
+    db: dbStatus,
+    dbLatencyMs: Date.now() - dbStart,
+    requestId: c.get('requestId'),
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Public API feed
@@ -77,6 +124,30 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
     'SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100'
   ).bind(user.id).all();
   return c.json({ publisher: user.publisher_name, stories: results });
+});
+
+// ---------------------------------------------------------------------------
+// Trending stories — top stories by like count in the last 7 days.
+// Cached for 5 minutes at the edge since it doesn't need to be second-fresh.
+// ---------------------------------------------------------------------------
+
+app.get('/stories/trending', async (c) => {
+  try {
+    // `likes` is stored as a JSON array column on stories; json_array_length
+    // gives us a like count we can sort by directly in SQL.
+    const { results } = await c.env.DB.prepare(
+      `SELECT * FROM stories
+       WHERE deleted = 0 AND privacy = 'public'
+         AND created_at >= datetime('now', '-7 days')
+       ORDER BY json_array_length(likes) DESC, created_at DESC
+       LIMIT 5`
+    ).all();
+    c.res.headers.set('Cache-Control', 'public, max-age=300');
+    return c.json({ stories: results });
+  } catch (e) {
+    log('error', 'trending query failed', { error: e.message, requestId: c.get('requestId') });
+    return c.json({ stories: [] });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -197,7 +268,7 @@ function injectAffiliateLinks(html) {
 // ---------------------------------------------------------------------------
 async function summarizeWithAI(title, description, sourceName, apiKey) {
   if (!apiKey) return null;
-  
+
   try {
     const prompt = `Write a 2-3 sentence news summary for this headline. Make it original, journalistic, and engaging. Do NOT copy the original text. Write in your own words as a news reporter for OPINIONPLUS.\n\nHeadline: ${title}\nSource: ${sourceName}\n\nSummary:`;
 
@@ -271,14 +342,82 @@ app.get('/news-fetch', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Retention cleanup — deletes old, already-resolved data. Never touches
+// pending archive items, live stories, or anything a human hasn't already
+// decided on. Same auth pattern as /news-fetch (shared cron secret) so it can
+// run unattended from the Cron Trigger, but is also reachable manually.
+// ---------------------------------------------------------------------------
+async function runRetentionCleanup(env) {
+  const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
+
+  try {
+    const r = await env.DB.prepare(
+      "DELETE FROM archive WHERE status = 'approved' AND reviewed_at < datetime('now', '-30 days')"
+    ).run();
+    results.archiveApproved = r.meta?.changes || 0;
+  } catch (e) { log('error', 'cleanup: archive approved failed', { error: e.message }); }
+
+  try {
+    const r = await env.DB.prepare(
+      "DELETE FROM archive WHERE status = 'rejected' AND reviewed_at < datetime('now', '-7 days')"
+    ).run();
+    results.archiveRejected = r.meta?.changes || 0;
+  } catch (e) { log('error', 'cleanup: archive rejected failed', { error: e.message }); }
+
+  // These two tables are optional depending on deployment — swallow errors if
+  // they don't exist rather than failing the whole cleanup run.
+  try {
+    const r = await env.DB.prepare(
+      "DELETE FROM search_history WHERE created_at < datetime('now', '-90 days')"
+    ).run();
+    results.searchHistory = r.meta?.changes || 0;
+  } catch (e) { /* table may not exist in this deployment */ }
+
+  try {
+    const r = await env.DB.prepare(
+      "DELETE FROM rate_limits WHERE created_at < datetime('now', '-1 days')"
+    ).run();
+    results.rateLimits = r.meta?.changes || 0;
+  } catch (e) { /* table may not exist in this deployment */ }
+
+  log('info', 'retention cleanup complete', results);
+  return results;
+}
+
+app.get('/admin-cleanup', async (c) => {
+  const token = c.req.query('token');
+  if (token !== c.env.CRON_SECRET) return c.json({ error: 'Unauthorized' }, 401);
+  try {
+    const results = await runRetentionCleanup(c.env);
+    return c.json({ ok: true, ...results });
+  } catch (e) {
+    return c.json({ ok: false, error: 'Cleanup failed' }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 404 & Error handler
 // ---------------------------------------------------------------------------
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
-app.onError((err, c) => { console.error('Unhandled error:', err.message, err.stack); return c.json({ error: 'Something went wrong.' }, 500); });
+app.onError((err, c) => {
+  log('error', 'unhandled error', { error: err.message, stack: err.stack, requestId: c.get('requestId') });
+  return c.json({ error: 'Something went wrong.' }, 500);
+});
 
 const worker = {
   fetch: app.fetch,
-  async scheduled(event, env, ctx) { if (event.cron === '*/30 * * * *') { console.log('News cron triggered'); await fetchNews(env); } },
+  async scheduled(event, env, ctx) {
+    if (event.cron === '*/30 * * * *') {
+      log('info', 'news cron triggered');
+      await fetchNews(env);
+    }
+    // Daily retention sweep — pick whichever cron expression you register for
+    // this in wrangler.toml, e.g. '0 3 * * *' for 3am daily.
+    if (event.cron === '0 3 * * *') {
+      log('info', 'retention cleanup cron triggered');
+      await runRetentionCleanup(env);
+    }
+  },
 };
 export default worker;

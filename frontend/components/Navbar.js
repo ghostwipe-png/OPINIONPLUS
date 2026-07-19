@@ -15,36 +15,36 @@ export default function Navbar() {
     <header className="border-b border-wire bg-paper/95 backdrop-blur sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-5">
         <div className="flex items-center justify-between h-16">
-          <Link href="/" className="flex items-baseline gap-2 group">
+          <Link href="/" className="flex items-baseline gap-2 group focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">
             <span className="editorial-h text-2xl font-extrabold tracking-tight">
               OPINION<span className="text-signal">PLUS</span>
             </span>
             <span className="hidden sm:inline wire-tag">every voice, a masthead</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-5 text-sm font-medium">
+          <nav className="hidden md:flex items-center gap-5 text-sm font-medium" aria-label="Primary">
             <SearchBar />
-            <Link href="/" className="hover:text-signal transition-colors">Feed</Link>
-            <Link href="/pricing" className="hover:text-signal transition-colors flex items-center gap-1">
+            <Link href="/" className="hover:text-signal transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">Feed</Link>
+            <Link href="/pricing" className="hover:text-signal transition-colors flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">
               <Gift size={14} /> Partner
             </Link>
             <PushNotificationToggle />
             {isAuthenticated && (
-              <Link href="/publish" className="hover:text-signal transition-colors flex items-center gap-1.5">
+              <Link href="/publish" className="hover:text-signal transition-colors flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">
                 <PenSquare size={15} /> Publish
               </Link>
             )}
-            <Link href="/read-later" className="text-ink-400 hover:text-ink-600 transition-colors flex items-center gap-1" title="Read Later">
+            <Link href="/read-later" className="text-ink-400 hover:text-ink-600 transition-colors flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm" title="Read Later">
               <Bookmark size={14} />
             </Link>
             {isAdmin && (
-              <Link href="/admin" className="hover:text-signal transition-colors flex items-center gap-1.5">
+              <Link href="/admin" className="hover:text-signal transition-colors flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">
                 <ShieldCheck size={15} /> Admin
               </Link>
             )}
             {isAuthenticated ? (
               <div className="flex items-center gap-3 pl-3 border-l border-wire">
-                <Link href={`/profile/${user.id}`} className="nameplate">
+                <Link href={`/profile/${user.id}`} className="nameplate focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm">
                   {user.logoUrl ? (
                     <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal" />
                   ) : (
@@ -52,7 +52,7 @@ export default function Navbar() {
                   )}
                   <span className="text-sm font-semibold">{user.publisherName}</span>
                 </Link>
-                <button onClick={logout} className="text-ink-400 hover:text-signal transition-colors" aria-label="Sign out" title="Sign out">
+                <button onClick={logout} className="text-ink-400 hover:text-signal transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm" aria-label="Sign out" title="Sign out">
                   <LogOut size={16} />
                 </button>
               </div>
@@ -61,7 +61,12 @@ export default function Navbar() {
             )}
           </nav>
 
-          <button className="md:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu">
+          <button
+            className="md:hidden focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
+            onClick={() => setOpen((o) => !o)}
+            aria-label="Toggle menu"
+            aria-expanded={open}
+          >
             {open ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
