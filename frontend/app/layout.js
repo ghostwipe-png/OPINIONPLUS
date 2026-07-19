@@ -75,6 +75,31 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
+  const websiteSchema = {
+    '@type': 'WebSite',
+    '@id': `${siteUrl}#website`,
+    url: siteUrl,
+    name: 'OPINIONPLUS',
+    description: siteDescription,
+    publisher: { '@id': `${siteUrl}#publisher` },
+  };
+
+  const orgSchema = {
+    '@type': 'NewsMediaOrganization',
+    '@id': `${siteUrl}#publisher`,
+    name: 'OPINIONPLUS',
+    url: siteUrl,
+    logo: {
+      '@type': 'ImageObject',
+      url: `${siteUrl}/android-chrome-512x512.png`,
+      width: 512,
+      height: 512,
+    },
+    sameAs: [],
+    ethicalPolicy: `${siteUrl}/about`,
+    diversityPolicy: `${siteUrl}/about`,
+  };
+
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <head>
@@ -82,11 +107,14 @@ export default function RootLayout({ children }) {
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
         <link rel="manifest" href="/site.webmanifest" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="OPINIONPLUS" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#1C1917" />
+        <meta name="author" content="OPINIONPLUS" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://generativelanguage.googleapis.com" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify([websiteSchema, orgSchema]) }}
+        />
       </head>
       <body className="font-body bg-paper text-ink min-h-screen flex flex-col antialiased">
         <Providers>

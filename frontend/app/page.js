@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { LayoutList, LayoutGrid, TrendingUp } from 'lucide-react';
 import { useStore } from '../lib/store';
 import StoryCard, { StoryCardSkeleton } from '../components/StoryCard';
+import BreakingTicker from '../components/BreakingTicker';
+import HeroGrid from '../components/HeroGrid';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const PAGE_SIZE = 20;
@@ -58,22 +60,18 @@ export default function HomePage() {
 
   return (
     <div>
-      <section className="border-b border-wire">
-        <div className="max-w-6xl mx-auto px-5 py-16 sm:py-20">
-          <p className="wire-tag mb-4">Vol. 1 — Every voice, a masthead</p>
-          <h1 className="editorial-h text-4xl sm:text-6xl font-black leading-[1.05] max-w-3xl">
-            Tell your story. Put your name on it. Build the audience that follows it.
-          </h1>
-          <p className="text-ink-600 max-w-xl mt-5 text-base sm:text-lg">
-            OpinionPlus gives every writer and filmmaker their own masthead — logo, byline, and a
-            page that&apos;s unmistakably theirs — plus the feed, comments, and ratings to build a
-            readership around it.
-          </p>
-          <div className="flex gap-3 mt-8">
-            <Link href="/publish" className="btn-primary px-5 py-3 rounded-sm text-sm">
+      <BreakingTicker />
+
+      <HeroGrid />
+
+      <section className="border-b border-wire bg-ink-50/40">
+        <div className="max-w-6xl mx-auto px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="wire-tag">OPINIONPLUS — Every voice, a masthead</p>
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <Link href="/publish" className="btn-primary px-5 py-3 rounded-sm text-sm text-center">
               Publish your story
             </Link>
-            <Link href="/about" className="btn-outline px-5 py-3 rounded-sm text-sm">
+            <Link href="/about" className="btn-outline px-5 py-3 rounded-sm text-sm text-center">
               Read the mission
             </Link>
           </div>
