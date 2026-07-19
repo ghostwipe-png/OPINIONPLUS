@@ -31,6 +31,38 @@ async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
   }
 }
 
+// Structured logging helper — never logs secret keys or full card data.
+function logEvent(kind, payload = {}) {
+  try {
+    console.log(JSON.stringify({ kind, timestamp: new Date().toISOString(), ...payload }));
+  } catch (e) { /* never let logging break a request */ }
+}
+
+async function loggedFetch(kind, url, options, retries = MAX_RETRIES) {
+  const start = Date.now();
+  const requestId = crypto.randomUUID();
+  try {
+    const response = await fetchWithRetry(url, options, retries);
+    logEvent('paystack_api_call', {
+      request_id: requestId,
+      label: kind,
+      endpoint: url.replace(/https:\/\/api\.paystack\.co/, ''),
+      status: response.status,
+      duration_ms: Date.now() - start,
+    });
+    return response;
+  } catch (e) {
+    logEvent('paystack_api_call_error', {
+      request_id: requestId,
+      label: kind,
+      endpoint: url.replace(/https:\/\/api\.paystack\.co/, ''),
+      duration_ms: Date.now() - start,
+      message: e.message,
+    });
+    throw e;
+  }
+}
+
 async function finalizeTransaction(db, reference, expectedUserId, credits) {
   if (!expectedUserId || !credits || credits <= 0) return { credited: false };
   const update = await db
@@ -86,6 +118,79 @@ async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
   } catch (e) { return false; }
 }
 
+function isValidEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isPositiveInt(n) {
+  return typeof n === 'number' && Number.isInteger(n) && n > 0;
+}
+
+function escapeHtml(str = '') {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+// Professional, print-friendly HTML receipt.
+function generateReceiptHtml(transaction) {
+  const amountKes = (Number(transaction.amount || 0) / 100).toLocaleString('en-KE');
+  const date = transaction.created_at ? new Date(transaction.created_at).toLocaleString('en-KE') : '';
+  const status = escapeHtml(transaction.status || 'unknown');
+  const reference = escapeHtml(transaction.reference || '');
+  const method = escapeHtml(transaction.method || 'card / mobile money');
+  const credits = escapeHtml(String(transaction.credits ?? '—'));
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Receipt · ${reference}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --ink: #111111; --paper: #ffffff; --wire: #e2e2e2; --signal: #c0392b; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: var(--ink); background: #f6f6f4; margin: 0; padding: 40px 16px; }
+  .receipt { max-width: 560px; margin: 0 auto; background: var(--paper); border: 1px solid var(--wire); padding: 40px; }
+  .brand { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .tag { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #777; margin-bottom: 28px; }
+  h1 { font-size: 18px; margin: 0 0 24px; border-bottom: 1px solid var(--wire); padding-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 8px 0; border-bottom: 1px solid var(--wire); }
+  td.label { color: #777; width: 45%; }
+  td.value { text-align: right; font-weight: 600; }
+  .status { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .status.completed { background: #eafaf0; color: #1e8449; }
+  .status.pending { background: #fef6e0; color: #b9770e; }
+  .status.failed, .status.refunded { background: #fdecea; color: var(--signal); }
+  .thanks { margin-top: 28px; font-size: 14px; }
+  .footer { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--wire); font-size: 11px; color: #999; text-align: center; }
+  @media print { body { background: var(--paper); padding: 0; } .receipt { border: none; } }
+</style>
+</head>
+<body>
+  <div class="receipt">
+    <div class="brand">OPINIONPLUS</div>
+    <div class="tag">Payment Receipt</div>
+    <h1>Transaction ${reference}</h1>
+    <table>
+      <tr><td class="label">Date</td><td class="value">${date}</td></tr>
+      <tr><td class="label">Amount</td><td class="value">KES ${amountKes}</td></tr>
+      <tr><td class="label">Credits purchased</td><td class="value">${credits}</td></tr>
+      <tr><td class="label">Payment method</td><td class="value">${method}</td></tr>
+      <tr><td class="label">Reference</td><td class="value">${reference}</td></tr>
+      <tr><td class="label">Status</td><td class="value"><span class="status ${status}">${status}</span></td></tr>
+    </table>
+    <p class="thanks">Thank you for your purchase. This receipt confirms your transaction with OPINIONPLUS.</p>
+    <div class="footer">Need help? Contact support@opinionplus.online &middot; www.opinionplus.online</div>
+  </div>
+</body>
+</html>`;
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -102,22 +207,48 @@ payments.post('/initialize', requireAuth, async (c) => {
   const user = c.get('user');
   let body;
   try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid request body.' }, 400); }
-  const { packageId } = body || {};
+  const { packageId, idempotency_key: idempotencyKey } = body || {};
   if (typeof packageId !== 'string') return c.json({ error: 'Invalid package.' }, 400);
   const pkg = PACKAGES.find((p) => p.id === packageId);
   if (!pkg) return c.json({ error: 'Invalid package.' }, 400);
   if (pkg.amount <= 0 || pkg.credits <= 0) return c.json({ error: 'Invalid package configuration.' }, 500);
+  if (!isValidEmail(user.email)) return c.json({ error: 'A valid account email is required to make a payment.' }, 400);
+  if (!isPositiveInt(pkg.amount) || !isPositiveInt(pkg.credits)) return c.json({ error: 'Invalid package configuration.' }, 500);
 
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
 
+  // Idempotency: if a request with this key already exists, return its state instead of double-charging.
+  if (idempotencyKey && typeof idempotencyKey === 'string') {
+    try {
+      const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
+      if (existing) {
+        if (existing.status === 'completed') {
+          return c.json({ reference: existing.reference, email: user.email, status: 'completed', credits: existing.credits, idempotent: true });
+        }
+        if (existing.status === 'pending' && existing.authorization_url) {
+          return c.json({ reference: existing.reference, email: user.email, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
+        }
+      }
+    } catch (e) {
+      // idempotency_key column may not exist yet on older schemas — fail open and continue as a normal purchase
+      logEvent('idempotency_lookup_failed', { message: e.message });
+    }
+  }
+
   const reference = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const txnId = crypto.randomUUID();
-  await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending').run();
+  try {
+    await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending', idempotencyKey || null).run();
+  } catch (e) {
+    // Fallback for schemas without the idempotency_key column yet.
+    await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending').run();
+  }
 
   try {
-    const response = await fetchWithRetry('https://api.paystack.co/transaction/initialize', {
+    const response = await loggedFetch('initialize', 'https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
       body: JSON.stringify({ email: user.email, amount: pkg.amount, reference, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, transaction_id: txnId, credits: pkg.credits, package: pkg.name, type: 'sms_credits' } }),
@@ -127,6 +258,10 @@ payments.post('/initialize', requireAuth, async (c) => {
       await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE id = ?').bind('failed', txnId).run();
       return c.json({ error: data.message || 'Payment initialization failed.', details: data }, 502);
     }
+    try {
+      await c.env.DB.prepare('UPDATE payment_transactions SET authorization_url = ?, access_code = ? WHERE id = ?')
+        .bind(data.data.authorization_url, data.data.access_code, txnId).run();
+    } catch (e) { /* columns may not exist on older schemas — non-fatal */ }
     return c.json({ reference, email: user.email, authorization_url: data.data.authorization_url, access_code: data.data.access_code });
   } catch (e) {
     console.error('PAYSTACK INITIALIZE ERROR:', e.message);
@@ -139,10 +274,34 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   const user = c.get('user');
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
+  if (!isValidEmail(user.email)) return c.json({ error: 'A valid account email is required to make a payment.' }, 400);
+
+  let idempotencyKey;
+  try {
+    const body = await c.req.json();
+    idempotencyKey = body?.idempotency_key;
+  } catch (e) { /* body optional for this route */ }
+
+  if (idempotencyKey && typeof idempotencyKey === 'string') {
+    try {
+      const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
+      if (existing) {
+        if (existing.status === 'completed') {
+          return c.json({ reference: existing.reference, status: 'completed', idempotent: true });
+        }
+        if (existing.status === 'pending' && existing.authorization_url) {
+          return c.json({ authorization_url: existing.authorization_url, reference: existing.reference, access_code: existing.access_code, idempotent: true });
+        }
+      }
+    } catch (e) {
+      logEvent('idempotency_lookup_failed', { message: e.message });
+    }
+  }
+
   try {
     const requestBody = { email: user.email, amount: PRO_PLAN_AMOUNT, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, type: 'api_pro_subscription' } };
 
-    const response = await fetch('https://api.paystack.co/transaction/initialize', {
+    const response = await loggedFetch('subscribe_pro', 'https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
@@ -151,6 +310,14 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
     const data = await response.json();
 
     if (!data.status) return c.json({ error: data.message || 'Subscription initialization failed.' }, 502);
+
+    if (idempotencyKey && typeof idempotencyKey === 'string') {
+      try {
+        await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status, idempotency_key, authorization_url, access_code) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), user.id, PRO_PLAN_AMOUNT, 'paystack', data.data.reference, 'pending', idempotencyKey, data.data.authorization_url, data.data.access_code).run();
+      } catch (e) { /* older schema without idempotency columns — non-fatal */ }
+    }
+
     return c.json({ authorization_url: data.data.authorization_url, reference: data.data.reference, access_code: data.data.access_code });
   } catch (e) {
     console.error('PAYSTACK SUBSCRIBE ERROR:', e.message);
@@ -177,7 +344,7 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
   try {
-    const response = await fetchWithRetry(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${secretKey}` } });
+    const response = await loggedFetch('verify', `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${secretKey}` } });
     const data = await response.json();
     if (!data.status) return c.json({ verified: false, message: 'Payment not found.' });
     const txn = data.data;
@@ -196,6 +363,101 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
   } catch (e) {
     console.error('PAYSTACK VERIFY ERROR:', e.message);
     return c.json({ error: 'Verification failed.' }, 500);
+  }
+});
+
+// -----------------------------------------------------------------------
+// NEW: Refund a completed transaction (admin only, PIN-gated)
+// -----------------------------------------------------------------------
+payments.post('/refund', requireAuth, async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Unauthorized.' }, 403);
+
+  const pin = c.req.header('X-Admin-Pin');
+  if (!pin) return c.json({ error: 'Admin PIN required.' }, 401);
+
+  let body;
+  try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid request body.' }, 400); }
+  const { reference, amount } = body || {};
+  if (typeof reference !== 'string' || !reference) return c.json({ error: 'A transaction reference is required.' }, 400);
+  if (amount !== undefined && !isPositiveInt(amount)) return c.json({ error: 'Refund amount must be a positive integer (in kobo).' }, 400);
+
+  const secretKey = c.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
+
+  const txn = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE reference = ?').bind(reference).first();
+  if (!txn) return c.json({ error: 'Transaction not found.' }, 404);
+  if (txn.status === 'refunded') return c.json({ error: 'Transaction already refunded.' }, 400);
+  if (txn.status !== 'completed') return c.json({ error: 'Only completed transactions can be refunded.' }, 400);
+  if (amount !== undefined && amount > txn.amount) return c.json({ error: 'Refund amount cannot exceed the original transaction amount.' }, 400);
+
+  try {
+    const response = await loggedFetch('refund', 'https://api.paystack.co/refund', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transaction: reference, ...(amount ? { amount } : {}) }),
+    });
+    const data = await response.json();
+    if (!data.status) {
+      logEvent('refund_failed', { reference, message: data.message });
+      return c.json({ error: data.message || 'Refund failed.', details: data }, 502);
+    }
+    await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE reference = ?').bind('refunded', reference).run();
+    logEvent('refund_succeeded', { reference, actor: user.email, amount: amount || txn.amount });
+    return c.json({ ok: true, refund_id: data.data?.id, amount_refunded: amount || txn.amount });
+  } catch (e) {
+    console.error('PAYSTACK REFUND ERROR:', e.message);
+    logEvent('refund_error', { reference, message: e.message });
+    return c.json({ error: 'Refund failed.' }, 500);
+  }
+});
+
+// -----------------------------------------------------------------------
+// NEW: Public, printable HTML receipt for a transaction
+// -----------------------------------------------------------------------
+payments.get('/receipt/:reference', async (c) => {
+  const reference = c.req.param('reference');
+  const txn = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE reference = ?').bind(reference).first();
+  if (!txn) return c.html('<p>Receipt not found.</p>', 404);
+  return c.html(generateReceiptHtml(txn));
+});
+
+// -----------------------------------------------------------------------
+// NEW: Revenue statistics for the admin dashboard
+// -----------------------------------------------------------------------
+payments.get('/stats', requireAuth, async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Unauthorized.' }, 403);
+
+  const period = c.req.query('period') || 'all';
+  let since = null;
+  const now = new Date();
+  if (period === 'today') {
+    since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  } else if (period === 'week') {
+    const d = new Date(now); d.setDate(now.getDate() - 7);
+    since = d.toISOString();
+  } else if (period === 'month') {
+    since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  }
+
+  try {
+    const query = since
+      ? c.env.DB.prepare('SELECT status, amount FROM payment_transactions WHERE created_at >= ?').bind(since)
+      : c.env.DB.prepare('SELECT status, amount FROM payment_transactions');
+    const { results } = await query.all();
+
+    const breakdown = { completed: 0, pending: 0, failed: 0, refunded: 0 };
+    let totalRevenue = 0;
+    for (const row of results) {
+      if (breakdown[row.status] !== undefined) breakdown[row.status] += 1;
+      if (row.status === 'completed') totalRevenue += Number(row.amount || 0);
+    }
+
+    return c.json({ total_revenue: totalRevenue, total_transactions: results.length, period, breakdown });
+  } catch (e) {
+    console.error('PAYMENT STATS ERROR:', e.message);
+    return c.json({ error: 'Failed to load stats.' }, 500);
   }
 });
 
@@ -218,6 +480,8 @@ payments.post('/webhook', async (c) => {
   let body;
   try { body = JSON.parse(rawBody); } catch (e) { return c.json({ error: 'Invalid payload.' }, 400); }
 
+  logEvent('webhook_received', { event: body.event, reference: body.data?.reference, status: body.data?.status });
+
   if (body.event === 'charge.success') {
     const txn = body.data;
     const type = txn.metadata?.type;
@@ -230,8 +494,10 @@ payments.post('/webhook', async (c) => {
       } else {
         await finalizeTransaction(c.env.DB, txn.reference, userId, txn.metadata?.credits || 0);
       }
+      logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: type || 'sms_credits' });
     } catch (e) {
       console.error('PAYSTACK WEBHOOK - error:', e.message);
+      logEvent('webhook_error', { event: body.event, reference: txn.reference, message: e.message });
     }
   }
   return c.json({ received: true });
