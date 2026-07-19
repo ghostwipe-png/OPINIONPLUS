@@ -5,6 +5,7 @@ import { attachUser, csrfProtection } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKey.js';
 import { apiLimit } from './middleware/apiLimit.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
+import { createDB } from './utils/db.js';
 import auth from './routes/auth.js';
 import stories from './routes/stories.js';
 import users from './routes/users.js';
@@ -60,12 +61,113 @@ app.use('*', async (c, next) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Security headers (NEW) — OWASP-recommended headers on every response.
+// Placed after request-id tracing, before CORS, so every response (including
+// CORS preflights and error responses) carries them.
+// ---------------------------------------------------------------------------
+app.use('*', async (c, next) => {
+  await next();
+  c.res.headers.set('X-Content-Type-Options', 'nosniff');
+  c.res.headers.set('X-Frame-Options', 'DENY');
+  c.res.headers.set('X-XSS-Protection', '1; mode=block');
+  c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.res.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=()'
+  );
+  c.res.headers.set(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",
+      "media-src 'self' https:",
+      "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com",
+      "frame-ancestors 'none'",
+    ].join('; ')
+  );
+  try {
+    if (new URL(c.req.url).protocol === 'https:') {
+      c.res.headers.set(
+        'Strict-Transport-Security',
+        'max-age=63072000; includeSubDomains; preload'
+      );
+    }
+  } catch (e) { /* malformed URL — skip HSTS rather than fail the request */ }
+});
+
 app.use('*', cors({
   origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : null,
   credentials: true,
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
 }));
+
+// ---------------------------------------------------------------------------
+// Compression hints (NEW) — signal to Cloudflare's edge that compressible
+// response types should be compressed. Cloudflare auto-compresses eligible
+// content types already; this just makes the intent explicit and gives us a
+// hook to tune caching semantics for API responses later without touching
+// route code.
+// ---------------------------------------------------------------------------
+app.use('*', async (c, next) => {
+  await next();
+  const contentType = c.res.headers.get('Content-Type') || '';
+  if (/text\/html|application\/json|application\/javascript/.test(contentType)) {
+    if (!c.res.headers.get('CDN-Cache-Control')) {
+      c.res.headers.set('CDN-Cache-Control', 'max-age=0, must-revalidate');
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DB wrapper (NEW) — attaches a retry-wrapped D1 handle at c.get('db').
+// Purely additive: existing code using c.env.DB directly is untouched. Routes
+// that want automatic retry on SQLITE_BUSY/SQLITE_LOCKED can opt in by
+// reading c.get('db') instead.
+// ---------------------------------------------------------------------------
+app.use('*', async (c, next) => {
+  try {
+    if (c.env?.DB) {
+      c.set('db', createDB(c.env.DB, log));
+    }
+  } catch (e) {
+    log('warn', 'db wrapper attach failed', { error: e.message });
+  }
+  await next();
+});
+
+// ---------------------------------------------------------------------------
+// Request timeout protection (NEW) — Workers have a 30s CPU ceiling; this
+// gives a clean 504 with 5s of buffer instead of a hard platform kill.
+// ---------------------------------------------------------------------------
+app.use('*', async (c, next) => {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('__REQUEST_TIMEOUT__')), 25000);
+  });
+  try {
+    await Promise.race([next(), timeout]);
+  } catch (e) {
+    if (e && e.message === '__REQUEST_TIMEOUT__') {
+      log('error', 'request timeout', {
+        path: c.req.path,
+        method: c.req.method,
+        requestId: c.get('requestId'),
+      });
+      if (!c.finalized) {
+        c.res = c.json({ error: 'Request timeout', requestId: c.get('requestId') }, 504);
+      }
+      return;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+});
 
 app.use('*', attachUser);
 app.use('*', async (c, next) => {
@@ -112,6 +214,55 @@ app.get('/', async (c) => {
     dbLatencyMs: Date.now() - dbStart,
     requestId: c.get('requestId'),
   });
+});
+
+// ---------------------------------------------------------------------------
+// Metrics (NEW) — admin/root only. Each stat is fetched independently so a
+// missing table/column degrades that one field to null instead of failing
+// the whole endpoint.
+// ---------------------------------------------------------------------------
+async function safeFirst(env, sql) {
+  try {
+    return await env.DB.prepare(sql).first();
+  } catch (e) {
+    return null;
+  }
+}
+
+app.get('/metrics', async (c) => {
+  const user = c.get('user');
+  if (!user || (user.role !== 'admin' && user.role !== 'root')) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+  try {
+    const [usersRow, storiesRow, engagementRow, last24hRow] = await Promise.all([
+      safeFirst(c.env, 'SELECT COUNT(*) as count FROM users'),
+      safeFirst(c.env, 'SELECT COUNT(*) as count FROM stories WHERE deleted = 0'),
+      safeFirst(
+        c.env,
+        `SELECT
+           COALESCE(SUM(json_array_length(likes)), 0) as totalLikes,
+           COALESCE(SUM(json_array_length(comments)), 0) as totalComments
+         FROM stories WHERE deleted = 0`
+      ),
+      safeFirst(
+        c.env,
+        "SELECT COUNT(*) as count FROM stories WHERE deleted = 0 AND created_at >= datetime('now', '-1 day')"
+      ),
+    ]);
+
+    return c.json({
+      totalUsers: usersRow?.count ?? null,
+      totalStories: storiesRow?.count ?? null,
+      totalComments: engagementRow?.totalComments ?? null,
+      totalLikes: engagementRow?.totalLikes ?? null,
+      storiesLast24h: last24hRow?.count ?? null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    log('error', 'metrics endpoint failed', { error: e.message, requestId: c.get('requestId') });
+    return c.json({ error: 'Failed to load metrics' }, 500);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -400,24 +551,76 @@ app.get('/admin-cleanup', async (c) => {
 // ---------------------------------------------------------------------------
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
+
+// ENHANCED — adds path/method/requestId diagnostics, splits log level by
+// status class, truncates stack traces, and echoes requestId back to the
+// client for support/debugging. Response shape for unexpected (5xx) errors
+// is unchanged: { error: 'Something went wrong.' } (requestId is additive).
 app.onError((err, c) => {
-  log('error', 'unhandled error', { error: err.message, stack: err.stack, requestId: c.get('requestId') });
-  return c.json({ error: 'Something went wrong.' }, 500);
+  const status = err.status || err.statusCode || 500;
+  const requestId = c.get('requestId');
+  const meta = {
+    error: err.message,
+    status,
+    path: c.req.path,
+    method: c.req.method,
+    requestId,
+  };
+
+  if (status >= 400 && status < 500) {
+    log('warn', 'client error', meta);
+    return c.json({ error: err.message || 'Request error.', requestId }, status);
+  }
+
+  log('error', 'unhandled error', { ...meta, stack: (err.stack || '').slice(0, 500) });
+  return c.json({ error: 'Something went wrong.', requestId }, status);
 });
+
+// ---------------------------------------------------------------------------
+// Cron jobs — each wrapped independently so one failing job never blocks the
+// others in the same scheduled invocation.
+// ---------------------------------------------------------------------------
+async function runCronJob(name, fn) {
+  try {
+    const result = await fn();
+    log('info', 'cron job complete', { job: name, result: result ?? null });
+  } catch (e) {
+    log('error', 'cron job failed', { job: name, error: e.message });
+  }
+}
 
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
+    const jobs = [];
+
     if (event.cron === '*/30 * * * *') {
-      log('info', 'news cron triggered');
-      await fetchNews(env);
+      jobs.push(runCronJob('news-aggregation', () => fetchNews(env)));
     }
+
+    // Publishes scheduled stories every 5 minutes. Register this cron
+    // expression ('*/5 * * * *') in wrangler.toml's [triggers] block to
+    // activate it. Loaded dynamically and feature-detected so this file
+    // still compiles and runs even if routes/stories.js doesn't (yet) export
+    // publishScheduledStories.
+    if (event.cron === '*/5 * * * *') {
+      jobs.push(runCronJob('publish-scheduled-stories', async () => {
+        const storiesModule = await import('./routes/stories.js');
+        if (typeof storiesModule.publishScheduledStories === 'function') {
+          return await storiesModule.publishScheduledStories(env);
+        }
+        log('warn', 'publishScheduledStories not exported from routes/stories.js — skipping', {});
+        return null;
+      }));
+    }
+
     // Daily retention sweep — pick whichever cron expression you register for
     // this in wrangler.toml, e.g. '0 3 * * *' for 3am daily.
     if (event.cron === '0 3 * * *') {
-      log('info', 'retention cleanup cron triggered');
-      await runRetentionCleanup(env);
+      jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
     }
+
+    await Promise.allSettled(jobs);
   },
 };
 export default worker;

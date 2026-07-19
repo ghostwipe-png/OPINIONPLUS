@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 
 let adminPin = '1234';
 export function setAdminPin(pin) { adminPin = pin; }
@@ -9,6 +9,8 @@ const StoreContext = createContext(null);
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const STORAGE_KEY = 'op_store_v1';
 const USE_API = !!API_BASE;
+const CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_OFFLINE_QUEUE = 50;
 
 function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
@@ -77,9 +79,104 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+// REQUEST RETRY (NEW) — thin wrapper around api(). Only retries GET requests,
+// and only on network failures or 5xx server errors; 4xx client errors are
+// never retried since retrying won't change the outcome. Not a replacement
+// for api() — mutation calls keep calling api() directly.
+async function apiWithRetry(path, options = {}) {
+  const isGet = !options.method || options.method === 'GET';
+  const maxRetries = isGet ? 2 : 0;
+  const backoffs = [1000, 2000];
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await api(path, options);
+    } catch (e) {
+      const isNetworkError = e instanceof TypeError || /fetch failed|NetworkError/i.test(e.message || '');
+      const statusMatch = (e.message || '').match(/API (\d+)/);
+      const status = statusMatch ? parseInt(statusMatch[1], 10) : null;
+      const isServerError = status !== null && status >= 500;
+      const retryable = isNetworkError || isServerError;
+      if (!retryable || attempt >= maxRetries) throw e;
+      await new Promise((resolve) => setTimeout(resolve, backoffs[attempt] || 2000));
+      attempt++;
+    }
+  }
+}
+
 export function StoreProvider({ children }) {
   const [data, setData] = useState(SEED);
   const [ready, setReady] = useState(false);
+
+  // NEW — per-slice error state, offline status, and in-memory request cache.
+  const [storiesError, setStoriesError] = useState(null);
+  const [usersError, setUsersError] = useState(null);
+  const [adminError, setAdminError] = useState(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  const cacheRef = useRef(new Map());
+  const offlineQueueRef = useRef([]);
+
+  const clearAllErrors = useCallback(() => {
+    setStoriesError(null);
+    setUsersError(null);
+    setAdminError(null);
+  }, []);
+
+  // REQUEST CACHING (NEW) — caches GET responses for 2 minutes, keyed by
+  // "GET:path". invalidateCache(pattern) clears matching keys, or everything
+  // when called with no argument.
+  const invalidateCache = useCallback((pattern) => {
+    if (!pattern) { cacheRef.current.clear(); return; }
+    for (const key of cacheRef.current.keys()) {
+      if (key.includes(pattern)) cacheRef.current.delete(key);
+    }
+  }, []);
+
+  const cachedGet = useCallback(async (path) => {
+    const key = `GET:${path}`;
+    const cached = cacheRef.current.get(key);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+      return cached.data;
+    }
+    const result = await apiWithRetry(path);
+    cacheRef.current.set(key, { data: result, timestamp: Date.now() });
+    return result;
+  }, []);
+
+  // OFFLINE QUEUE (NEW) — when offline, mutations are queued (capped at 50,
+  // dropping the oldest beyond that) and replayed in order once back online.
+  const processOfflineQueue = useCallback(async () => {
+    const queue = offlineQueueRef.current;
+    if (!queue.length) return;
+    offlineQueueRef.current = [];
+    console.log(`Back online — processing ${queue.length} queued update(s)...`);
+    for (const job of queue) {
+      try { await job(); } catch (e) { console.error('Queued mutation failed:', e); }
+    }
+  }, []);
+
+  const enqueueOrRun = useCallback((fn) => {
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine;
+    if (!online) {
+      offlineQueueRef.current.push(fn);
+      if (offlineQueueRef.current.length > MAX_OFFLINE_QUEUE) offlineQueueRef.current.shift();
+      return;
+    }
+    fn().catch(() => { /* individual mutation functions handle their own error state/logging */ });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOnline = () => { setIsOnline(true); processOfflineQueue(); };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [processOfflineQueue]);
 
   // Initialize data — show seed instantly, load API in background
   useEffect(() => {
@@ -93,8 +190,8 @@ export function StoreProvider({ children }) {
   async function loadFromAPI() {
     try {
       const [storiesRes, meRes] = await Promise.all([
-        api('/stories').catch(() => ({ stories: [] })),
-        api('/auth/me').catch(() => ({ user: null })),
+        cachedGet('/stories').catch(() => ({ stories: [] })),
+        cachedGet('/auth/me').catch(() => ({ user: null })),
       ]);
 
       setData(d => {
@@ -125,8 +222,10 @@ export function StoreProvider({ children }) {
 
         return newData;
       });
+      setStoriesError(null);
     } catch (e) {
       console.error('Failed to load from API, using local fallback:', e);
+      setStoriesError(e.message);
     }
   }
 
@@ -163,63 +262,177 @@ export function StoreProvider({ children }) {
       return { ...d, users: exists ? d.users.map(u => u.id === profile.id ? { ...u, ...profile } : u) : [...d.users, profile] };
     });
     if (USE_API) {
-      api('/users/me', { method: 'PATCH', body: JSON.stringify({ publisherName: profile.publisherName, logoUrl: profile.logoUrl, bio: profile.bio, socialLink: profile.socialLink }) })
-        .catch(e => console.error('API upsertUser failed:', e));
+      enqueueOrRun(async () => {
+        try {
+          await api('/users/me', { method: 'PATCH', body: JSON.stringify({ publisherName: profile.publisherName, logoUrl: profile.logoUrl, bio: profile.bio, socialLink: profile.socialLink }) });
+          invalidateCache('/users');
+          setUsersError(null);
+        } catch (e) {
+          console.error('API upsertUser failed:', e);
+          setUsersError(e.message);
+        }
+      });
     }
-  }, []);
+  }, [enqueueOrRun, invalidateCache]);
 
   const createStory = useCallback((story) => {
     const id = uid('s');
     const newStory = { id, authorId: story.authorId, title: story.title, excerpt: story.excerpt || '', body: story.body, type: story.type || 'story', privacy: story.privacy || 'public', coverImage: story.coverImage || null, files: story.files || [], likes: [], ratings: {}, comments: [], mediaBlocked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     setData(d => ({ ...d, stories: [newStory, ...d.stories] }));
     if (USE_API) {
-      api('/stories', { method: 'POST', body: JSON.stringify({ title: story.title, excerpt: story.excerpt, body: story.body, type: story.type, privacy: story.privacy, coverImage: story.coverImage, files: story.files }) })
-        .then(res => setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id } : s) })))
-        .catch(e => console.error('API createStory failed:', e));
+      enqueueOrRun(async () => {
+        try {
+          const res = await api('/stories', { method: 'POST', body: JSON.stringify({ title: story.title, excerpt: story.excerpt, body: story.body, type: story.type, privacy: story.privacy, coverImage: story.coverImage, files: story.files }) });
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id } : s) }));
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API createStory failed:', e);
+          setStoriesError(e.message);
+        }
+      });
     }
     return id;
-  }, []);
+  }, [enqueueOrRun, invalidateCache]);
 
   const updateStory = useCallback((id, patch) => {
     setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s) }));
-    if (USE_API) { api(`/stories/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }).catch(e => console.error('API updateStory failed:', e)); }
-  }, []);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/stories/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API updateStory failed:', e);
+          setStoriesError(e.message);
+        }
+      });
+    }
+  }, [enqueueOrRun, invalidateCache]);
 
   const deleteStory = useCallback((id) => {
     setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, deleted: true } : s) }));
-    if (USE_API) { api(`/stories/${id}`, { method: 'DELETE' }).catch(e => console.error('API deleteStory failed:', e)); }
-  }, []);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/stories/${id}`, { method: 'DELETE' });
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API deleteStory failed:', e);
+          setStoriesError(e.message);
+        }
+      });
+    }
+  }, [enqueueOrRun, invalidateCache]);
 
+  // OPTIMISTIC UPDATE + ROLLBACK (NEW) — local state flips immediately; on
+  // API failure the previous likes array is restored. Signature/return type
+  // unchanged (still void).
   const toggleLike = useCallback((storyId, userId) => {
-    setData(d => ({ ...d, stories: d.stories.map(s => s.id !== storyId ? s : { ...s, likes: s.likes.includes(userId) ? s.likes.filter(id => id !== userId) : [...s.likes, userId] }) }));
-    if (USE_API) { api(`/stories/${storyId}/like`, { method: 'POST' }).catch(e => console.error('API toggleLike failed:', e)); }
-  }, []);
+    let previousLikes;
+    setData(d => ({
+      ...d,
+      stories: d.stories.map(s => {
+        if (s.id !== storyId) return s;
+        previousLikes = s.likes;
+        return { ...s, likes: s.likes.includes(userId) ? s.likes.filter(uid2 => uid2 !== userId) : [...s.likes, userId] };
+      }),
+    }));
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/stories/${storyId}/like`, { method: 'POST' });
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API toggleLike failed:', e);
+          setStoriesError(e.message);
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, likes: previousLikes ?? s.likes } : s) }));
+        }
+      });
+    }
+  }, [enqueueOrRun, invalidateCache]);
 
+  // OPTIMISTIC UPDATE + ROLLBACK (NEW)
   const rateStory = useCallback((storyId, userId, score) => {
-    setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, ratings: { ...s.ratings, [userId]: score } } : s) }));
-    if (USE_API) { api(`/stories/${storyId}/rate`, { method: 'POST', body: JSON.stringify({ score }) }).catch(e => console.error('API rateStory failed:', e)); }
-  }, []);
+    let previousRatings;
+    setData(d => ({
+      ...d,
+      stories: d.stories.map(s => {
+        if (s.id !== storyId) return s;
+        previousRatings = s.ratings;
+        return { ...s, ratings: { ...s.ratings, [userId]: score } };
+      }),
+    }));
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/stories/${storyId}/rate`, { method: 'POST', body: JSON.stringify({ score }) });
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API rateStory failed:', e);
+          setStoriesError(e.message);
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, ratings: previousRatings ?? s.ratings } : s) }));
+        }
+      });
+    }
+  }, [enqueueOrRun, invalidateCache]);
 
+  // OPTIMISTIC UPDATE (temp id -> server id on success, removed on failure)
   const addComment = useCallback((storyId, comment) => {
-    const newComment = { id: uid('c'), userId: comment.userId, body: comment.body, parentId: comment.parentId || null, createdAt: new Date().toISOString() };
+    const tempId = uid('c');
+    const newComment = { id: tempId, userId: comment.userId, body: comment.body, parentId: comment.parentId || null, createdAt: new Date().toISOString() };
     setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: [...s.comments, newComment] } : s) }));
     if (USE_API) {
-      api(`/stories/${storyId}/comments`, { method: 'POST', body: JSON.stringify({ body: comment.body, parentId: comment.parentId || null }) })
-        .then(res => setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: s.comments.map(c => c.id === newComment.id ? { ...c, id: res.id } : c) } : s) })))
-        .catch(e => console.error('API addComment failed:', e));
+      enqueueOrRun(async () => {
+        try {
+          const res = await api(`/stories/${storyId}/comments`, { method: 'POST', body: JSON.stringify({ body: comment.body, parentId: comment.parentId || null }) });
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: s.comments.map(c => c.id === tempId ? { ...c, id: res.id } : c) } : s) }));
+          invalidateCache('/stories');
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API addComment failed:', e);
+          setStoriesError(e.message);
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, comments: s.comments.filter(c => c.id !== tempId) } : s) }));
+        }
+      });
     }
-  }, []);
+  }, [enqueueOrRun, invalidateCache]);
 
   const toggleFollow = useCallback((userId, publisherId) => {
     setData(d => { const current = d.follows[userId] || []; const has = current.includes(publisherId); return { ...d, follows: { ...d.follows, [userId]: has ? current.filter(id => id !== publisherId) : [...current, publisherId] } }; });
-    if (USE_API) { api(`/users/${publisherId}/follow`, { method: 'POST' }).catch(e => console.error('API toggleFollow failed:', e)); }
-  }, []);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/users/${publisherId}/follow`, { method: 'POST' });
+          invalidateCache('/users');
+          setUsersError(null);
+        } catch (e) {
+          console.error('API toggleFollow failed:', e);
+          setUsersError(e.message);
+        }
+      });
+    }
+  }, [enqueueOrRun, invalidateCache]);
 
   const reportStory = useCallback((storyId, reporterId, reason) => {
     const newReport = { id: uid('r'), storyId, reporterId, reason, resolved: false, createdAt: new Date().toISOString() };
     setData(d => ({ ...d, reports: [...d.reports, newReport] }));
-    if (USE_API) { api(`/stories/${storyId}/report`, { method: 'POST', body: JSON.stringify({ reason }) }).catch(e => console.error('API reportStory failed:', e)); }
-  }, []);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/stories/${storyId}/report`, { method: 'POST', body: JSON.stringify({ reason }) });
+          setStoriesError(null);
+        } catch (e) {
+          console.error('API reportStory failed:', e);
+          setStoriesError(e.message);
+        }
+      });
+    }
+  }, [enqueueOrRun]);
 
   const logAdminAction = useCallback((actorEmail, action, target) => {
     setData(d => ({ ...d, adminLogs: [{ id: uid('log'), actorEmail, action, target, timestamp: new Date().toISOString() }, ...d.adminLogs] }));
@@ -227,38 +440,101 @@ export function StoreProvider({ children }) {
 
   const resolveReport = useCallback((reportId) => {
     setData(d => ({ ...d, reports: d.reports.map(r => r.id === reportId ? { ...r, resolved: true } : r) }));
-    if (USE_API) { api(`/admin/reports/${reportId}/resolve`, { method: 'POST' }).catch(e => console.error('API resolveReport failed:', e)); }
-  }, []);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/admin/reports/${reportId}/resolve`, { method: 'POST' });
+          setAdminError(null);
+        } catch (e) {
+          console.error('API resolveReport failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [enqueueOrRun]);
 
   const setUserSuspended = useCallback((userId, suspended, actorEmail) => {
     setData(d => ({ ...d, users: d.users.map(u => u.id === userId ? { ...u, suspended } : u) }));
     logAdminAction(actorEmail, suspended ? 'suspend_user' : 'unsuspend_user', userId);
-    if (USE_API) { api(`/admin/users/${userId}/${suspended ? 'suspend' : 'unsuspend'}`, { method: 'POST' }).catch(e => console.error('API setUserSuspended failed:', e)); }
-  }, [logAdminAction]);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/admin/users/${userId}/${suspended ? 'suspend' : 'unsuspend'}`, { method: 'POST' });
+          invalidateCache('/users');
+          setAdminError(null);
+        } catch (e) {
+          console.error('API setUserSuspended failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [logAdminAction, enqueueOrRun, invalidateCache]);
 
   const setMediaBlocked = useCallback((storyId, blocked, actorEmail) => {
     setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, mediaBlocked: blocked } : s) }));
     logAdminAction(actorEmail, blocked ? 'block_media' : 'unblock_media', storyId);
-    if (USE_API) { api(`/admin/stories/${storyId}/${blocked ? 'block-media' : 'unblock-media'}`, { method: 'POST' }).catch(e => console.error('API setMediaBlocked failed:', e)); }
-  }, [logAdminAction]);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/admin/stories/${storyId}/${blocked ? 'block-media' : 'unblock-media'}`, { method: 'POST' });
+          invalidateCache('/stories');
+          setAdminError(null);
+        } catch (e) {
+          console.error('API setMediaBlocked failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [logAdminAction, enqueueOrRun, invalidateCache]);
 
   const adminDeleteStory = useCallback((storyId, actorEmail) => {
     setData(d => ({ ...d, stories: d.stories.map(s => s.id === storyId ? { ...s, deleted: true } : s) }));
     logAdminAction(actorEmail, 'delete_post', storyId);
-    if (USE_API) { api(`/admin/stories/${storyId}`, { method: 'DELETE' }).catch(e => console.error('API adminDeleteStory failed:', e)); }
-  }, [logAdminAction]);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/admin/stories/${storyId}`, { method: 'DELETE' });
+          invalidateCache('/stories');
+          setAdminError(null);
+        } catch (e) {
+          console.error('API adminDeleteStory failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [logAdminAction, enqueueOrRun, invalidateCache]);
 
   const addAdmin = useCallback((email, actorEmail) => {
     setData(d => ({ ...d, admins: d.admins.includes(email) ? d.admins : [...d.admins, email] }));
     logAdminAction(actorEmail, 'add_admin', email);
-    if (USE_API) { api('/admin/admins', { method: 'POST', body: JSON.stringify({ email }) }).catch(e => console.error('API addAdmin failed:', e)); }
-  }, [logAdminAction]);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api('/admin/admins', { method: 'POST', body: JSON.stringify({ email }) });
+          setAdminError(null);
+        } catch (e) {
+          console.error('API addAdmin failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [logAdminAction, enqueueOrRun]);
 
   const removeAdmin = useCallback((email, actorEmail) => {
     setData(d => ({ ...d, admins: d.admins.filter(e => e !== email) }));
     logAdminAction(actorEmail, 'remove_admin', email);
-    if (USE_API) { api(`/admin/admins/${email}`, { method: 'DELETE' }).catch(e => console.error('API removeAdmin failed:', e)); }
-  }, [logAdminAction]);
+    if (USE_API) {
+      enqueueOrRun(async () => {
+        try {
+          await api(`/admin/admins/${email}`, { method: 'DELETE' });
+          setAdminError(null);
+        } catch (e) {
+          console.error('API removeAdmin failed:', e);
+          setAdminError(e.message);
+        }
+      });
+    }
+  }, [logAdminAction, enqueueOrRun]);
 
   const isEmailAdmin = useCallback((email) => email === 'adipotech@gmail.com' || data.admins.includes(email), [data.admins]);
 
@@ -266,7 +542,11 @@ export function StoreProvider({ children }) {
     users: data.users, stories: data.stories, follows: data.follows, reports: data.reports, admins: data.admins, adminLogs: data.adminLogs, ready,
     upsertUser, createStory, updateStory, deleteStory, toggleLike, rateStory, addComment, toggleFollow, reportStory, resolveReport,
     setUserSuspended, setMediaBlocked, adminDeleteStory, addAdmin, removeAdmin, isEmailAdmin,
-  }), [data, ready]);
+    // NEW
+    isOnline, storiesError, usersError, adminError, clearAllErrors, invalidateCache,
+  }), [data, ready, isOnline, storiesError, usersError, adminError, clearAllErrors, invalidateCache,
+    upsertUser, createStory, updateStory, deleteStory, toggleLike, rateStory, addComment, toggleFollow, reportStory, resolveReport,
+    setUserSuspended, setMediaBlocked, adminDeleteStory, addAdmin, removeAdmin, isEmailAdmin]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
