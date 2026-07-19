@@ -37,7 +37,11 @@ app.use('*', cors({
 }));
 
 app.use('*', attachUser);
-app.use('*', csrfProtection);
+app.use('*', async (c, next) => {
+  // Skip CSRF for public subscription endpoint
+  if (c.req.path === '/subscriptions/subscribe') return await next();
+  return csrfProtection(c, next);
+});
 
 app.use('/auth/*', async (c, next) => {
   if (c.req.path === '/auth/csrf') return await next();

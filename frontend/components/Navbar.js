@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { PenSquare, ShieldCheck, LogOut, LayoutGrid, User as UserIcon, Menu, X, Bookmark, Gift } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import PushNotificationToggle from './PushNotificationToggle';
+import SearchBar from './SearchBar';
 
 export default function Navbar() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
@@ -22,6 +23,7 @@ export default function Navbar() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-5 text-sm font-medium">
+            <SearchBar />
             <Link href="/" className="hover:text-signal transition-colors">Feed</Link>
             <Link href="/pricing" className="hover:text-signal transition-colors flex items-center gap-1">
               <Gift size={14} /> Partner

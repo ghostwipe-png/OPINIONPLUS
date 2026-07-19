@@ -243,4 +243,51 @@ stories.get('/timeline/:userId', async (c) => {
   return c.json({ timeline: results });
 });
 
+// Search stories
+stories.get('/search', async (c) => {
+  const q = (c.req.query('q') || '').trim();
+  if (q.length < 2) return c.json({ results: [] });
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, title, type, excerpt, cover_image, author_id, created_at 
+     FROM stories 
+     WHERE deleted = 0 AND privacy = 'public' 
+     AND (title LIKE ? OR excerpt LIKE ?) 
+     ORDER BY created_at DESC LIMIT 20`
+  ).bind(`%${q}%`, `%${q}%`).all();
+
+  // Log search
+  const userId = c.get('user')?.id || null;
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  await c.env.DB.prepare(
+    'INSERT INTO search_history (id, query, user_id, ip) VALUES (?, ?, ?, ?)'
+  ).bind(crypto.randomUUID(), q.toLowerCase(), userId, ip).run();
+
+  return c.json({ results });
+});
+
+// Admin: Search analytics
+stories.get('/search/analytics', async (c) => {
+  const user = c.get('user');
+  if (!user || (user.role !== 'admin' && user.role !== 'root')) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const [topSearches, recentSearches, totalSearches] = await Promise.all([
+    c.env.DB.prepare(
+      'SELECT query, COUNT(*) as count FROM search_history GROUP BY query ORDER BY count DESC LIMIT 20'
+    ).all(),
+    c.env.DB.prepare(
+      'SELECT * FROM search_history ORDER BY created_at DESC LIMIT 50'
+    ).all(),
+    c.env.DB.prepare('SELECT COUNT(*) as count FROM search_history').first(),
+  ]);
+
+  return c.json({
+    top: topSearches.results,
+    recent: recentSearches.results,
+    total: totalSearches?.count || 0,
+  });
+});
+
 export default stories;
