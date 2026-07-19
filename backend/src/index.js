@@ -16,6 +16,7 @@ import payments from './routes/payments.js';
 import partner from './routes/partner.js';
 import notifications from './routes/notifications.js';
 import subscriptions from './routes/subscriptions.js';
+import archive from './routes/archive.js';
 
 const app = new Hono();
 
@@ -38,7 +39,6 @@ app.use('*', cors({
 
 app.use('*', attachUser);
 app.use('*', async (c, next) => {
-  // Skip CSRF for public subscription endpoint
   if (c.req.path === '/subscriptions/subscribe') return await next();
   return csrfProtection(c, next);
 });
@@ -93,9 +93,10 @@ app.route('/payments', payments);
 app.route('/partner', partner);
 app.route('/notifications', notifications);
 app.route('/subscriptions', subscriptions);
+app.route('/archive', archive);
 
 // ---------------------------------------------------------------------------
-// News Aggregator — Production Grade with Image Extraction
+// News Aggregator — Archives to private repository
 // ---------------------------------------------------------------------------
 
 const NEWS_USER_ID = 'u_newsdesk';
@@ -106,8 +107,8 @@ const NEWS_SOURCES = [
   { url: 'https://www.capitalfm.co.ke/news/feed/', name: 'Capital FM' },
   { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
 ];
-const MAX_NEWS_PER_DAY = 100;
-const MAX_ITEMS_PER_SOURCE = 5;
+const MAX_ARCHIVE_PER_DAY = 350;
+const MAX_ITEMS_PER_SOURCE = 20;
 
 const AFFILIATE_PROGRAMS = {
   jumia: 'https://www.jumia.co.ke/?utm_source=opinionplus&utm_medium=referral',
@@ -135,7 +136,6 @@ function parseRSSWithFastXml(text) {
     const parsed = xmlParser.parse(text);
     const channel = parsed?.rss?.channel || parsed?.feed || {};
     const rawItems = channel.item || channel.entry || [];
-
     for (const raw of rawItems) {
       const title = extractText(raw.title);
       const link = extractLink(raw.link);
@@ -143,19 +143,11 @@ function parseRSSWithFastXml(text) {
       const contentEncoded = extractText(raw['content:encoded']) || '';
       const fullContent = contentEncoded || description;
       const image = extractImage(raw, fullContent);
-
       if (title && link) {
-        items.push({
-          title: cleanText(title),
-          link: link,
-          description: cleanText(fullContent).slice(0, 500),
-          image,
-        });
+        items.push({ title: cleanText(title), link: link, description: cleanText(fullContent).slice(0, 500), image });
       }
     }
-  } catch (e) {
-    console.error('XML parse error:', e.message);
-  }
+  } catch (e) { console.error('XML parse error:', e.message); }
   return items;
 }
 
@@ -176,46 +168,18 @@ function extractLink(field) {
 }
 
 function extractImage(raw, fullContent = '') {
-  // 1. Try media:content array
   const mediaContent = raw['media:content'];
   if (mediaContent) {
-    if (Array.isArray(mediaContent)) {
-      for (const m of mediaContent) {
-        if (m['@_url'] && (!m['@_medium'] || m['@_medium'] === 'image')) return m['@_url'];
-      }
-    } else if (mediaContent['@_url']) {
-      return mediaContent['@_url'];
-    }
+    if (Array.isArray(mediaContent)) { for (const m of mediaContent) { if (m['@_url'] && (!m['@_medium'] || m['@_medium'] === 'image')) return m['@_url']; } }
+    else if (mediaContent['@_url']) return mediaContent['@_url'];
   }
-
-  // 2. Try media:thumbnail
   const mediaThumb = raw['media:thumbnail'];
-  if (mediaThumb) {
-    if (Array.isArray(mediaThumb) && mediaThumb[0]?.['@_url']) return mediaThumb[0]['@_url'];
-    if (mediaThumb['@_url']) return mediaThumb['@_url'];
-  }
-
-  // 3. Try enclosure (if image type)
+  if (mediaThumb) { if (Array.isArray(mediaThumb) && mediaThumb[0]?.['@_url']) return mediaThumb[0]['@_url']; if (mediaThumb['@_url']) return mediaThumb['@_url']; }
   const enclosure = raw.enclosure;
-  if (enclosure) {
-    const enc = Array.isArray(enclosure) ? enclosure[0] : enclosure;
-    if (enc['@_url'] && (!enc['@_type'] || enc['@_type'].startsWith('image/'))) return enc['@_url'];
-  }
-
-  // 4. Try content:encoded for img tags
-  if (fullContent) {
-    const imgMatch = fullContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-    if (imgMatch) return imgMatch[1];
-  }
-
-  // 5. Try description field for img tags
+  if (enclosure) { const enc = Array.isArray(enclosure) ? enclosure[0] : enclosure; if (enc['@_url'] && (!enc['@_type'] || enc['@_type'].startsWith('image/'))) return enc['@_url']; }
+  if (fullContent) { const imgMatch = fullContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i); if (imgMatch) return imgMatch[1]; }
   const desc = raw.description;
-  if (desc) {
-    const text = typeof desc === 'string' ? desc : (desc['#text'] || '');
-    const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-    if (imgMatch) return imgMatch[1];
-  }
-
+  if (desc) { const text = typeof desc === 'string' ? desc : (desc['#text'] || ''); const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i); if (imgMatch) return imgMatch[1]; }
   return null;
 }
 
@@ -224,115 +188,54 @@ function cleanText(str) {
 }
 
 function injectAffiliateLinks(html) {
-  return html + `
-    <div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;">
-      <p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p>
-      <p style="margin:0 0 8px;">
-        <a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online
-      </p>
-      <p style="margin:0;">
-        <a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more
-      </p>
-    </div>`;
+  return html + `<div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;"><p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p><p style="margin:0 0 8px;"><a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online</p><p style="margin:0;"><a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more</p></div>`;
 }
 
 async function fetchNews(env) {
   let totalInserted = 0;
-
   for (const source of NEWS_SOURCES) {
-    let items = [];
-    let insertedFromSource = 0;
-
+    let items = []; let insertedFromSource = 0;
     try {
-      const response = await fetch(source.url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-        cf: { cacheTtl: 300 },
-      });
-
-      if (!response.ok) {
-        console.error(`News fetch failed (${source.name}): HTTP ${response.status}`);
-        continue;
-      }
-
+      const response = await fetch(source.url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8', 'Accept-Language': 'en-US,en;q=0.5' }, cf: { cacheTtl: 300 } });
+      if (!response.ok) { console.error(`News fetch failed (${source.name}): HTTP ${response.status}`); continue; }
       const text = await response.text();
-      if (!text || text.length < 100) {
-        console.error(`News fetch failed (${source.name}): Empty response`);
-        continue;
-      }
-
+      if (!text || text.length < 100) { console.error(`News fetch failed (${source.name}): Empty response`); continue; }
       items = parseRSSWithFastXml(text);
       console.log(`${source.name}: ${items.length} items parsed`);
-
-    } catch (e) {
-      console.error(`News fetch error (${source.name}): ${e.message}`);
-      continue;
-    }
+    } catch (e) { console.error(`News fetch error (${source.name}): ${e.message}`); continue; }
 
     for (const item of items.slice(0, MAX_ITEMS_PER_SOURCE)) {
       try {
-        const existing = await env.DB.prepare(
-          'SELECT id FROM stories WHERE title = ? AND author_id = ?'
-        ).bind(item.title, NEWS_USER_ID).first();
+        const existing = await env.DB.prepare('SELECT id FROM archive WHERE title = ? AND source_name = ?').bind(item.title, source.name).first();
         if (existing) continue;
-
         const today = new Date().toISOString().slice(0, 10);
-        const row = await env.DB.prepare(
-          "SELECT COUNT(*) as count FROM stories WHERE author_id = ? AND date(created_at) = ?"
-        ).bind(NEWS_USER_ID, today).first();
-        if (parseInt(row?.count || 0) >= MAX_NEWS_PER_DAY) break;
+        const row = await env.DB.prepare("SELECT COUNT(*) as count FROM archive WHERE date(created_at) = ?").bind(today).first();
+        if (parseInt(row?.count || 0) >= MAX_ARCHIVE_PER_DAY) break;
 
         const id = crypto.randomUUID();
         const excerpt = item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`;
         const coverImage = item.image || COVER_IMAGES[source.name] || null;
-
-        // Build body with image if available
         let body = '';
-        if (coverImage) {
-          body += `<img src="${coverImage}" alt="" style="max-width:100%;border-radius:4px;margin-bottom:12px;" />`;
-        }
-        if (item.description) {
-          body += `<p>${cleanText(item.description)}</p>`;
-        } else {
-          body += '<p>Click below to read the full article.</p>';
-        }
+        if (coverImage) body += `<img src="${coverImage}" alt="" style="max-width:100%;border-radius:4px;margin-bottom:12px;" />`;
+        if (item.description) body += `<p>${cleanText(item.description)}</p>`; else body += '<p>Click below to read the full article.</p>';
         body += `<p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
         body = injectAffiliateLinks(body);
 
-        await env.DB.prepare(
-          "INSERT INTO stories (id, author_id, title, excerpt, body, cover_image, type, privacy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'story', 'public', datetime('now'), datetime('now'))"
-        ).bind(id, NEWS_USER_ID, item.title, excerpt, body, coverImage).run();
-
-        insertedFromSource++;
-        totalInserted++;
-      } catch (e) {
-        console.error(`News insert error (${source.name}): ${e.message}`);
-      }
+        await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending')").bind(id, source.name, item.link, item.title, excerpt, body, coverImage).run();
+        insertedFromSource++; totalInserted++;
+      } catch (e) { console.error(`News insert error (${source.name}): ${e.message}`); }
     }
-
     console.log(`${source.name}: ${insertedFromSource} inserted out of ${items.length} parsed`);
   }
-
-  console.log(`News fetch complete: ${totalInserted} total inserted`);
+  console.log(`News fetch complete: ${totalInserted} total inserted into archive`);
   return totalInserted;
 }
 
-// Protected manual trigger
 app.get('/news-fetch', async (c) => {
   const token = c.req.query('token');
-  if (token !== c.env.CRON_SECRET) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  try {
-    const count = await fetchNews(c.env);
-    return c.json({ ok: true, inserted: count });
-  } catch (e) {
-    console.error('News fetch route error:', e.message);
-    return c.json({ ok: false, error: 'News fetch failed' }, 500);
-  }
+  if (token !== c.env.CRON_SECRET) return c.json({ error: 'Unauthorized' }, 401);
+  try { const count = await fetchNews(c.env); return c.json({ ok: true, inserted: count }); }
+  catch (e) { return c.json({ ok: false, error: 'News fetch failed' }, 500); }
 });
 
 // ---------------------------------------------------------------------------
@@ -340,20 +243,10 @@ app.get('/news-fetch', async (c) => {
 // ---------------------------------------------------------------------------
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
-
-app.onError((err, c) => {
-  console.error('Unhandled error:', err.message, err.stack);
-  return c.json({ error: 'Something went wrong.' }, 500);
-});
+app.onError((err, c) => { console.error('Unhandled error:', err.message, err.stack); return c.json({ error: 'Something went wrong.' }, 500); });
 
 const worker = {
   fetch: app.fetch,
-  async scheduled(event, env, ctx) {
-    if (event.cron === '*/30 * * * *') {
-      console.log('News cron triggered');
-      await fetchNews(env);
-    }
-  },
+  async scheduled(event, env, ctx) { if (event.cron === '*/30 * * * *') { console.log('News cron triggered'); await fetchNews(env); } },
 };
-
 export default worker;
