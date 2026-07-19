@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Users as UsersIcon, FileText, Flag, ShieldPlus, Activity, ScrollText, Lock,
-  CreditCard, MessageSquare, Search, Wallet, CheckCircle, XCircle, ArrowUpRight,
+  CreditCard, MessageSquare, Search, Wallet, CheckCircle, Mail, Download,
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -45,6 +45,7 @@ export default function AdminPage() {
   const [transactions, setTransactions] = useState([]);
   const [smsHistory, setSmsHistory] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
+  const [subscribers, setSubscribers] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const idleTimer = useRef(null);
 
@@ -66,24 +67,26 @@ export default function AdminPage() {
 
   const loadAllData = async () => {
     try {
-      const [txnRes, smsRes, wdRes] = await Promise.all([
+      const [txnRes, smsRes, wdRes, subRes] = await Promise.all([
         fetch(`${API_BASE}/payments/history`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ transactions: [] })),
         fetch(`${API_BASE}/sms/history`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ history: [] })),
         fetch(`${API_BASE}/partner/earnings`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ withdrawals: [] })),
+        fetch(`${API_BASE}/subscriptions/admin/list`, { credentials: 'include' }).then(r => r.json()).catch(() => ({ subscribers: [], total: 0, active: 0 })),
       ]);
       setTransactions(txnRes.transactions || []);
       setSmsHistory(smsRes.history || []);
       setWithdrawals(wdRes.withdrawals || []);
+      setSubscribers(subRes.subscribers || []);
     } catch (e) { /* ignore */ }
+  };
+
+  const exportCSV = () => {
+    window.open(`${API_BASE}/subscriptions/admin/export`, '_blank');
   };
 
   const markWithdrawalComplete = async (id) => {
     try {
-      await fetch(`${API_BASE}/partner/withdrawal/${id}/complete`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      await fetch(`${API_BASE}/partner/withdrawal/${id}/complete`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
       loadAllData();
     } catch (e) { console.error(e); }
   };
@@ -116,6 +119,7 @@ export default function AdminPage() {
   const openReports = reports.filter(r => !r.resolved);
   const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending');
   const proUsers = users.filter(u => u.tier === 'partner' || u.tier === 'pro_partner');
+  const activeSubscribers = subscribers.filter(s => s.status === 'active');
 
   const TABS = [
     { id: 'overview', label: 'Overview', icon: Activity },
@@ -125,6 +129,7 @@ export default function AdminPage() {
     { id: 'withdrawals', label: `Withdrawals${pendingWithdrawals.length ? ` (${pendingWithdrawals.length})` : ''}`, icon: Wallet },
     { id: 'transactions', label: 'Transactions', icon: CreditCard },
     { id: 'sms', label: 'SMS Logs', icon: MessageSquare },
+    { id: 'subscribers', label: `Subscribers (${activeSubscribers.length})`, icon: Mail },
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     { id: 'log', label: 'Audit log', icon: ScrollText },
   ];
@@ -136,11 +141,11 @@ export default function AdminPage() {
 
       <p className="wire-tag mb-2">{isRoot ? 'Root admin' : 'Admin'} console</p>
       <h1 className="editorial-h text-3xl font-bold mb-2">Platform Control</h1>
-      <p className="text-xs text-ink-400 mb-8">{users.length} users · {activeStories.length} stories · {proUsers.length} pro · {openReports.length} open reports</p>
+      <p className="text-xs text-ink-400 mb-8">{users.length} users · {activeStories.length} stories · {proUsers.length} pro · {activeSubscribers.length} subscribers</p>
 
       <div className="flex gap-2 flex-wrap mb-8 text-xs font-semibold">
         {TABS.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals'].includes(t.id)) loadAllData(); }}
+          <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers'].includes(t.id)) loadAllData(); }}
             className={`px-3 py-2 rounded-sm border flex items-center gap-1.5 ${tab === t.id ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
             <t.icon size={13} /> {t.label}
           </button>
@@ -153,12 +158,12 @@ export default function AdminPage() {
           {[
             ['Total Users', users.length, '👥'],
             ['Pro Users', proUsers.length, '⭐'],
+            ['Subscribers', activeSubscribers.length, '📧'],
             ['Active Stories', activeStories.filter(s => s.privacy === 'public').length, '📝'],
             ['Suspended', users.filter(u => u.suspended).length, '🚫'],
             ['Open Reports', openReports.length, '🚩'],
             ['Pending Withdrawals', pendingWithdrawals.length, '💳'],
             ['Blocked Media', activeStories.filter(s => s.mediaBlocked).length, '🖼️'],
-            ['SMS Sent', smsHistory.length, '💬'],
           ].map(([label, value, emoji]) => (
             <div key={label} className="border border-wire rounded-sm p-4 hover:border-ink transition-colors">
               <p className="text-2xl mb-1">{emoji}</p>
@@ -259,9 +264,7 @@ export default function AdminPage() {
                   <p className="text-sm font-semibold">{story?.title || 'Deleted post'}</p>
                   <p className="text-xs text-ink-400">{r.reason} · {new Date(r.createdAt).toLocaleString()}{r.resolved && <span className="text-ink-400"> · resolved</span>}</p>
                 </div>
-                {!r.resolved && (
-                  <button onClick={() => resolveReport(r.id)} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire">Resolve</button>
-                )}
+                {!r.resolved && <button onClick={() => resolveReport(r.id)} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire">Resolve</button>}
               </div>
             );
           })}
@@ -280,32 +283,18 @@ export default function AdminPage() {
           </div>
           <div className="border border-wire rounded-sm divide-y divide-wire">
             {withdrawals.length === 0 && <p className="p-4 text-sm text-ink-400">No withdrawal requests yet.</p>}
-            {withdrawals
-              .filter(w => filterStatus === 'all' ? true : w.status === filterStatus)
-              .map(w => (
-                <div key={w.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-                  <div>
-                    <p className="text-sm font-semibold">KES {(w.amount / 100).toFixed(0)}</p>
-                    <p className="text-xs text-ink-400">
-                      Phone: {w.phone} · {new Date(w.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                      w.status === 'completed' ? 'bg-ink-50 text-ink-600' :
-                      w.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'
-                    }`}>{w.status}</span>
-                    {w.status === 'pending' && (
-                      <button
-                        onClick={() => runGated(`Mark withdrawal of KES ${(w.amount / 100).toFixed(0)} as completed?`, () => markWithdrawalComplete(w.id))}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-ink text-ink hover:bg-ink hover:text-paper flex items-center gap-1"
-                      >
-                        <CheckCircle size={12} /> Complete
-                      </button>
-                    )}
-                  </div>
+            {withdrawals.filter(w => filterStatus === 'all' ? true : w.status === filterStatus).map(w => (
+              <div key={w.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
+                <div><p className="text-sm font-semibold">KES {(w.amount / 100).toFixed(0)}</p><p className="text-xs text-ink-400">Phone: {w.phone} · {new Date(w.created_at).toLocaleString()}</p></div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${w.status === 'completed' ? 'bg-ink-50 text-ink-600' : w.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'}`}>{w.status}</span>
+                  {w.status === 'pending' && (
+                    <button onClick={() => runGated(`Mark withdrawal of KES ${(w.amount / 100).toFixed(0)} as completed?`, () => markWithdrawalComplete(w.id))}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-ink text-ink hover:bg-ink hover:text-paper flex items-center gap-1"><CheckCircle size={12} /> Complete</button>
+                  )}
                 </div>
-              ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -316,10 +305,7 @@ export default function AdminPage() {
           {transactions.length === 0 && <p className="p-4 text-sm text-ink-400">No transactions yet.</p>}
           {transactions.map(t => (
             <div key={t.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-              <div>
-                <p className="text-sm font-semibold">{t.credits} credits · KES {t.amount / 100}</p>
-                <p className="text-xs text-ink-400">{t.reference} · {new Date(t.created_at).toLocaleString()}</p>
-              </div>
+              <div><p className="text-sm font-semibold">{t.credits} credits · KES {t.amount / 100}</p><p className="text-xs text-ink-400">{t.reference} · {new Date(t.created_at).toLocaleString()}</p></div>
               <span className={`text-xs font-semibold px-2 py-1 rounded-full ${t.status === 'completed' ? 'bg-ink-50 text-ink-600' : t.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'}`}>{t.status}</span>
             </div>
           ))}
@@ -340,6 +326,30 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Subscribers */}
+      {tab === 'subscribers' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-ink-600"><strong>{subscribers.length}</strong> total · <strong>{activeSubscribers.length}</strong> active</p>
+            <button onClick={exportCSV} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire hover:bg-ink-50 flex items-center gap-1">
+              <Download size={12} /> Export CSV
+            </button>
+          </div>
+          <div className="border border-wire rounded-sm divide-y divide-wire">
+            {subscribers.length === 0 && <p className="p-4 text-sm text-ink-400">No subscribers yet.</p>}
+            {subscribers.map(s => (
+              <div key={s.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
+                <div>
+                  <p className="text-sm font-semibold">{s.email}</p>
+                  <p className="text-xs text-ink-400">Prefers: {s.preferences} · Joined {new Date(s.created_at).toLocaleDateString()}</p>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${s.status === 'active' ? 'bg-ink-50 text-ink-600' : 'bg-red-50 text-signal'}`}>{s.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Admins */}
       {tab === 'admins' && isRoot && (
         <div>
@@ -348,10 +358,7 @@ export default function AdminPage() {
             <button onClick={() => runGated(`Grant admin access to ${newAdminEmail}?`, () => { addAdmin(newAdminEmail, user.email); setNewAdminEmail(''); })} className="btn-primary px-4 py-2 rounded-sm text-sm">Add admin</button>
           </div>
           <div className="border border-wire rounded-sm divide-y divide-wire">
-            <div className="p-3 flex items-center justify-between">
-              <span className="text-sm font-semibold">{user.email}</span>
-              <span className="text-xs text-ink-400 font-semibold">Root — cannot be removed</span>
-            </div>
+            <div className="p-3 flex items-center justify-between"><span className="text-sm font-semibold">{user.email}</span><span className="text-xs text-ink-400 font-semibold">Root — cannot be removed</span></div>
             {admins.map(email => (
               <div key={email} className="p-3 flex items-center justify-between">
                 <span className="text-sm">{email}</span>

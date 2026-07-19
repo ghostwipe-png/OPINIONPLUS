@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { XMLParser } from 'fast-xml-parser';
 import { attachUser, csrfProtection } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKey.js';
 import { apiLimit } from './middleware/apiLimit.js';
@@ -14,6 +15,7 @@ import sms from './routes/sms.js';
 import payments from './routes/payments.js';
 import partner from './routes/partner.js';
 import notifications from './routes/notifications.js';
+import subscriptions from './routes/subscriptions.js';
 
 const app = new Hono();
 
@@ -27,17 +29,12 @@ const ALLOWED_ORIGINS = [
 // Middleware
 // ---------------------------------------------------------------------------
 
-app.use('*', async (c, next) => {
-  const origin = c.req.header('Origin');
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  const middleware = cors({
-    origin: allowed,
-    credentials: true,
-    allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token'],
-  });
-  return middleware(c, next);
-});
+app.use('*', cors({
+  origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : null,
+  credentials: true,
+  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token'],
+}));
 
 app.use('*', attachUser);
 app.use('*', csrfProtection);
@@ -91,9 +88,10 @@ app.route('/sms', sms);
 app.route('/payments', payments);
 app.route('/partner', partner);
 app.route('/notifications', notifications);
+app.route('/subscriptions', subscriptions);
 
 // ---------------------------------------------------------------------------
-// News Aggregator — fetches RSS feeds from multiple trusted sources
+// News Aggregator — Production Grade with Image Extraction
 // ---------------------------------------------------------------------------
 
 const NEWS_USER_ID = 'u_newsdesk';
@@ -101,41 +99,137 @@ const NEWS_SOURCES = [
   { url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml', name: 'BBC Africa' },
   { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
   { url: 'https://nation.africa/service/rss/kenya/1954666', name: 'Nation Africa' },
-  { url: 'https://www.capitalfm.co.ke/feed/', name: 'Capital FM' },
+  { url: 'https://www.capitalfm.co.ke/news/feed/', name: 'Capital FM' },
   { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
 ];
-const MAX_NEWS_PER_DAY = 60;
+const MAX_NEWS_PER_DAY = 100;
 const MAX_ITEMS_PER_SOURCE = 5;
 
-function parseRSSItems(xmlText) {
+const AFFILIATE_PROGRAMS = {
+  jumia: 'https://www.jumia.co.ke/?utm_source=opinionplus&utm_medium=referral',
+  kilimall: 'https://www.kilimall.co.ke/?utm_source=opinionplus&utm_medium=referral',
+};
+
+const COVER_IMAGES = {
+  'BBC Africa': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-bbc.jpg',
+  'Al Jazeera': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-aljazeera.jpg',
+  'Nation Africa': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-nation.jpg',
+  'Capital FM': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-capital.jpg',
+  'Tuko': 'https://pub-f404ee622a524069bb1df30468d02b75.r2.dev/news-tuko.jpg',
+};
+
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '@_',
+  textNodeName: '#text',
+  isArray: (name) => ['item', 'entry'].includes(name),
+});
+
+function parseRSSWithFastXml(text) {
   const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-  let match;
-  while ((match = itemRegex.exec(xmlText)) !== null) {
-    const block = match[1];
-    const title = extractTag(block, 'title');
-    const link = extractTag(block, 'link');
-    const description = extractTag(block, 'description');
-    if (title && link) {
-      items.push({
-        title: stripHtml(title).trim(),
-        link: link.trim(),
-        description: stripHtml(description).trim().slice(0, 300),
-      });
+  try {
+    const parsed = xmlParser.parse(text);
+    const channel = parsed?.rss?.channel || parsed?.feed || {};
+    const rawItems = channel.item || channel.entry || [];
+
+    for (const raw of rawItems) {
+      const title = extractText(raw.title);
+      const link = extractLink(raw.link);
+      const description = extractText(raw.description || raw.summary || raw.content || '');
+      const contentEncoded = extractText(raw['content:encoded']) || '';
+      const fullContent = contentEncoded || description;
+      const image = extractImage(raw, fullContent);
+
+      if (title && link) {
+        items.push({
+          title: cleanText(title),
+          link: link,
+          description: cleanText(fullContent).slice(0, 500),
+          image,
+        });
+      }
     }
+  } catch (e) {
+    console.error('XML parse error:', e.message);
   }
   return items;
 }
 
-function extractTag(block, tag) {
-  const cdata = block.match(new RegExp(`<${tag}><!\\[CDATA\\[(.*?)\\]\\]><\\/${tag}>`, 'i'));
-  if (cdata) return cdata[1];
-  const plain = block.match(new RegExp(`<${tag}[^>]*>(.*?)<\\/${tag}>`, 'i'));
-  return plain ? plain[1] : '';
+function extractText(field) {
+  if (!field) return '';
+  if (typeof field === 'string') return field;
+  if (field['#text']) return field['#text'];
+  if (Array.isArray(field) && field[0]?.['#text']) return field[0]['#text'];
+  return '';
 }
 
-function stripHtml(str) {
-  return str.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+function extractLink(field) {
+  if (!field) return '';
+  if (typeof field === 'string') return field.trim();
+  if (field['@_href']) return field['@_href'].trim();
+  if (Array.isArray(field) && field[0]?.['@_href']) return field[0]['@_href'].trim();
+  return '';
+}
+
+function extractImage(raw, fullContent = '') {
+  // 1. Try media:content array
+  const mediaContent = raw['media:content'];
+  if (mediaContent) {
+    if (Array.isArray(mediaContent)) {
+      for (const m of mediaContent) {
+        if (m['@_url'] && (!m['@_medium'] || m['@_medium'] === 'image')) return m['@_url'];
+      }
+    } else if (mediaContent['@_url']) {
+      return mediaContent['@_url'];
+    }
+  }
+
+  // 2. Try media:thumbnail
+  const mediaThumb = raw['media:thumbnail'];
+  if (mediaThumb) {
+    if (Array.isArray(mediaThumb) && mediaThumb[0]?.['@_url']) return mediaThumb[0]['@_url'];
+    if (mediaThumb['@_url']) return mediaThumb['@_url'];
+  }
+
+  // 3. Try enclosure (if image type)
+  const enclosure = raw.enclosure;
+  if (enclosure) {
+    const enc = Array.isArray(enclosure) ? enclosure[0] : enclosure;
+    if (enc['@_url'] && (!enc['@_type'] || enc['@_type'].startsWith('image/'))) return enc['@_url'];
+  }
+
+  // 4. Try content:encoded for img tags
+  if (fullContent) {
+    const imgMatch = fullContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+    if (imgMatch) return imgMatch[1];
+  }
+
+  // 5. Try description field for img tags
+  const desc = raw.description;
+  if (desc) {
+    const text = typeof desc === 'string' ? desc : (desc['#text'] || '');
+    const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
+    if (imgMatch) return imgMatch[1];
+  }
+
+  return null;
+}
+
+function cleanText(str) {
+  return str.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').trim();
+}
+
+function injectAffiliateLinks(html) {
+  return html + `
+    <div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;">
+      <p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p>
+      <p style="margin:0 0 8px;">
+        <a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online
+      </p>
+      <p style="margin:0;">
+        <a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more
+      </p>
+    </div>`;
 }
 
 async function fetchNews(env) {
@@ -147,7 +241,11 @@ async function fetchNews(env) {
 
     try {
       const response = await fetch(source.url, {
-        headers: { 'User-Agent': 'OPINIONPLUS/1.0 (news aggregator)' },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
         cf: { cacheTtl: 300 },
       });
 
@@ -157,13 +255,12 @@ async function fetchNews(env) {
       }
 
       const text = await response.text();
-
       if (!text || text.length < 100) {
-        console.error(`News fetch failed (${source.name}): Empty or too short response`);
+        console.error(`News fetch failed (${source.name}): Empty response`);
         continue;
       }
 
-      items = parseRSSItems(text);
+      items = parseRSSWithFastXml(text);
       console.log(`${source.name}: ${items.length} items parsed`);
 
     } catch (e) {
@@ -182,19 +279,28 @@ async function fetchNews(env) {
         const row = await env.DB.prepare(
           "SELECT COUNT(*) as count FROM stories WHERE author_id = ? AND date(created_at) = ?"
         ).bind(NEWS_USER_ID, today).first();
-
-        if (parseInt(row?.count || 0) >= MAX_NEWS_PER_DAY) {
-          console.log(`Daily news limit (${MAX_NEWS_PER_DAY}) reached`);
-          break;
-        }
+        if (parseInt(row?.count || 0) >= MAX_NEWS_PER_DAY) break;
 
         const id = crypto.randomUUID();
-        const excerpt = item.description ? item.description + '...' : `Read the full article on ${source.name}.`;
-        const body = `<p>${item.description || 'Click below to read the full article.'}</p><p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
+        const excerpt = item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`;
+        const coverImage = item.image || COVER_IMAGES[source.name] || null;
+
+        // Build body with image if available
+        let body = '';
+        if (coverImage) {
+          body += `<img src="${coverImage}" alt="" style="max-width:100%;border-radius:4px;margin-bottom:12px;" />`;
+        }
+        if (item.description) {
+          body += `<p>${cleanText(item.description)}</p>`;
+        } else {
+          body += '<p>Click below to read the full article.</p>';
+        }
+        body += `<p><a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;font-weight:600;">Read full article on ${source.name} →</a></p>`;
+        body = injectAffiliateLinks(body);
 
         await env.DB.prepare(
-          "INSERT INTO stories (id, author_id, title, excerpt, body, type, privacy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'story', 'public', datetime('now'), datetime('now'))"
-        ).bind(id, NEWS_USER_ID, item.title, excerpt, body).run();
+          "INSERT INTO stories (id, author_id, title, excerpt, body, cover_image, type, privacy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'story', 'public', datetime('now'), datetime('now'))"
+        ).bind(id, NEWS_USER_ID, item.title, excerpt, body, coverImage).run();
 
         insertedFromSource++;
         totalInserted++;
@@ -210,7 +316,12 @@ async function fetchNews(env) {
   return totalInserted;
 }
 
+// Protected manual trigger
 app.get('/news-fetch', async (c) => {
+  const token = c.req.query('token');
+  if (token !== c.env.CRON_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
   try {
     const count = await fetchNews(c.env);
     return c.json({ ok: true, inserted: count });
@@ -231,7 +342,6 @@ app.onError((err, c) => {
   return c.json({ error: 'Something went wrong.' }, 500);
 });
 
-// Wrap Hono app to handle cron triggers
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {

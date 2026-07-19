@@ -9,6 +9,7 @@
     "db:migrate:remote": "wrangler d1 execute opinionplus --remote --file=./migrations/0001_init.sql"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.10.1",
     "hono": "^4.5.0"
   },
   "devDependencies": {

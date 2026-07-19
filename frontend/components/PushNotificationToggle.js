@@ -24,31 +24,38 @@ export default function PushNotificationToggle() {
       setLoading(false);
       return;
     }
-    checkStatus();
+    checkAndAutoSubscribe();
   }, []);
 
-  const checkStatus = async () => {
+  const checkAndAutoSubscribe = async () => {
     try {
       const res = await fetch(`${API_BASE}/notifications/status`, { credentials: 'include' });
       const data = await res.json();
-      setSubscribed(data.subscribed);
+
+      if (data.subscribed) {
+        setSubscribed(true);
+        setLoading(false);
+        return;
+      }
+
+      // Auto-prompt: if permission is already granted, subscribe silently
+      if (Notification.permission === 'granted') {
+        await doSubscribe();
+      } else if (Notification.permission === 'default') {
+        // Show a brief delay then request permission
+        setTimeout(async () => {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            await doSubscribe();
+          }
+        }, 3000);
+      }
     } catch (e) { /* ignore */ }
     setLoading(false);
   };
 
-  const toggle = async () => {
-    if (subscribed) {
-      await unsubscribe();
-    } else {
-      await subscribe();
-    }
-  };
-
-  const subscribe = async () => {
+  const doSubscribe = async () => {
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') return;
-
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -66,20 +73,31 @@ export default function PushNotificationToggle() {
     } catch (e) { console.error('Push subscribe error:', e); }
   };
 
-  const unsubscribe = async () => {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) await subscription.unsubscribe();
+  const toggle = async () => {
+    if (subscribed) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) await subscription.unsubscribe();
 
-      await fetch(`${API_BASE}/notifications/unsubscribe`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
+        await fetch(`${API_BASE}/notifications/unsubscribe`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
 
-      setSubscribed(false);
-    } catch (e) { console.error('Push unsubscribe error:', e); }
+        setSubscribed(false);
+      } catch (e) { console.error('Push unsubscribe error:', e); }
+    } else {
+      if (Notification.permission === 'denied') {
+        alert('Notifications are blocked. Enable them in your browser settings.');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        await doSubscribe();
+      }
+    }
   };
 
   if (!supported || loading) return null;
@@ -90,10 +108,10 @@ export default function PushNotificationToggle() {
       className={`text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-colors ${
         subscribed ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600 hover:border-ink'
       }`}
-      title={subscribed ? 'Notifications on' : 'Notifications off'}
+      title={subscribed ? 'Notifications on — click to turn off' : 'Get breaking news alerts'}
     >
       {subscribed ? <Bell size={13} /> : <BellOff size={13} />}
-      {subscribed ? 'Alerts on' : 'Get alerts'}
+      {subscribed ? 'Alerts on' : 'Alerts'}
     </button>
   );
 }
