@@ -40,6 +40,7 @@ app.use('*', cors({
 app.use('*', attachUser);
 app.use('*', async (c, next) => {
   if (c.req.path === '/subscriptions/subscribe') return await next();
+  if (c.req.path.startsWith('/archive/')) return await next();
   return csrfProtection(c, next);
 });
 
