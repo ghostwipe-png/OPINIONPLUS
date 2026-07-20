@@ -24,3 +24,4 @@ ALLOWED_ORIGIN = "https://www.opinionplus.online,https://opinionplus.online,http
 R2_PUBLIC_BASE = "https://pub-f404ee622a524069bb1df30468d02b75.r2.dev"
 
 CRON_SECRET = "op-news-cron-secret-2026"
+ADMIN_PIN_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"

@@ -27,18 +27,11 @@ const ALLOWED_ORIGINS = [
   'https://opinionplus.opinionplus.workers.dev',
 ];
 
-// ---------------------------------------------------------------------------
-// Structured logging helper
-// ---------------------------------------------------------------------------
 function log(level, message, meta = {}) {
   const entry = { level, message, ts: new Date().toISOString(), ...meta };
   if (level === 'error') console.error(JSON.stringify(entry));
   else console.log(JSON.stringify(entry));
 }
-
-// ---------------------------------------------------------------------------
-// Middleware
-// ---------------------------------------------------------------------------
 
 app.use('*', async (c, next) => {
   const requestId = c.req.header('X-Request-ID') || crypto.randomUUID();
@@ -143,8 +136,10 @@ app.use('*', async (c, next) => {
 
 app.use('*', attachUser);
 app.use('*', async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return await next();
   if (c.req.path === '/subscriptions/subscribe') return await next();
   if (c.req.path.startsWith('/archive/')) return await next();
+  if (c.req.path.startsWith('/admin/')) return await next();
   return csrfProtection(c, next);
 });
 
@@ -165,10 +160,6 @@ app.use('/sms/*', async (c, next) => {
   await next();
 });
 
-// ---------------------------------------------------------------------------
-// Health check
-// ---------------------------------------------------------------------------
-
 app.get('/', async (c) => {
   let dbStatus = 'unknown';
   const dbStart = Date.now();
@@ -187,10 +178,6 @@ app.get('/', async (c) => {
     requestId: c.get('requestId'),
   });
 });
-
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
 
 async function safeFirst(env, sql) {
   try {
@@ -236,10 +223,6 @@ app.get('/metrics', async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Public API feed
-// ---------------------------------------------------------------------------
-
 app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   const user = c.get('user');
   const { results } = await c.env.DB.prepare(
@@ -247,10 +230,6 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   ).bind(user.id).all();
   return c.json({ publisher: user.publisher_name, stories: results });
 });
-
-// ---------------------------------------------------------------------------
-// Trending stories
-// ---------------------------------------------------------------------------
 
 app.get('/stories/trending', async (c) => {
   try {
@@ -269,10 +248,6 @@ app.get('/stories/trending', async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
-
 app.route('/auth', auth);
 app.route('/stories', stories);
 app.route('/users', users);
@@ -285,10 +260,6 @@ app.route('/partner', partner);
 app.route('/notifications', notifications);
 app.route('/subscriptions', subscriptions);
 app.route('/archive', archive);
-
-// ---------------------------------------------------------------------------
-// News Aggregator
-// ---------------------------------------------------------------------------
 
 const NEWS_USER_ID = 'u_newsdesk';
 const NEWS_SOURCES = [
@@ -452,9 +423,6 @@ app.get('/news-fetch', async (c) => {
   catch (e) { return c.json({ ok: false, error: 'News fetch failed' }, 500); }
 });
 
-// ---------------------------------------------------------------------------
-// Retention cleanup
-// ---------------------------------------------------------------------------
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
   try {
@@ -488,10 +456,6 @@ app.get('/admin-cleanup', async (c) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 404 & Error handler
-// ---------------------------------------------------------------------------
-
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 app.onError((err, c) => {
@@ -506,9 +470,6 @@ app.onError((err, c) => {
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
 
-// ---------------------------------------------------------------------------
-// Cron jobs
-// ---------------------------------------------------------------------------
 async function runCronJob(name, fn) {
   try {
     const result = await fn();
@@ -523,7 +484,6 @@ const worker = {
   async scheduled(event, env, ctx) {
     const jobs = [];
 
-    // --- News aggregation (every 30 min) — checks admin toggle first ---
     if (event.cron === '*/30 * * * *') {
       jobs.push(runCronJob('news-aggregation', async () => {
         try {
@@ -534,9 +494,7 @@ const worker = {
             log('info', 'news aggregation skipped', { reason: 'disabled by admin toggle' });
             return { skipped: true };
           }
-        } catch (e) {
-          // If the table doesn't exist yet, default to enabled
-        }
+        } catch (e) {}
         return fetchNews(env);
       }));
     }

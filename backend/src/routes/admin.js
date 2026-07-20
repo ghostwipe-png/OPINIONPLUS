@@ -125,7 +125,7 @@ admin.get('/news/toggle', async (c) => {
   return c.json({ enabled });
 });
 
-admin.post('/news/toggle', requirePin, async (c) => {
+admin.post('/news/toggle', async (c) => {
   const { enabled } = await c.req.json();
   await c.env.DB.prepare(
     "INSERT INTO platform_settings (key, value) VALUES ('news_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"

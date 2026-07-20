@@ -78,7 +78,7 @@ export default function HeroGrid() {
 
   const top5 = useMemo(() => {
     return (stories || [])
-      .filter((s) => !s.deleted && s.privacy === 'public')
+      .filter((s) => !s.deleted && s.privacy === 'public' && s.authorId !== 'u_newsdesk')
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 5);
   }, [stories]);
