@@ -238,21 +238,6 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   return c.json({ publisher: user.publisher_name, stories: results });
 });
 
-app.get('/stories/trending', async (c) => {
-  try {
-    const { results } = await c.env.DB.prepare(
-      `SELECT * FROM stories
-       WHERE deleted = 0 AND privacy = 'public'
-         AND created_at >= datetime('now', '-7 days')
-       ORDER BY json_array_length(likes) DESC, created_at DESC
-       LIMIT 5`
-    ).all();
-    return c.json({ stories: results });
-  } catch (e) {
-    log('error', 'trending query failed', { error: e.message, requestId: c.get('requestId') });
-    return c.json({ stories: [] });
-  }
-});
 
 app.route('/auth', auth);
 app.route('/stories', stories);
