@@ -38,17 +38,10 @@ export const metadata = {
     canonical: siteUrl,
   },
   manifest: '/site.webmanifest',
-  themeColor: '#1C1917',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
     title: 'OPINIONPLUS',
-  },
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
   },
   openGraph: {
     title: siteTitle,
@@ -72,6 +65,14 @@ export const metadata = {
     description: siteDescription,
     images: ['/og-image.png'],
   },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#1C1917',
 };
 
 export default function RootLayout({ children }) {

@@ -1,150 +1,74 @@
+'use client';
+
 import Link from 'next/link';
-import { useState } from 'react';
-import { Heart, MessageSquare, Star, Film, FileText, ExternalLink, ImageOff } from 'lucide-react';
-import { useStore } from '../lib/store';
+import { Film, FileText, Heart, Clock } from 'lucide-react';
 
-function avgRating(ratings) {
-  const vals = Object.values(ratings || {});
-  if (!vals.length) return null;
-  return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
-}
+export default function StoryCard({ story, imagePosition = 'right' }) {
+  if (!story) return null;
 
-// Rough reading-time estimate from the excerpt/body length. This is a display
-// nicety only — it never blocks rendering if excerpt is missing.
-function estimateReadMinutes(story) {
-  const text = `${story.excerpt || ''} ${story.body || ''}`.replace(/<[^>]*>/g, '');
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  const minutes = Math.max(1, Math.round(words / 200));
-  return minutes;
-}
-
-// Thin left-border color per source/type — purely visual categorization,
-// doesn't touch any existing data model.
-const CATEGORY_COLORS = {
-  'BBC Africa': '#BB1919',
-  'Al Jazeera': '#FDB813',
-  'Nation Africa': '#003876',
-  'Capital FM': '#8E44AD',
-  'Tuko': '#E0492B',
-  documentary: '#C99A3B',
-  story: '#14171F',
-};
-
-const HOUR_MS = 60 * 60 * 1000;
-
-export default function StoryCard({ story, loading = false }) {
-  const { users } = useStore();
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const [imgError, setImgError] = useState(false);
-
-  if (loading) return <StoryCardSkeleton />;
-
-  const author = users.find((u) => u.id === story.authorId);
-  const rating = avgRating(story.ratings);
-  const date = new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-  const isNews = story.authorId === 'u_newsdesk';
-  const sourceMatch = isNews ? story.body?.match(/Original source: <a[^>]*>([^<]+)<\/a>/) : null;
-  const sourceName = sourceMatch ? sourceMatch[1] : null;
-  const linkMatch = isNews ? story.body?.match(/href="(https:\/\/[^"]+)"/) : null;
-  const originalLink = linkMatch ? linkMatch[1] : null;
-  const cardLink = isNews && originalLink ? originalLink : `/story/${story.id}`;
-  const cardTarget = isNews && originalLink ? '_blank' : '_self';
-
-  const isBreaking = Date.now() - new Date(story.createdAt).getTime() < HOUR_MS;
-  const readMinutes = estimateReadMinutes(story);
-  const categoryColor = CATEGORY_COLORS[sourceName] || CATEGORY_COLORS[story.type] || '#DAD5C8';
-  const showImage = story.coverImage && !story.mediaBlocked && !imgError;
+  const date = story.createdAt 
+    ? new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) 
+    : '';
+  const isDoc = story.type === 'documentary';
 
   return (
-    <article
-      className="contain-card border-b border-wire py-3 hover:bg-ink-50/50 hover:shadow-sm transition-all duration-150 px-2 -mx-1 rounded-sm"
-      style={{ borderLeft: `3px solid ${categoryColor}` }}
+    <Link 
+      href={`/story/${story.id}`}
+      className="group block bg-white border border-wire rounded-sm p-5 hover:border-ink transition-all shadow-sm hover:shadow-md"
     >
-      <div className="flex items-start gap-3 pl-1">
-        {(story.coverImage && !story.mediaBlocked) && (
-          <Link
-            href={cardLink}
-            target={cardTarget}
-            rel={cardTarget === '_blank' ? 'noopener' : ''}
-            className="shrink-0 relative w-16 h-16 sm:w-20 sm:h-20 rounded-sm overflow-hidden focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none"
-          >
-            {!imgLoaded && !imgError && (
-              <div className="absolute inset-0 skeleton rounded-sm" aria-hidden="true" />
-            )}
-            {showImage ? (
-              <img
-                src={story.coverImage}
-                alt=""
-                loading="lazy"
-                onLoad={() => setImgLoaded(true)}
-                onError={() => setImgError(true)}
-                className={`w-full h-full object-cover transition-transform duration-150 hover:scale-[1.03] ${imgLoaded ? 'img-fade-in opacity-100' : 'opacity-0'}`}
-              />
-            ) : (
-              <div
-                className="w-full h-full grid place-items-center"
-                style={{ backgroundColor: `${categoryColor}22` }}
-                aria-hidden="true"
-              >
-                <ImageOff size={18} style={{ color: categoryColor }} />
-              </div>
-            )}
-          </Link>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wider text-ink-400 flex items-center gap-1 leading-[1.4] tracking-[-0.01em]">
-              {isNews ? <ExternalLink size={10} /> : story.type === 'documentary' ? <Film size={10} /> : <FileText size={10} />}
-              {isNews ? 'News' : story.type}
-              {sourceName && <span className="text-ink-300">· {sourceName}</span>}
+      <div className={`flex flex-col sm:flex-row gap-5 items-start ${imagePosition === 'left' ? 'sm:flex-row-reverse' : ''}`}>
+        
+        {/* Text Content */}
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-ink-400 flex-wrap">
+            <span className="flex items-center gap-1 text-ink-600 bg-ink-50 px-2 py-0.5 rounded-sm border border-wire">
+              {isDoc ? <Film size={11} className="text-signal" /> : <FileText size={11} />}
+              {story.type || 'story'}
             </span>
-            <span className="text-[10px] text-ink-400">{date}</span>
-            <span className="text-[10px] text-ink-400">· {readMinutes} min read</span>
-            {isBreaking && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-signal">
-                <span className="w-1.5 h-1.5 rounded-full bg-signal pulse-dot" aria-hidden="true" />
-                Breaking
+            <span>•</span>
+            <span>{date}</span>
+            {story.authorName && (
+              <>
+                <span>•</span>
+                <span className="truncate">{story.authorName}</span>
+              </>
+            )}
+          </div>
+
+          <h3 className="text-lg sm:text-xl font-bold text-ink group-hover:text-signal transition-colors line-clamp-2 tracking-tight">
+            {story.title}
+          </h3>
+
+          {story.excerpt && (
+            <p className="text-xs sm:text-sm text-ink-600 line-clamp-2 font-medium leading-relaxed">
+              {story.excerpt}
+            </p>
+          )}
+
+          <div className="flex items-center gap-4 pt-1 text-[11px] font-bold uppercase tracking-wider text-ink-400">
+            {story.likes && (
+              <span className="flex items-center gap-1">
+                <Heart size={12} className="text-signal" /> {story.likes.length} Likes
               </span>
             )}
-          </div>
-          <Link
-            href={cardLink}
-            target={cardTarget}
-            rel={cardTarget === '_blank' ? 'noopener' : ''}
-            className="focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-          >
-            <h3 className="text-sm font-semibold leading-[1.4] tracking-[-0.01em] hover:text-signal transition-colors line-clamp-2 mb-0.5">
-              {story.title}
-            </h3>
-          </Link>
-          <p className="text-xs text-ink-500 line-clamp-2 mb-1">{story.excerpt}</p>
-          <div className="flex items-center gap-3 text-[11px] text-ink-400">
-            {author && <span className="text-ink-600 font-medium text-[11px]">{author.publisherName}</span>}
-            <span className="flex items-center gap-1"><Heart size={11} /> {story.likes.length}</span>
-            <span className="flex items-center gap-1"><MessageSquare size={11} /> {story.comments.length}</span>
-            {rating && <span className="flex items-center gap-1"><Star size={11} fill="#C99A3B" stroke="#C99A3B" /> {rating}</span>}
+            <span className="flex items-center gap-1 group-hover:text-ink transition-colors">
+              <Clock size={12} /> Read Story →
+            </span>
           </div>
         </div>
-      </div>
-    </article>
-  );
-}
 
-// Shimmer placeholder — same shape as a real card so grids don't jump when
-// content arrives. Exported so page.js can render N of these while loading.
-export function StoryCardSkeleton() {
-  return (
-    <article className="border-b border-wire py-3 px-2 -mx-1" style={{ borderLeft: '3px solid #DAD5C8' }} aria-hidden="true">
-      <div className="flex items-start gap-3 pl-1">
-        <div className="shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-sm skeleton" />
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="h-2.5 w-24 rounded-full skeleton" />
-          <div className="h-3.5 w-4/5 rounded-full skeleton" />
-          <div className="h-3 w-full rounded-full skeleton" />
-          <div className="h-3 w-2/3 rounded-full skeleton" />
-        </div>
+        {/* Thumbnail Image Side-by-Side */}
+        {story.coverImage && !story.mediaBlocked && (
+          <div className="w-full sm:w-48 h-40 sm:h-32 shrink-0 rounded-sm overflow-hidden border border-wire bg-ink-50 shadow-sm">
+            <img 
+              src={story.coverImage} 
+              alt={story.title || 'Story cover image'} 
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+            />
+          </div>
+        )}
+
       </div>
-    </article>
+    </Link>
   );
 }

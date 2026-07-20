@@ -9,9 +9,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 export default function PricingPage() {
   const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState('');
+  const [error, setError] = useState('');
 
   const subscribe = async (tier) => {
     setLoading(tier);
+    setError('');
     try {
       const ref = typeof window !== 'undefined' ? localStorage.getItem('op_referral') : null;
       const url = tier === 'partner' ? `${API_BASE}/partner/subscribe/partner` : `${API_BASE}/partner/subscribe/pro`;
@@ -29,9 +31,16 @@ export default function PricingPage() {
         body: JSON.stringify(ref ? { ref } : {}),
       });
       const data = await res.json();
-      if (data.authorization_url) window.location.href = data.authorization_url;
-    } catch (e) { /* ignore */ }
-    setLoading('');
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url;
+      } else {
+        throw new Error(data.error || 'Failed to initiate subscription gateway.');
+      }
+    } catch (e) {
+      setError(e.message || 'Network error occurred. Please try again.');
+    } finally {
+      setLoading('');
+    }
   };
 
   if (isAdmin) {
@@ -63,6 +72,12 @@ export default function PricingPage() {
             Unlock professional earning features. Refer independent publishers, earn from content engagement, and withdraw payouts securely via M-Pesa.
           </p>
         </div>
+
+        {error && (
+          <div className="max-w-3xl mx-auto mb-8 bg-red-50 border border-signal text-signal p-4 rounded-sm text-xs font-bold uppercase tracking-wider text-center">
+            {error}
+          </div>
+        )}
 
         {/* Pricing Cards Grid */}
         <div className="grid md:grid-cols-2 gap-8 max-w-3xl mx-auto items-stretch">

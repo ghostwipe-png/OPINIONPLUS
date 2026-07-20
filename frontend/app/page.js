@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, MessageCircle } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { TrendingUp, MessageCircle, Loader2 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import BreakingTicker from '../components/BreakingTicker';
 import HeroGrid from '../components/HeroGrid';
@@ -47,7 +47,7 @@ function FeaturedFeedCard({ story }) {
       <div className="flex items-center gap-2 text-xs font-medium text-ink-500 mb-3">
         <span className="text-ink font-bold">{author?.publisherName || author?.name || 'OPINIONPLUS'}</span>
         <span>-</span>
-        <span>{new Date(story.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        <span>{new Date(story.createdAt || story.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
         <div className="ml-auto bg-ink text-white text-[10px] px-1.5 py-0.5 rounded-sm flex items-center gap-1">
            <MessageCircle size={10} fill="currentColor" /> {story.comments?.length || 0}
         </div>
@@ -60,9 +60,12 @@ function FeaturedFeedCard({ story }) {
 }
 
 export default function HomePage() {
-  const { stories, ready } = useStore();
   const [filter, setFilter] = useState('all');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [stories, setStories] = useState([]);
+  const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [trending, setTrending] = useState([]);
 
   useEffect(() => {
@@ -74,21 +77,46 @@ export default function HomePage() {
     return () => { cancelled = true; };
   }, []);
 
-  const visible = useMemo(() => {
-    return (stories || [])
-      .filter((s) => !s.deleted && s.privacy === 'public')
-      .filter((s) => {
-        if (filter === 'all') return true;
-        if (filter === 'news') return s.authorId === 'u_newsdesk';
-        return s.type === filter;
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [stories, filter]);
+  const fetchStories = useCallback(async (currentCursor = null, isReset = false) => {
+    if (isReset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
 
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter]);
+    try {
+      let url = `${API_BASE}/stories?limit=${PAGE_SIZE}`;
+      if (filter === 'news') {
+        url += `&authorId=u_newsdesk`;
+      } else if (filter !== 'all') {
+        url += `&type=${filter}`;
+      }
 
-  const paged = visible.slice(0, visibleCount);
-  const hasMore = visibleCount < visible.length;
+      if (currentCursor) {
+        url += `&cursor=${encodeURIComponent(currentCursor)}`;
+      }
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (data.stories) {
+        setStories((prev) => (isReset ? data.stories : [...prev, ...data.stories]));
+        setCursor(data.nextCursor);
+        setHasMore(!!data.nextCursor);
+      }
+    } catch (e) {
+      console.error('Failed to fetch paginated stories:', e);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    setCursor(null);
+    setHasMore(true);
+    fetchStories(null, true);
+  }, [filter, fetchStories]);
 
   return (
     <div className="bg-paper min-h-screen pb-16">
@@ -119,9 +147,9 @@ export default function HomePage() {
           
           {/* LEFT COLUMN: 70% MAIN FEED */}
           <div className="lg:col-span-8">
-            {!ready ? (
+            {loading ? (
               <div className="flex flex-col gap-4">{Array.from({ length: 4 }).map((_, i) => <MagazineRowSkeleton key={i} />)}</div>
-            ) : visible.length === 0 ? (
+            ) : stories.length === 0 ? (
               <div className="border border-dashed border-wire rounded-sm p-16 flex flex-col items-center text-center">
                 <p className="text-2xl font-bold mb-3">Nothing published yet.</p>
                 <Link href="/publish" className="bg-signal text-white font-semibold px-6 py-2.5 rounded-sm hover:bg-signal/90 inline-block">Publish your story</Link>
@@ -130,23 +158,23 @@ export default function HomePage() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   {/* First item is large featured card */}
-                  {paged.length > 0 && (
+                  {stories.length > 0 && (
                     <div className="md:col-span-1">
-                      <FeaturedFeedCard story={paged[0]} />
+                      <FeaturedFeedCard story={stories[0]} />
                     </div>
                   )}
                   {/* Remaining items stack as a list next to it */}
                   <div className="md:col-span-1 flex flex-col pt-0 sm:-mt-5">
-                    {paged.slice(1, 5).map((s) => (
+                    {stories.slice(1, 5).map((s) => (
                       <MagazineRow key={s.id} story={s} />
                     ))}
                   </div>
                 </div>
 
                 {/* If there are more than 5 items, stack them beneath in a grid */}
-                {paged.length > 5 && (
+                {stories.length > 5 && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 border-t border-wire pt-8">
-                    {paged.slice(5).map((s) => (
+                    {stories.slice(5).map((s) => (
                       <div key={s.id} className="md:col-span-1 border-b border-wire/40 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
                          <FeaturedFeedCard story={s} />
                       </div>
@@ -156,8 +184,13 @@ export default function HomePage() {
 
                 {hasMore && (
                   <div className="mt-8 border-t border-wire pt-8 text-center">
-                    <button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)} className="border-2 border-ink text-ink font-bold uppercase tracking-wider text-xs px-8 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors">
-                      Load more
+                    <button 
+                      onClick={() => fetchStories(cursor, false)} 
+                      disabled={loadingMore}
+                      className="border-2 border-ink text-ink font-bold uppercase tracking-wider text-xs px-8 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
+                    >
+                      {loadingMore && <Loader2 size={14} className="animate-spin text-signal" />}
+                      {loadingMore ? 'Loading...' : 'Load more'}
                     </button>
                   </div>
                 )}

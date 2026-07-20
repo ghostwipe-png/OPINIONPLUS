@@ -40,17 +40,37 @@ function fmtMoney(cents) {
   return `KES ${(Number(cents || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+function safeDate(iso, options) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleString(undefined, options);
+  } catch {
+    return '—';
+  }
+}
+
+function safeDateShort(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+  } catch {
+    return '—';
+  }
+}
+
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
 function tierBadgeClasses(tier) {
   switch (tier) {
-    case 'partner': return 'bg-blue-50 text-blue-700';
-    case 'pro_partner': return 'bg-amber-50 text-amber-700';
-    case 'admin': return 'bg-purple-50 text-purple-700';
-    case 'root': return 'bg-red-50 text-signal';
-    default: return 'bg-ink-50 text-ink-600';
+    case 'partner': return 'bg-ink-50 text-ink-700 border border-wire';
+    case 'pro_partner': return 'bg-signal/10 text-signal border border-signal/30';
+    case 'admin': return 'bg-purple-50 text-purple-700 border border-purple-200';
+    case 'root': return 'bg-red-50 text-signal border border-signal/30';
+    default: return 'bg-ink-50 text-ink-600 border border-wire';
   }
 }
 
@@ -68,16 +88,26 @@ function PinGate({ onConfirm, onCancel, label }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
   return (
-    <div className="fixed inset-0 bg-ink/60 grid place-items-center z-50 px-4">
-      <div className="bg-paper rounded-sm p-6 w-full max-w-sm border border-wire">
-        <p className="wire-tag mb-2 flex items-center gap-1.5"><Lock size={12} /> Confirm with PIN</p>
-        <p className="text-sm text-ink-600 mb-4">{label}</p>
-        <input type="password" inputMode="numeric" value={pin} onChange={(e) => { setPin(e.target.value); setError(false); }} placeholder="4-digit PIN" className="w-full border-b border-wire focus:border-ink outline-none py-2 text-lg tracking-widest text-center" autoFocus />
-        {error && <p className="text-signal text-xs mt-2">Incorrect PIN. Try again.</p>}
-        <p className="text-xs text-ink-400 mt-2">Demo PIN is {DEMO_PIN}.</p>
-        <div className="flex gap-3 mt-5">
-          <button onClick={onCancel} className="btn-outline flex-1 py-2 rounded-sm text-sm">Cancel</button>
-          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="btn-primary flex-1 py-2 rounded-sm text-sm">Confirm</button>
+    <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm grid place-items-center z-50 px-4">
+      <div className="bg-paper rounded-sm p-8 w-full max-w-sm border-2 border-ink shadow-2xl space-y-4">
+        <div className="bg-ink text-white font-bold uppercase text-xs px-3 py-1.5 inline-flex items-center gap-1.5 rounded-sm">
+          <Lock size={13} className="text-signal" /> Security Gate
+        </div>
+        <p className="text-sm font-bold text-ink">{label}</p>
+        <input 
+          type="password" 
+          inputMode="numeric" 
+          value={pin} 
+          onChange={(e) => { setPin(e.target.value); setError(false); }} 
+          placeholder="4-digit PIN" 
+          className="w-full border border-wire bg-paper focus:border-ink outline-none px-4 py-3 text-lg font-mono tracking-widest text-center rounded-sm" 
+          autoFocus 
+        />
+        {error && <p className="text-signal text-xs font-bold uppercase tracking-wider">Incorrect PIN. Try again.</p>}
+        <p className="text-[11px] font-mono text-ink-400">Demo PIN is {DEMO_PIN}</p>
+        <div className="flex gap-3 pt-2">
+          <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
+          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -86,14 +116,16 @@ function PinGate({ onConfirm, onCancel, label }) {
 
 function ConfirmDialog({ label, detail, onConfirm, onCancel }) {
   return (
-    <div className="fixed inset-0 bg-ink/60 grid place-items-center z-50 px-4">
-      <div className="bg-paper rounded-sm p-6 w-full max-w-sm border border-wire">
-        <p className="wire-tag mb-2 flex items-center gap-1.5"><AlertTriangle size={12} /> Please confirm</p>
-        <p className="text-sm font-semibold mb-1">{label}</p>
-        {detail && <p className="text-xs text-ink-400 mb-4">{detail}</p>}
-        <div className="flex gap-3 mt-5">
-          <button onClick={onCancel} className="btn-outline flex-1 py-2 rounded-sm text-sm">Cancel</button>
-          <button onClick={onConfirm} className="btn-primary flex-1 py-2 rounded-sm text-sm">Confirm</button>
+    <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm grid place-items-center z-50 px-4">
+      <div className="bg-paper rounded-sm p-8 w-full max-w-sm border-2 border-ink shadow-2xl space-y-4">
+        <div className="bg-signal text-white font-bold uppercase text-xs px-3 py-1.5 inline-flex items-center gap-1.5 rounded-sm">
+          <AlertTriangle size={13} /> Action Confirmation
+        </div>
+        <p className="text-sm font-bold text-ink">{label}</p>
+        {detail && <p className="text-xs font-medium text-ink-500">{detail}</p>}
+        <div className="flex gap-3 pt-2">
+          <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
+          <button onClick={onConfirm} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -103,12 +135,17 @@ function ConfirmDialog({ label, detail, onConfirm, onCancel }) {
 function ToastStack({ toasts, dismiss }) {
   if (!toasts.length) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-w-xs w-full">
+    <div className="fixed bottom-6 right-6 z-[60] flex flex-col gap-2.5 max-w-sm w-full">
       {toasts.map((t) => (
-        <div key={t.id} onClick={() => dismiss(t.id)}
-          className={`px-4 py-3 rounded-sm shadow-lg text-sm text-paper cursor-pointer flex items-start gap-2 ${t.type === 'error' ? 'bg-signal' : t.type === 'warn' ? 'bg-amber-600' : 'bg-ink'}`}>
-          {t.type === 'error' ? <XCircle size={14} className="mt-0.5 shrink-0" /> : <CheckCircle size={14} className="mt-0.5 shrink-0" />}
-          <span>{t.message}</span>
+        <div 
+          key={t.id} 
+          onClick={() => dismiss(t.id)}
+          className={`p-4 rounded-sm shadow-xl text-xs font-bold uppercase tracking-wider cursor-pointer flex items-start gap-3 border ${
+            t.type === 'error' ? 'bg-red-50 border-signal text-signal' : t.type === 'warn' ? 'bg-amber-50 border-amber-300 text-amber-800' : 'bg-ink border-ink text-white'
+          }`}
+        >
+          {t.type === 'error' ? <XCircle size={15} className="mt-0.5 shrink-0" /> : <CheckCircle size={15} className="mt-0.5 shrink-0 text-signal" />}
+          <span className="flex-1">{t.message}</span>
         </div>
       ))}
     </div>
@@ -116,14 +153,16 @@ function ToastStack({ toasts, dismiss }) {
 }
 
 function Spinner({ size = 14 }) {
-  return <Loader2 size={size} className="animate-spin" />;
+  return <Loader2 size={size} className="animate-spin text-signal" />;
 }
 
 function EmptyState({ icon: Icon = Package, label }) {
   return (
-    <div className="p-8 text-center">
-      <Icon size={28} className="mx-auto mb-2 text-ink-300" />
-      <p className="text-sm text-ink-400">{label}</p>
+    <div className="p-12 text-center bg-paper">
+      <div className="w-12 h-12 bg-ink-50 rounded-full grid place-items-center mx-auto mb-3 border border-wire">
+        <Icon size={20} className="text-ink-400" />
+      </div>
+      <p className="text-sm font-bold text-ink">{label}</p>
     </div>
   );
 }
@@ -131,10 +170,11 @@ function EmptyState({ icon: Icon = Package, label }) {
 function SparkBars({ values = [], labelFmt = (v) => v }) {
   const max = Math.max(1, ...values.map((v) => v.value));
   return (
-    <div className="flex items-end gap-1 h-16">
+    <div className="flex items-end gap-1.5 h-24 pt-2">
       {values.map((v, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1" title={`${v.label}: ${labelFmt(v.value)}`}>
-          <div className="w-full bg-ink rounded-sm" style={{ height: `${Math.max(4, (v.value / max) * 56)}px`, opacity: 0.25 + 0.75 * (v.value / max) }} />
+        <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1.5" title={`${v.label}: ${labelFmt(v.value)}`}>
+          <div className="w-full bg-ink rounded-sm transition-all shadow-sm" style={{ height: `${Math.max(6, (v.value / max) * 76)}px`, opacity: 0.3 + 0.7 * (v.value / max) }} />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-ink-400">{v.label}</span>
         </div>
       ))}
     </div>
@@ -475,6 +515,28 @@ export default function AdminPage() {
   useEffect(() => { if (tab === 'security' && isRoot) loadSecurity(); }, [tab, isRoot]);
   useEffect(() => { if (tab === 'news') { loadNewsToggle(); loadNewsArticles(); } }, [tab]);
 
+  const TABS = useMemo(() => [
+    { id: 'archive', label: 'Archive', icon: Archive },
+    { id: 'news', label: 'News Management', icon: Zap },
+    { id: 'overview', label: 'Overview', icon: Activity },
+    { id: 'users', label: `Users (${users.length})`, icon: UsersIcon },
+    { id: 'content', label: `Content (${stories.filter(s => !s.deleted).length})`, icon: FileText },
+    { id: 'reports', label: `Reports${reports.filter(r => !r.resolved).length ? ` (${reports.filter(r => !r.resolved).length})` : ''}`, icon: Flag },
+    { id: 'withdrawals', label: `Withdrawals${withdrawals.filter(w => w.status === 'pending').length ? ` (${withdrawals.filter(w => w.status === 'pending').length})` : ''}`, icon: Wallet },
+    { id: 'transactions', label: 'Transactions', icon: CreditCard },
+    { id: 'sms', label: 'SMS Logs', icon: MessageSquare },
+    { id: 'subscribers', label: `Subscribers (${subscribers.filter(s => s.status === 'active').length})`, icon: Mail },
+    { id: 'search', label: 'Search Analytics', icon: TrendingUp },
+    { id: 'export', label: 'Export Center', icon: FileDown },
+    ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
+    ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
+    ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
+    { id: 'log', label: 'Audit Log', icon: ScrollText },
+  ], [users.length, stories, reports, withdrawals, subscribers, isRoot]);
+
+  const tabsRef = useRef(TABS);
+  useEffect(() => { tabsRef.current = TABS; }, [TABS]);
+
   useEffect(() => {
     const handler = (e) => {
       if (!isAdmin) return;
@@ -482,7 +544,7 @@ export default function AdminPage() {
         const num = parseInt(e.key, 10);
         if (!Number.isNaN(num) && num >= 1 && num <= 9) {
           e.preventDefault();
-          const t = TABS_REF.current[num - 1];
+          const t = tabsRef.current[num - 1];
           if (t) setTab(t.id);
         } else if (e.key.toLowerCase() === 's') {
           e.preventDefault();
@@ -502,10 +564,10 @@ export default function AdminPage() {
 
   if (!isAdmin) {
     return (
-      <div className="max-w-lg mx-auto px-5 py-32 text-center">
-        <p className="editorial-h text-6xl font-black mb-4">404</p>
-        <p className="text-ink-400 text-sm">This page could not be found.</p>
-        <Link href="/" className="text-signal text-sm font-medium mt-4 inline-block">Back to the feed</Link>
+      <div className="max-w-lg mx-auto px-5 py-32 text-center bg-paper min-h-screen">
+        <p className="text-6xl font-black mb-4 text-ink">404</p>
+        <p className="text-ink-500 text-sm font-medium mb-6">This administration console could not be found or access is restricted.</p>
+        <Link href="/" className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm inline-block shadow-sm">Back to the feed</Link>
       </div>
     );
   }
@@ -566,169 +628,198 @@ export default function AdminPage() {
 
   const CONTENT_SOURCES = ['BBC', 'Al Jazeera', 'Nation', 'Capital FM', 'Tuko'];
 
-  const TABS = [
-    { id: 'archive', label: 'Archive', icon: Archive },
-    { id: 'news', label: 'News Management', icon: Zap },
-    { id: 'overview', label: 'Overview', icon: Activity },
-    { id: 'users', label: `Users (${users.length})`, icon: UsersIcon },
-    { id: 'content', label: `Content (${activeStories.length})`, icon: FileText },
-    { id: 'reports', label: `Reports${openReports.length ? ` (${openReports.length})` : ''}`, icon: Flag },
-    { id: 'withdrawals', label: `Withdrawals${pendingWithdrawals.length ? ` (${pendingWithdrawals.length})` : ''}`, icon: Wallet },
-    { id: 'transactions', label: 'Transactions', icon: CreditCard },
-    { id: 'sms', label: 'SMS Logs', icon: MessageSquare },
-    { id: 'subscribers', label: `Subscribers (${activeSubscribers.length})`, icon: Mail },
-    { id: 'search', label: 'Search Analytics', icon: TrendingUp },
-    { id: 'export', label: 'Export Center', icon: FileDown },
-    ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
-    ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
-    ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
-    { id: 'log', label: 'Audit log', icon: ScrollText },
-  ];
-  TABS_REF.current = TABS;
-
-  const darkWrap = darkMode ? 'bg-ink text-paper' : '';
-  const darkCard = darkMode ? 'border-ink-600 bg-ink-900/40' : 'border-wire';
+  const darkWrap = darkMode ? 'bg-ink text-paper' : 'bg-paper text-ink';
+  const darkCard = darkMode ? 'border-ink-600 bg-ink-900/60 text-white' : 'border-wire bg-white text-ink';
 
   return (
-    <div className={`min-h-screen ${darkWrap}`}>
-      <div className="max-w-7xl mx-auto px-5 py-10">
+    <div className={`min-h-screen ${darkWrap} py-12 pb-24`}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6">
         {locked && <PinGate label="Session locked after 5 minutes of inactivity." onConfirm={() => { setLocked(false); resetIdle(); }} onCancel={() => setLocked(false)} />}
         {pinAction && <PinGate label={pinAction.label} onConfirm={(pin) => { lastPinRef.current = pin || DEMO_PIN; pinAction.run(); setPinAction(null); }} onCancel={() => setPinAction(null)} />}
         {confirmAction && <ConfirmDialog label={confirmAction.label} detail={confirmAction.detail} onConfirm={() => { confirmAction.run(); setConfirmAction(null); }} onCancel={() => setConfirmAction(null)} />}
         <ToastStack toasts={toasts} dismiss={dismissToast} />
 
-        <div className="flex items-start justify-between mb-2 gap-3 flex-wrap">
+        {/* Header Banner */}
+        <div className="flex items-start justify-between mb-8 pb-6 border-b-2 border-wire gap-4 flex-wrap">
           <div>
-            <p className="wire-tag mb-2 flex items-center gap-2">
-              {isRoot ? 'Root admin' : 'Admin'} console
-              <span className={`inline-block w-2 h-2 rounded-full ${health === 'ok' ? 'bg-green-500' : health === 'error' ? 'bg-signal' : 'bg-ink-300'}`} title={`System health: ${health}`} />
+            <div className="bg-ink text-white font-bold uppercase text-xs px-3 py-1.5 inline-flex items-center gap-2 rounded-sm mb-3 shadow-sm">
+              <Shield size={13} className="text-signal" /> {isRoot ? 'Root Administrator' : 'Administrator'} Console
+              <span className={`inline-block w-2.5 h-2.5 rounded-full ${health === 'ok' ? 'bg-emerald-500' : health === 'error' ? 'bg-signal' : 'bg-ink-300'}`} title={`System health: ${health}`} />
+            </div>
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Platform Control Suite</h1>
+            <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mt-1">
+              {users.length} registered users · {activeStories.length} published stories · {proUsers.length} pro partners · {activeSubscribers.length} active subscribers
             </p>
-            <h1 className="editorial-h text-3xl font-bold mb-2">Platform Control</h1>
-            <p className="text-xs text-ink-400">{users.length} users · {activeStories.length} stories · {proUsers.length} pro · {activeSubscribers.length} subscribers</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setDarkMode(d => !d)} className={`p-2 rounded-sm border ${darkCard}`} title="Toggle admin dark mode">
-              {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+          <div className="flex items-center gap-3">
+            <button onClick={() => setDarkMode(d => !d)} className={`p-2.5 rounded-sm border ${darkCard} font-bold`} title="Toggle admin dark mode">
+              {darkMode ? <Sun size={16} /> : <Moon size={16} />}
             </button>
-            <button onClick={() => setSidebarCollapsed(c => !c)} className={`p-2 rounded-sm border ${darkCard} lg:hidden`} title="Toggle navigation">
-              <Menu size={14} />
+            <button onClick={() => setSidebarCollapsed(c => !c)} className={`p-2.5 rounded-sm border ${darkCard} lg:hidden font-bold`} title="Toggle navigation">
+              <Menu size={16} />
             </button>
           </div>
         </div>
 
-        <div className="flex gap-6 mt-6 items-start">
-          <aside className={`shrink-0 ${sidebarCollapsed ? 'w-12' : 'w-56'} transition-all duration-200 hidden sm:block`}>
-            <button onClick={() => setSidebarCollapsed(c => !c)} className={`mb-2 w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm border ${darkCard}`}>
-              <Menu size={13} /> {!sidebarCollapsed && 'Collapse'}
+        <div className="flex gap-8 items-start">
+          {/* Sidebar Navigation */}
+          <aside className={`shrink-0 ${sidebarCollapsed ? 'w-16' : 'w-64'} transition-all duration-200 hidden lg:block sticky top-8`}>
+            <button onClick={() => setSidebarCollapsed(c => !c)} className={`mb-3 w-full flex items-center gap-2 text-xs font-bold uppercase tracking-wider px-3 py-2.5 rounded-sm border ${darkCard} hover:border-ink transition-colors`}>
+              <Menu size={14} /> {!sidebarCollapsed && 'Collapse Menu'}
             </button>
             <nav className="flex flex-col gap-1">
               {TABS.map((t, i) => (
-                <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
+                <button 
+                  key={t.id} 
+                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
                   title={`Ctrl+${i + 1}`}
-                  className={`px-3 py-2 rounded-sm border flex items-center gap-2 text-xs font-semibold text-left transition-colors ${tab === t.id ? 'bg-ink text-paper border-ink' : `${darkCard} text-ink-600`}`}>
-                  <t.icon size={13} className="shrink-0" /> {!sidebarCollapsed && <span className="truncate">{t.label}</span>}
+                  className={`px-4 py-2.5 rounded-sm border flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-left transition-colors ${
+                    tab === t.id ? 'bg-ink text-white border-ink shadow-sm' : `${darkCard} hover:border-ink`
+                  }`}
+                >
+                  <t.icon size={15} className={`shrink-0 ${tab === t.id ? 'text-signal' : 'text-ink-400'}`} /> 
+                  {!sidebarCollapsed && <span className="truncate">{t.label}</span>}
                 </button>
               ))}
             </nav>
           </aside>
 
-          <div className="flex gap-2 flex-wrap mb-2 text-xs font-semibold sm:hidden">
+          {/* Mobile Navigation Tabs */}
+          <div className="flex gap-2 flex-wrap mb-6 w-full lg:hidden">
             {TABS.map(t => (
-              <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
-                className={`px-3 py-2 rounded-sm border flex items-center gap-1.5 ${tab === t.id ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
+              <button 
+                key={t.id} 
+                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
+                className={`px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                  tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire bg-white text-ink-600'
+                }`}
+              >
                 <t.icon size={13} /> {t.label}
               </button>
             ))}
           </div>
 
-          <main className="flex-1 min-w-0">
+          {/* Main Content Area */}
+          <main className="flex-1 min-w-0 bg-white border border-wire rounded-sm p-6 sm:p-8 shadow-sm">
 
             {/* Archive */}
             {tab === 'archive' && (
-              <div>
-                <div className="flex gap-3 mb-4 flex-wrap text-xs items-center">
-                  <span className="px-2 py-1 rounded-full bg-ink-50">📦 {archiveStats.total || 0} total</span>
-                  <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-700">⏳ {archiveStats.pending || 0} pending</span>
-                  <span className="px-2 py-1 rounded-full bg-green-50 text-green-700">✅ {archiveStats.approved || 0} approved</span>
-                  <span className="px-2 py-1 rounded-full bg-red-50 text-red-700">🗑️ {archiveStats.rejected || 0} rejected</span>
+              <div className="space-y-6">
+                <div className="flex gap-3 mb-4 flex-wrap text-xs font-bold uppercase tracking-wider items-center bg-ink-50 p-4 rounded-sm border border-wire">
+                  <span className="px-3 py-1 rounded-sm bg-white border border-wire">📦 {archiveStats.total || 0} Total</span>
+                  <span className="px-3 py-1 rounded-sm bg-amber-100 text-amber-800">⏳ {archiveStats.pending || 0} Pending</span>
+                  <span className="px-3 py-1 rounded-sm bg-emerald-100 text-emerald-800">✅ {archiveStats.approved || 0} Approved</span>
+                  <span className="px-3 py-1 rounded-sm bg-red-100 text-signal">🗑️ {archiveStats.rejected || 0} Rejected</span>
                   {loadingTabs.archive && <Spinner />}
-                  <button onClick={() => runConfirm('Approve all pending archive items?', 'This will publish every pending item as News / Public.', approveAllPending)} className="ml-auto text-xs px-3 py-1.5 rounded-sm bg-ink text-paper flex items-center gap-1"><CheckCheck size={12} /> Approve all pending</button>
+                  <button onClick={() => runConfirm('Approve all pending archive items?', 'This will publish every pending item as News / Public.', approveAllPending)} className="ml-auto bg-ink text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5 shadow-sm">
+                    <CheckCheck size={14} /> Approve All Pending
+                  </button>
                 </div>
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <select value={archiveStatus} onChange={(e) => { setArchiveStatus(e.target.value); setArchivePage(1); }} className="text-xs border border-wire rounded-sm px-2 py-1.5">
-                    <option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All</option>
+
+                <div className="flex flex-wrap gap-3">
+                  <select value={archiveStatus} onChange={(e) => { setArchiveStatus(e.target.value); setArchivePage(1); }} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2.5 bg-paper">
+                    <option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All Statuses</option>
                   </select>
-                  <select value={archiveSource} onChange={(e) => { setArchiveSource(e.target.value); setArchivePage(1); }} className="text-xs border border-wire rounded-sm px-2 py-1.5">
+                  <select value={archiveSource} onChange={(e) => { setArchiveSource(e.target.value); setArchivePage(1); }} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2.5 bg-paper">
                     <option value="">All Sources</option>{(archiveStats.bySource || []).map(s => <option key={s.source_name} value={s.source_name}>{s.source_name} ({s.count})</option>)}
                   </select>
-                  <input value={archiveSearch} onChange={(e) => setArchiveSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setArchivePage(1), loadArchive())} placeholder="Search archive..." className="text-xs border border-wire rounded-sm px-2 py-1.5 flex-1 max-w-xs" />
-                  <button onClick={() => { setArchivePage(1); loadArchive(); }} className="text-xs px-3 py-1.5 rounded-sm bg-ink text-paper">Search</button>
+                  <input value={archiveSearch} onChange={(e) => setArchiveSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setArchivePage(1), loadArchive())} placeholder="Search archive..." className="text-xs font-medium border border-wire rounded-sm px-3 py-2.5 flex-1 max-w-sm bg-paper focus:outline-none focus:border-ink" />
+                  <button onClick={() => { setArchivePage(1); loadArchive(); }} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors">Search</button>
                 </div>
+
                 {archiveStatus === 'pending' && (
-                  <div className="flex gap-2 mb-4 items-center text-xs flex-wrap">
-                    <span className="text-ink-400">Approve as:</span>
-                    <select value={approveType} onChange={(e) => setApproveType(e.target.value)} className="border border-wire rounded-sm px-2 py-1"><option value="news">News</option><option value="story">Story</option><option value="documentary">Documentary</option></select>
-                    <select value={approvePrivacy} onChange={(e) => setApprovePrivacy(e.target.value)} className="border border-wire rounded-sm px-2 py-1"><option value="public">Public</option><option value="private">Private</option></select>
+                  <div className="flex gap-3 items-center text-xs font-bold uppercase tracking-wider flex-wrap bg-ink-50/50 p-4 rounded-sm border border-wire">
+                    <span className="text-ink-500">Approve as format:</span>
+                    <select value={approveType} onChange={(e) => setApproveType(e.target.value)} className="border border-wire rounded-sm px-3 py-2 bg-paper"><option value="news">News</option><option value="story">Story</option><option value="documentary">Documentary</option></select>
+                    <select value={approvePrivacy} onChange={(e) => setApprovePrivacy(e.target.value)} className="border border-wire rounded-sm px-3 py-2 bg-paper"><option value="public">Public</option><option value="private">Private</option></select>
                     {selectedItems.length > 0 && (
-                      <div className="flex gap-1">
-                        <button onClick={bulkApprove} className="px-2 py-1 rounded-sm bg-ink text-paper flex items-center gap-1"><CheckCheck size={12} /> Approve ({selectedItems.length})</button>
-                        <button onClick={bulkReject} className="px-2 py-1 rounded-sm bg-red-100 text-signal flex items-center gap-1"><Trash2 size={12} /> Reject ({selectedItems.length})</button>
+                      <div className="flex gap-2 ml-auto">
+                        <button onClick={bulkApprove} className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"><CheckCheck size={13} /> Approve ({selectedItems.length})</button>
+                        <button onClick={bulkReject} className="bg-signal text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5"><Trash2 size={13} /> Reject ({selectedItems.length})</button>
                       </div>
                     )}
                   </div>
                 )}
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {!loadingTabs.archive && archiveItems.length === 0 && <EmptyState icon={Archive} label="No items found." />}
+
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {!loadingTabs.archive && archiveItems.length === 0 && <EmptyState icon={Archive} label="No archive items found matching criteria." />}
                   {archiveItems.map(item => (
-                    <div key={item.id} className={`p-3 flex items-start gap-3 ${selectedItems.includes(item.id) ? 'bg-ink-50' : ''}`}>
-                      <input type="checkbox" checked={selectedItems.includes(item.id)} onChange={() => toggleSelect(item.id)} className="mt-1" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1"><span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-ink-50">{item.source_name}</span><span className={`text-xs px-1.5 py-0.5 rounded-full ${item.status === 'pending' ? 'bg-amber-50 text-amber-700' : item.status === 'approved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{item.status}</span></div>
-                        <p className="text-sm font-semibold mb-0.5">{item.title}</p><p className="text-xs text-ink-400 line-clamp-2">{item.excerpt}</p><p className="text-xs text-ink-400 mt-1">{new Date(item.created_at).toLocaleString()}</p>
+                    <div key={item.id} className={`p-4 flex items-start gap-4 transition-colors ${selectedItems.includes(item.id) ? 'bg-ink-50' : 'hover:bg-ink-50/30'}`}>
+                      <input type="checkbox" checked={selectedItems.includes(item.id)} onChange={() => toggleSelect(item.id)} className="mt-1.5 h-4 w-4 rounded border-wire text-ink focus:ring-0 cursor-pointer" />
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-ink text-white">{item.source_name}</span>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${item.status === 'pending' ? 'bg-amber-100 text-amber-800' : item.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-signal'}`}>{item.status}</span>
+                        </div>
+                        <p className="text-sm font-bold text-ink">{item.title}</p>
+                        <p className="text-xs text-ink-600 line-clamp-2 font-medium">{item.excerpt}</p>
+                        <p className="text-[11px] text-ink-400">{safeDate(item.created_at)}</p>
                       </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button onClick={() => setPreviewItem(item)} className="text-xs px-2 py-1 rounded-sm border border-wire hover:bg-ink-50"><Eye size={12} /></button>
-                        {item.status === 'pending' && (<><button onClick={() => approveItem(item.id)} className="text-xs px-2 py-1 rounded-sm bg-ink text-paper"><CheckCircle size={12} /></button><button onClick={() => rejectItem(item.id)} className="text-xs px-2 py-1 rounded-sm bg-red-100 text-signal"><XCircle size={12} /></button></>)}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={() => setPreviewItem(item)} className="border border-wire bg-white hover:border-ink p-2 rounded-sm text-ink transition-colors" title="Preview"><Eye size={14} /></button>
+                        {item.status === 'pending' && (
+                          <>
+                            <button onClick={() => approveItem(item.id)} className="bg-emerald-600 text-white p-2 rounded-sm hover:bg-emerald-700 transition-colors shadow-sm" title="Approve"><CheckCircle size={14} /></button>
+                            <button onClick={() => rejectItem(item.id)} className="bg-signal text-white p-2 rounded-sm hover:bg-signal/90 transition-colors shadow-sm" title="Reject"><XCircle size={14} /></button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
+
                 {archiveTotalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4 text-xs">
-                    <button onClick={() => setArchivePage(p => Math.max(1, p - 1))} disabled={archivePage === 1} className="px-3 py-1.5 rounded-sm border border-wire disabled:opacity-30 flex items-center gap-1"><ChevronLeft size={12} /> Prev</button>
-                    <span className="text-ink-400">Page {archivePage} of {archiveTotalPages} ({archiveTotal} items)</span>
-                    <button onClick={() => setArchivePage(p => Math.min(archiveTotalPages, p + 1))} disabled={archivePage === archiveTotalPages} className="px-3 py-1.5 rounded-sm border border-wire disabled:opacity-30 flex items-center gap-1">Next <ChevronRight size={12} /></button>
+                  <div className="flex items-center justify-between pt-4 border-t border-wire text-xs font-bold uppercase tracking-wider">
+                    <button onClick={() => setArchivePage(p => Math.max(1, p - 1))} disabled={archivePage === 1} className="border border-wire px-4 py-2 rounded-sm hover:border-ink disabled:opacity-30 flex items-center gap-1.5"><ChevronLeft size={14} /> Previous</button>
+                    <span className="text-ink-500">Page {archivePage} of {archiveTotalPages} ({archiveTotal} total items)</span>
+                    <button onClick={() => setArchivePage(p => Math.min(archiveTotalPages, p + 1))} disabled={archivePage === archiveTotalPages} className="border border-wire px-4 py-2 rounded-sm hover:border-ink disabled:opacity-30 flex items-center gap-1.5">Next <ChevronRight size={14} /></button>
                   </div>
                 )}
+
                 {previewItem && (
-                  <div className="fixed inset-0 bg-ink/60 z-50 grid place-items-center px-4" onClick={() => setPreviewItem(null)}><div className="bg-paper rounded-sm border border-wire w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}><div className="p-5 border-b border-wire flex items-center justify-between"><h3 className="text-sm font-bold">{previewItem.title}</h3><button onClick={() => setPreviewItem(null)}><XCircle size={18} /></button></div><div className="p-5"><p className="text-xs text-ink-400 mb-3">Source: {previewItem.source_name} · {new Date(previewItem.created_at).toLocaleString()}</p>{previewItem.cover_image && <img src={previewItem.cover_image} alt="" className="w-full rounded-sm mb-4" />}<div className="prose-story text-sm" dangerouslySetInnerHTML={{ __html: previewItem.body }} /></div></div></div>
+                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm z-50 grid place-items-center p-4" onClick={() => setPreviewItem(null)}>
+                    <div className="bg-paper rounded-sm border-2 border-ink w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+                      <div className="p-6 bg-ink text-white flex items-center justify-between border-b border-white/10">
+                        <h3 className="text-base font-bold uppercase tracking-wide">{previewItem.title}</h3>
+                        <button onClick={() => setPreviewItem(null)} className="text-white/70 hover:text-white"><XCircle size={20} /></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Source: {previewItem.source_name} · {safeDate(previewItem.created_at)}</p>
+                        {previewItem.cover_image && <img src={previewItem.cover_image} alt="" className="w-full max-h-80 object-cover rounded-sm border border-wire" />}
+                        <div className="prose-story text-sm text-ink-800 leading-relaxed" dangerouslySetInnerHTML={{ __html: previewItem.body }} />
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
             {/* News Management */}
             {tab === 'news' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <p className="wire-tag flex items-center gap-1.5"><Zap size={12} /> News Management</p>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between p-6 bg-ink-50 border border-wire rounded-sm">
+                  <div>
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-ink flex items-center gap-2"><Zap size={16} className="text-signal" /> RSS News Aggregation Engine</h2>
+                    <p className="text-xs text-ink-500 mt-1">Control automated news fetching and indexing across connected public wire sources.</p>
+                  </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-ink-400">{newsArticles.length} articles</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-ink-600">{newsArticles.length} active feeds</span>
                     <button
                       onClick={toggleNewsEnabled}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
+                      className={`relative w-14 h-7 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
                     >
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-paper transition-transform ${newsEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                      <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform shadow-sm ${newsEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
                     </button>
-                    <span className="text-xs font-semibold">{newsEnabled ? 'ON' : 'OFF'}</span>
+                    <span className="text-xs font-bold uppercase">{newsEnabled ? 'Active' : 'Paused'}</span>
                   </div>
                 </div>
 
                 {newsLoading ? (
-                  <p className="text-xs text-ink-400 flex items-center gap-2"><Spinner /> Loading…</p>
+                  <p className="text-xs font-bold uppercase text-ink-400 flex items-center gap-2"><Spinner /> Loading news feeds...</p>
                 ) : (
-                  <>
-                    <div className="flex items-center gap-2 mb-3">
-                      <label className="flex items-center gap-1 text-xs">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-600 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={selectedNewsIds.length === newsArticles.length && newsArticles.length > 0}
@@ -739,113 +830,101 @@ export default function AdminPage() {
                               setSelectedNewsIds(newsArticles.map(n => n.id));
                             }
                           }}
+                          className="h-4 w-4 rounded border-wire text-ink focus:ring-0"
                         />
-                        Select all
+                        Select All Articles
                       </label>
                       {selectedNewsIds.length > 0 && (
                         <button
                           onClick={() => runGated(`Permanently delete ${selectedNewsIds.length} selected news articles? This cannot be undone.`, bulkDeleteNews)}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-signal text-signal flex items-center gap-1"
+                          className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5 shadow-sm"
                         >
-                          <Trash2 size={12} /> Delete selected ({selectedNewsIds.length})
+                          <Trash2 size={13} /> Delete Selected ({selectedNewsIds.length})
                         </button>
                       )}
                     </div>
 
-                    <div className="border border-wire rounded-sm divide-y divide-wire">
-                      {newsArticles.length === 0 && <EmptyState icon={Zap} label="No news articles found." />}
+                    <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                      {newsArticles.length === 0 && <EmptyState icon={Zap} label="No news articles indexed in the system." />}
                       {newsArticles.map(article => (
-                        <div key={article.id} className={`p-3 flex items-start gap-3 ${selectedNewsIds.includes(article.id) ? 'bg-ink-50' : ''}`}>
+                        <div key={article.id} className={`p-4 flex items-start gap-4 transition-colors ${selectedNewsIds.includes(article.id) ? 'bg-ink-50' : 'hover:bg-ink-50/30'}`}>
                           <input
                             type="checkbox"
                             checked={selectedNewsIds.includes(article.id)}
                             onChange={() => setSelectedNewsIds(prev => prev.includes(article.id) ? prev.filter(id => id !== article.id) : [...prev, article.id])}
-                            className="mt-1"
+                            className="mt-1.5 h-4 w-4 rounded border-wire text-ink focus:ring-0 cursor-pointer"
                           />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold">{article.title}</p>
-                            <p className="text-xs text-ink-400 line-clamp-1">{article.excerpt}</p>
-                            <p className="text-xs text-ink-400 mt-0.5">{new Date(article.created_at).toLocaleDateString()}</p>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <p className="text-sm font-bold text-ink">{article.title}</p>
+                            <p className="text-xs text-ink-600 line-clamp-1 font-medium">{article.excerpt}</p>
+                            <p className="text-[11px] text-ink-400">{safeDateShort(article.created_at)}</p>
                           </div>
-                          <Link href={`/story/${article.id}`} className="text-xs px-2 py-1 rounded-sm border border-wire hover:bg-ink-50 shrink-0">
-                            <Eye size={12} />
+                          <Link href={`/story/${article.id}`} className="border border-wire bg-white hover:border-ink p-2 rounded-sm text-ink transition-colors shrink-0" title="View story">
+                            <Eye size={14} />
                           </Link>
                         </div>
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             )}
 
             {/* Overview */}
             {tab === 'overview' && (
-              <div>
-                <div className="flex items-center justify-between p-4 border border-wire rounded-sm mb-4">
-                  <div>
-                    <p className="text-sm font-semibold">News Aggregation</p>
-                    <p className="text-xs text-ink-400">Enable or disable automatic news fetching from RSS sources</p>
+              <div className="space-y-8">
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <div className="border border-wire rounded-sm p-6 bg-ink-50/50">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Revenue Today</p>
+                    <p className="text-3xl font-black text-ink">{fmtMoney(revenueToday)}</p>
                   </div>
-                  <button
-                    onClick={toggleNewsEnabled}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-paper transition-transform ${newsEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                  <div className="border border-wire rounded-sm p-4">
-                    <p className="text-xs text-ink-400 mb-1">Revenue Today</p>
-                    <p className="text-2xl font-bold editorial-h">{fmtMoney(revenueToday)}</p>
+                  <div className="border border-wire rounded-sm p-6 bg-ink-50/50">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Revenue This Week</p>
+                    <p className="text-3xl font-black text-ink">{fmtMoney(revenueWeek)}</p>
                   </div>
-                  <div className="border border-wire rounded-sm p-4">
-                    <p className="text-xs text-ink-400 mb-1">Revenue This Week</p>
-                    <p className="text-2xl font-bold editorial-h">{fmtMoney(revenueWeek)}</p>
-                  </div>
-                  <div className="border border-wire rounded-sm p-4">
-                    <p className="text-xs text-ink-400 mb-1">Revenue This Month</p>
-                    <p className="text-2xl font-bold editorial-h">{fmtMoney(revenueMonth)}</p>
+                  <div className="border border-wire rounded-sm p-6 bg-ink-50/50">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Revenue This Month</p>
+                    <p className="text-3xl font-black text-ink">{fmtMoney(revenueMonth)}</p>
                   </div>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-4 mb-6">
-                  <div className="border border-wire rounded-sm p-4">
-                    <p className="text-xs text-ink-400 mb-2">Revenue — last 7 days</p>
+                <div className="grid sm:grid-cols-2 gap-6">
+                  <div className="border border-wire rounded-sm p-6 bg-paper">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink mb-4">Revenue Trajectory — Last 7 Days</p>
                     <SparkBars values={last7Days} labelFmt={fmtMoney} />
-                    <div className="flex justify-between text-[10px] text-ink-400 mt-1">{last7Days.map((d, i) => <span key={i}>{d.label}</span>)}</div>
+                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-2 border-t border-wire pt-2">{last7Days.map((d, i) => <span key={i}>{d.label}</span>)}</div>
                   </div>
-                  <div className="border border-wire rounded-sm p-4">
-                    <p className="text-xs text-ink-400 mb-2">New stories — last 7 days</p>
+                  <div className="border border-wire rounded-sm p-6 bg-paper">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink mb-4">Publishing Volume — Last 7 Days</p>
                     <SparkBars values={storiesPerDay} />
-                    <div className="flex justify-between text-[10px] text-ink-400 mt-1">{storiesPerDay.map((d, i) => <span key={i}>{d.label}</span>)}</div>
+                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-2 border-t border-wire pt-2">{storiesPerDay.map((d, i) => <span key={i}>{d.label}</span>)}</div>
                   </div>
                 </div>
 
-                <div className="flex gap-2 flex-wrap mb-6">
-                  <button onClick={() => runConfirm('Approve all pending archive items?', null, approveAllPending)} className="text-xs font-semibold px-3 py-2 rounded-sm bg-ink text-paper flex items-center gap-1"><CheckCheck size={13} /> Approve All Pending</button>
-                  <button onClick={() => setTab('reports')} className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><Flag size={13} /> View Reports</button>
-                  <button onClick={exportAll} className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><Download size={13} /> Export Data</button>
-                  <button onClick={loadAllData} className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><RefreshCw size={13} /> Refresh</button>
+                <div className="flex gap-3 flex-wrap pt-2">
+                  <button onClick={() => runConfirm('Approve all pending archive items?', null, approveAllPending)} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-sm"><CheckCheck size={14} /> Approve All Pending</button>
+                  <button onClick={() => setTab('reports')} className="border border-ink bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2"><Flag size={14} /> View Reports ({openReports.length})</button>
+                  <button onClick={exportAll} className="border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:border-ink transition-colors flex items-center gap-2"><Download size={14} /> Export All Data</button>
+                  <button onClick={loadAllData} className="border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:border-ink transition-colors flex items-center gap-2"><RefreshCw size={14} /> Refresh Telemetry</button>
                 </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-wire">
                   {[
                     ['Total Users', users.length, '👥'],
-                    ['Pro Users', proUsers.length, '⭐'],
+                    ['Pro Partners', proUsers.length, '⭐'],
                     ['New Signups Today', newSignupsToday, '🆕'],
-                    ['Subscribers', activeSubscribers.length, '📧'],
-                    ['Active Stories', activeStories.filter(s => s.privacy === 'public').length, '📝'],
-                    ['Suspended', users.filter(u => u.suspended).length, '🚫'],
+                    ['Active Subscribers', activeSubscribers.length, '📧'],
+                    ['Public Stories', activeStories.filter(s => s.privacy === 'public').length, '📝'],
+                    ['Suspended Accounts', users.filter(u => u.suspended).length, '🚫'],
                     ['Open Reports', openReports.length, '🚩'],
                     ['Pending Withdrawals', pendingWithdrawals.length, '💳'],
                     ['Blocked Media', activeStories.filter(s => s.mediaBlocked).length, '🖼️'],
                     ['Total Revenue', fmtMoney(totalRevenueAll), '💰'],
                   ].map(([label, value, emoji]) => (
-                    <div key={label} className="border border-wire rounded-sm p-4 hover:border-ink transition-colors">
-                      <p className="text-2xl mb-1">{emoji}</p>
-                      <p className="text-2xl font-bold editorial-h">{value}</p>
-                      <p className="text-xs text-ink-400 mt-1">{label}</p>
+                    <div key={label} className="border border-wire rounded-sm p-5 bg-paper hover:border-ink transition-all shadow-sm">
+                      <p className="text-2xl mb-2">{emoji}</p>
+                      <p className="text-2xl font-black text-ink">{value}</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mt-1">{label}</p>
                     </div>
                   ))}
                 </div>
@@ -854,14 +933,14 @@ export default function AdminPage() {
 
             {/* Users */}
             {tab === 'users' && (
-              <div>
-                <div className="flex gap-2 mb-4 flex-wrap items-center">
+              <div className="space-y-6">
+                <div className="flex gap-3 mb-6 flex-wrap items-center">
                   <div className="relative flex-1 max-w-sm">
-                    <Search size={14} className="absolute left-3 top-2.5 text-ink-400" />
-                    <input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users... (Ctrl+S)" className="w-full border border-wire rounded-sm pl-9 pr-3 py-2 text-sm" />
+                    <Search size={16} className="absolute left-3.5 top-3 text-ink-400" />
+                    <input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users by name or email... (Ctrl+S)" className="w-full border border-wire rounded-sm pl-10 pr-4 py-2.5 text-xs font-medium bg-paper focus:outline-none focus:border-ink" />
                   </div>
-                  <select value={userTierFilter} onChange={(e) => setUserTierFilter(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-2">
-                    <option value="all">All tiers</option>
+                  <select value={userTierFilter} onChange={(e) => setUserTierFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2.5 bg-paper">
+                    <option value="all">All Tiers</option>
                     <option value="basic">Basic</option>
                     <option value="partner">Partner</option>
                     <option value="pro_partner">Pro Partner</option>
@@ -869,14 +948,14 @@ export default function AdminPage() {
                     <option value="suspended">Suspended</option>
                   </select>
                   {selectedUsers.length > 0 && (
-                    <div className="flex gap-1">
-                      <button onClick={() => runGated(`Suspend ${selectedUsers.length} selected users?`, () => { selectedUsers.forEach(id => setUserSuspended(id, true, user.email)); showToast(`${selectedUsers.length} users suspended`); setSelectedUsers([]); })} className="text-xs font-semibold px-3 py-2 rounded-sm border border-signal text-signal">Suspend selected</button>
-                      <button onClick={() => showToast('Exported selected users')} className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire">Export selected</button>
+                    <div className="flex gap-2 ml-auto">
+                      <button onClick={() => runGated(`Suspend ${selectedUsers.length} selected users?`, () => { selectedUsers.forEach(id => setUserSuspended(id, true, user?.email)); showToast(`${selectedUsers.length} users suspended`); setSelectedUsers([]); })} className="bg-signal text-white font-bold uppercase text-xs px-4 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Suspend Selected ({selectedUsers.length})</button>
                     </div>
                   )}
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {filteredUsers.length === 0 && <EmptyState icon={UsersIcon} label="No users found." />}
+
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {filteredUsers.length === 0 && <EmptyState icon={UsersIcon} label="No users match your search criteria." />}
                   {filteredUsers.map(u => {
                     const expanded = expandedUserId === u.id;
                     const isEditing = editingUser?.id === u.id;
@@ -884,30 +963,30 @@ export default function AdminPage() {
                     const userStories = stories.filter(s => s.authorId === u.id && !s.deleted);
                     const userSms = smsHistory.filter(s => (s.recipients || '').includes(u.email));
                     return (
-                      <div key={u.id} className="p-3">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-3">
-                            <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => setSelectedUsers(prev => prev.includes(u.id) ? prev.filter(i => i !== u.id) : [...prev, u.id])} />
-                            <img src={u.logoUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+                      <div key={u.id} className="p-4 hover:bg-ink-50/30 transition-colors">
+                        <div className="flex items-center justify-between flex-wrap gap-4">
+                          <div className="flex items-center gap-4">
+                            <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => setSelectedUsers(prev => prev.includes(u.id) ? prev.filter(i => i !== u.id) : [...prev, u.id])} className="h-4 w-4 rounded border-wire text-ink focus:ring-0 cursor-pointer" />
+                            <img src={u.logoUrl} alt="" className="w-11 h-11 rounded-full border border-wire object-cover shadow-sm" />
                             <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-semibold">{u.publisherName}</p>
-                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${tierBadgeClasses(u.role === 'root' ? 'root' : u.role === 'admin' ? 'admin' : u.tier)}`}>{tierLabel(u.role === 'root' ? 'root' : u.role === 'admin' ? 'admin' : u.tier)}</span>
-                                {u.suspended && <span className="text-xs text-signal font-semibold">Suspended</span>}
+                              <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                <p className="text-sm font-bold text-ink">{u.publisherName}</p>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${tierBadgeClasses(u.role === 'root' ? 'root' : u.role === 'admin' ? 'admin' : u.tier)}`}>{tierLabel(u.role === 'root' ? 'root' : u.role === 'admin' ? 'admin' : u.tier)}</span>
+                                {u.suspended && <span className="text-[10px] font-bold text-signal uppercase tracking-wider">Suspended</span>}
                               </div>
-                              <p className="text-xs text-ink-400">{u.email}</p>
-                              <p className="text-xs text-ink-400">Joined {new Date(u.createdAt).toLocaleDateString()} · {userStories.length} stories</p>
+                              <p className="text-xs font-mono text-ink-500">{u.email}</p>
+                              <p className="text-[11px] text-ink-400 mt-0.5">Joined {safeDateShort(u.createdAt)} · {userStories.length} published stories</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => setExpandedUserId(expanded ? null : u.id)} className="text-xs px-2 py-1 rounded-sm border border-wire flex items-center gap-1">{expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Activity</button>
-                            <button onClick={() => setEditingUser(isEditing ? null : { id: u.id, publisherName: u.publisherName, email: u.email, tier: u.tier || 'basic' })} className="text-xs px-2 py-1 rounded-sm border border-wire flex items-center gap-1"><UserCog size={12} /> Edit</button>
-                            <Link href={`/profile/${u.id}`} className="text-xs px-2 py-1 rounded-sm border border-wire hover:bg-ink-50">View</Link>
-                            {u.email !== user.email && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button onClick={() => setExpandedUserId(expanded ? null : u.id)} className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1 transition-colors">{expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Activity</button>
+                            <button onClick={() => setEditingUser(isEditing ? null : { id: u.id, publisherName: u.publisherName, email: u.email, tier: u.tier || 'basic' })} className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1 transition-colors"><UserCog size={13} /> Edit</button>
+                            <Link href={`/profile/${u.id}`} className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink transition-colors">View Profile</Link>
+                            {u.email !== user?.email && (
                               <>
-                                <button onClick={() => runGated(`Force logout ${u.publisherName}?`, () => forceLogoutUser(u.id))} className="text-xs font-semibold px-2 py-1 rounded-sm border border-wire flex items-center gap-1"><LogOut size={12} /></button>
-                                <button onClick={() => runGated(u.suspended ? `Unsuspend ${u.publisherName}?` : `Suspend ${u.publisherName}?`, () => setUserSuspended(u.id, !u.suspended, user.email))}
-                                  className={`text-xs font-semibold px-3 py-1.5 rounded-sm border ${u.suspended ? 'border-wire' : 'border-signal text-signal'}`}>
+                                <button onClick={() => runGated(`Force logout ${u.publisherName}?`, () => forceLogoutUser(u.id))} className="border border-wire bg-white hover:border-ink p-1.5 rounded-sm text-ink transition-colors" title="Force Logout"><LogOut size={14} /></button>
+                                <button onClick={() => runGated(u.suspended ? `Unsuspend ${u.publisherName}?` : `Suspend ${u.publisherName}?`, () => setUserSuspended(u.id, !u.suspended, user?.email))}
+                                  className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm border transition-colors ${u.suspended ? 'border-wire text-ink hover:border-ink' : 'border-signal text-signal hover:bg-signal hover:text-white'}`}>
                                   {u.suspended ? 'Unsuspend' : 'Suspend'}
                                 </button>
                               </>
@@ -916,25 +995,25 @@ export default function AdminPage() {
                         </div>
 
                         {isEditing && (
-                          <div className="mt-3 p-3 border border-wire rounded-sm bg-ink-50 flex flex-wrap gap-2 items-end">
-                            <div><label className="text-[10px] text-ink-400 block">Name</label><input value={editingUser.publisherName} onChange={(e) => setEditingUser({ ...editingUser, publisherName: e.target.value })} className="text-xs border border-wire rounded-sm px-2 py-1" /></div>
-                            <div><label className="text-[10px] text-ink-400 block">Email</label><input value={editingUser.email} onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })} className="text-xs border border-wire rounded-sm px-2 py-1" /></div>
-                            <div><label className="text-[10px] text-ink-400 block">Tier</label>
-                              <select value={editingUser.tier} onChange={(e) => setEditingUser({ ...editingUser, tier: e.target.value })} className="text-xs border border-wire rounded-sm px-2 py-1">
+                          <div className="mt-4 p-4 border border-wire rounded-sm bg-ink-50 flex flex-wrap gap-4 items-end">
+                            <div className="flex-1 min-w-[200px]"><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Name</label><input value={editingUser.publisherName} onChange={(e) => setEditingUser({ ...editingUser, publisherName: e.target.value })} className="w-full text-xs border border-wire rounded-sm px-3 py-2 bg-paper font-semibold" /></div>
+                            <div className="flex-1 min-w-[200px]"><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Email</label><input value={editingUser.email} onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })} className="w-full text-xs border border-wire rounded-sm px-3 py-2 bg-paper font-semibold" /></div>
+                            <div><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Tier</label>
+                              <select value={editingUser.tier} onChange={(e) => setEditingUser({ ...editingUser, tier: e.target.value })} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
                                 <option value="basic">Basic</option><option value="partner">Partner</option><option value="pro_partner">Pro Partner</option>
                               </select>
                             </div>
-                            <button onClick={saveUserEdit} className="text-xs px-3 py-1.5 rounded-sm bg-ink text-paper flex items-center gap-1"><Check size={12} /> Save</button>
-                            <button onClick={() => setEditingUser(null)} className="text-xs px-3 py-1.5 rounded-sm border border-wire">Cancel</button>
+                            <button onClick={saveUserEdit} className="bg-ink text-white font-bold uppercase text-xs px-5 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"><Check size={14} /> Save</button>
+                            <button onClick={() => setEditingUser(null)} className="border border-wire bg-white font-bold uppercase text-xs px-4 py-2 rounded-sm">Cancel</button>
                           </div>
                         )}
 
                         {expanded && (
-                          <div className="mt-3 p-3 border border-wire rounded-sm grid sm:grid-cols-4 gap-3 text-center">
-                            <div><p className="text-lg font-bold">{userStories.length}</p><p className="text-[10px] text-ink-400">Stories</p></div>
-                            <div><p className="text-lg font-bold">{userStories.reduce((s, st) => s + (st.comments?.length || 0), 0)}</p><p className="text-[10px] text-ink-400">Comments</p></div>
-                            <div><p className="text-lg font-bold">{userTxns.length}</p><p className="text-[10px] text-ink-400">Payments</p></div>
-                            <div><p className="text-lg font-bold">{userSms.length}</p><p className="text-[10px] text-ink-400">SMS sent</p></div>
+                          <div className="mt-4 p-4 border border-wire rounded-sm bg-ink-50 grid sm:grid-cols-4 gap-4 text-center">
+                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userStories.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Stories</p></div>
+                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userStories.reduce((s, st) => s + (st.comments?.length || 0), 0)}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Comments</p></div>
+                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userTxns.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Payments</p></div>
+                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userSms.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">SMS Sent</p></div>
                           </div>
                         )}
                       </div>
@@ -946,26 +1025,27 @@ export default function AdminPage() {
 
             {/* Content */}
             {tab === 'content' && (
-              <div>
-                <div className="flex gap-2 mb-3 flex-wrap items-center">
+              <div className="space-y-6">
+                <div className="flex gap-3 mb-4 flex-wrap items-center">
                   {['all', 'public', 'private', 'blocked'].map(f => (
-                    <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs px-3 py-1.5 rounded-full border ${filterStatus === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
-                      {f === 'all' ? 'All' : f === 'blocked' ? 'Blocked Media' : f}
+                    <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm border transition-colors ${filterStatus === f ? 'bg-ink text-white border-ink' : 'border-wire text-ink-600 hover:border-ink'}`}>
+                      {f === 'all' ? 'All Stories' : f === 'blocked' ? 'Blocked Media' : f}
                     </button>
                   ))}
-                  <select value={contentSourceFilter} onChange={(e) => setContentSourceFilter(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5">
-                    <option value="">All sources</option>
+                  <select value={contentSourceFilter} onChange={(e) => setContentSourceFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper ml-auto">
+                    <option value="">All Sources</option>
                     {CONTENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  <select value={contentSort} onChange={(e) => setContentSort(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5">
-                    <option value="newest">Newest</option>
-                    <option value="liked">Most liked</option>
-                    <option value="commented">Most commented</option>
-                    <option value="reported">Most reported</option>
+                  <select value={contentSort} onChange={(e) => setContentSort(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
+                    <option value="newest">Newest First</option>
+                    <option value="liked">Most Liked</option>
+                    <option value="commented">Most Commented</option>
+                    <option value="reported">Most Reported</option>
                   </select>
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {filteredStories.length === 0 && <EmptyState icon={FileText} label="No content found." />}
+
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {filteredStories.length === 0 && <EmptyState icon={FileText} label="No stories match your filter criteria." />}
                   {filteredStories.map(s => {
                     const author = users.find(u => u.id === s.authorId);
                     const wordCount = s.body ? s.body.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length : 0;
@@ -973,26 +1053,25 @@ export default function AdminPage() {
                     const reportCount = reports.filter(r => r.storyId === s.id).length;
                     const featured = featuredIds.includes(s.id);
                     return (
-                      <div key={s.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Link href={`/story/${s.id}`} className="text-sm font-semibold hover:text-signal">{s.title}</Link>
-                            {featured && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 flex items-center gap-1"><Star size={9} /> Featured</span>}
+                      <div key={s.id} className="flex items-center justify-between p-4 flex-wrap gap-4 hover:bg-ink-50/30 transition-colors">
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link href={`/story/${s.id}`} className="text-sm font-bold text-ink hover:text-signal transition-colors">{s.title}</Link>
+                            {featured && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-amber-100 text-amber-800 flex items-center gap-1"><Star size={10} fill="currentColor" /> Featured</span>}
                           </div>
-                          <p className="text-xs text-ink-400">
-                            {author?.publisherName} · {s.type} · {s.privacy} · {s.likes?.length || 0} likes · {s.comments?.length || 0} comments
-                            {reportCount > 0 && <span className="text-signal"> · {reportCount} reports</span>}
-                            {s.mediaBlocked && <span className="text-signal"> · media blocked</span>}
-                            {wordCount > 0 && <span> · {wordCount} words · {readingTime} min read</span>}
-                            {s.coverImage && <span> · has image</span>}
+                          <p className="text-xs font-medium text-ink-500">
+                            {author?.publisherName || 'Unknown'} · {s.type} · {s.privacy} · {s.likes?.length || 0} likes · {s.comments?.length || 0} comments
+                            {reportCount > 0 && <span className="text-signal font-bold"> · {reportCount} reports</span>}
+                            {s.mediaBlocked && <span className="text-signal font-bold"> · media blocked</span>}
+                            {wordCount > 0 && <span> · {wordCount} words ({readingTime} min)</span>}
                           </p>
                         </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => toggleFeatured(s.id)} className={`text-xs font-semibold px-3 py-1.5 rounded-sm border flex items-center gap-1 ${featured ? 'border-amber-400 text-amber-700' : 'border-wire'}`}><Star size={12} /> {featured ? 'Unfeature' : 'Feature'}</button>
-                          <button onClick={() => runGated(s.mediaBlocked ? 'Unblock media?' : 'Block media?', () => setMediaBlocked(s.id, !s.mediaBlocked, user.email))}
-                            className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire">{s.mediaBlocked ? 'Unblock' : 'Block media'}</button>
-                          <button onClick={() => runGated('Delete permanently?', () => adminDeleteStory(s.id, user.email))}
-                            className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-signal text-signal">Delete</button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => toggleFeatured(s.id)} className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm border flex items-center gap-1.5 transition-colors ${featured ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-wire bg-white hover:border-ink text-ink'}`}><Star size={13} /> {featured ? 'Unfeature' : 'Feature'}</button>
+                          <button onClick={() => runGated(s.mediaBlocked ? 'Unblock media?' : 'Block media?', () => setMediaBlocked(s.id, !s.mediaBlocked, user?.email))}
+                            className="border border-wire bg-white hover:border-ink text-ink font-bold uppercase text-xs tracking-wider px-3 py-1.5 rounded-sm transition-colors">{s.mediaBlocked ? 'Unblock' : 'Block Media'}</button>
+                          <button onClick={() => runGated('Delete permanently?', () => adminDeleteStory(s.id, user?.email))}
+                            className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-3 py-1.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Delete</button>
                         </div>
                       </div>
                     );
@@ -1003,17 +1082,17 @@ export default function AdminPage() {
 
             {/* Reports */}
             {tab === 'reports' && (
-              <div className="border border-wire rounded-sm divide-y divide-wire">
-                {reports.length === 0 && <EmptyState icon={Flag} label="No reports filed." />}
+              <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                {reports.length === 0 && <EmptyState icon={Flag} label="No active publication reports filed." />}
                 {reports.map(r => {
                   const story = stories.find(s => s.id === r.storyId);
                   return (
-                    <div key={r.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-                      <div>
-                        <p className="text-sm font-semibold">{story?.title || 'Deleted post'}</p>
-                        <p className="text-xs text-ink-400">{r.reason} · {new Date(r.createdAt).toLocaleString()}{r.resolved && <span className="text-ink-400"> · resolved</span>}</p>
+                    <div key={r.id} className="flex items-center justify-between p-4 flex-wrap gap-4 hover:bg-ink-50/30 transition-colors">
+                      <div className="space-y-1">
+                        <p className="text-sm font-bold text-ink">{story?.title || 'Deleted Publication'}</p>
+                        <p className="text-xs font-medium text-ink-500">Reason: <span className="text-signal font-bold">{r.reason}</span> · Filed {safeDate(r.createdAt)} {r.resolved && <span className="text-ink-400">(Resolved)</span>}</p>
                       </div>
-                      {!r.resolved && <button onClick={() => { resolveReport(r.id); showToast('Report resolved'); }} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire">Resolve</button>}
+                      {!r.resolved && <button onClick={() => { resolveReport(r.id); showToast('Report resolved'); }} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal transition-colors">Mark Resolved</button>}
                     </div>
                   );
                 })}
@@ -1022,25 +1101,25 @@ export default function AdminPage() {
 
             {/* Withdrawals */}
             {tab === 'withdrawals' && (
-              <div>
-                <div className="flex gap-2 mb-4 items-center">
+              <div className="space-y-6">
+                <div className="flex gap-3 mb-4 items-center">
                   {['all', 'pending', 'completed'].map(f => (
-                    <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs px-3 py-1.5 rounded-full border ${filterStatus === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
+                    <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm border transition-colors ${filterStatus === f ? 'bg-ink text-white border-ink' : 'border-wire text-ink-600 hover:border-ink'}`}>
                       {f.charAt(0).toUpperCase() + f.slice(1)}
                     </button>
                   ))}
                   {loadingTabs.financial && <Spinner />}
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {withdrawals.length === 0 && <EmptyState icon={Wallet} label="No withdrawal requests yet." />}
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {withdrawals.length === 0 && <EmptyState icon={Wallet} label="No partner withdrawal requests found." />}
                   {withdrawals.filter(w => filterStatus === 'all' ? true : w.status === filterStatus).map(w => (
-                    <div key={w.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-                      <div><p className="text-sm font-semibold">{fmtMoney(w.amount)}</p><p className="text-xs text-ink-400">Phone: {w.phone} · {new Date(w.created_at).toLocaleString()}</p></div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${w.status === 'completed' ? 'bg-ink-50 text-ink-600' : w.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'}`}>{w.status}</span>
+                    <div key={w.id} className="flex items-center justify-between p-4 flex-wrap gap-4 hover:bg-ink-50/30 transition-colors">
+                      <div><p className="text-base font-black text-ink">{fmtMoney(w.amount)}</p><p className="text-xs font-mono text-ink-500 mt-0.5">M-Pesa: {w.phone} · Requested {safeDate(w.created_at)}</p></div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-sm ${w.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : w.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-signal'}`}>{w.status}</span>
                         {w.status === 'pending' && (
                           <button onClick={() => runGated(`Mark withdrawal of ${fmtMoney(w.amount)} as completed?`, () => markWithdrawalComplete(w.id))}
-                            className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-ink text-ink hover:bg-ink hover:text-paper flex items-center gap-1"><CheckCircle size={12} /> Complete</button>
+                            className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5 shadow-sm"><CheckCircle size={14} /> Complete Payout</button>
                         )}
                       </div>
                     </div>
@@ -1051,44 +1130,44 @@ export default function AdminPage() {
 
             {/* Transactions */}
             {tab === 'transactions' && (
-              <div>
-                <div className="border border-wire rounded-sm p-4 mb-4 flex items-center justify-between flex-wrap gap-2">
+              <div className="space-y-6">
+                <div className="border border-wire rounded-sm p-6 bg-ink-50/50 flex items-center justify-between flex-wrap gap-4">
                   <div>
-                    <p className="text-xs text-ink-400">Total revenue (completed)</p>
-                    <p className="text-2xl font-bold editorial-h">{fmtMoney(totalRevenueAll)}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Verified Revenue</p>
+                    <p className="text-3xl font-black text-ink">{fmtMoney(totalRevenueAll)}</p>
                   </div>
-                  <button onClick={() => exportEntity('transactions')} className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><Download size={13} /> Export CSV</button>
+                  <button onClick={() => exportEntity('transactions')} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-sm"><Download size={15} /> Export Transactions CSV</button>
                 </div>
 
-                <div className="flex flex-wrap gap-2 mb-4 items-end">
-                  <div><label className="text-[10px] text-ink-400 block">From</label><input type="date" value={txnDateFrom} onChange={(e) => setTxnDateFrom(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5" /></div>
-                  <div><label className="text-[10px] text-ink-400 block">To</label><input type="date" value={txnDateTo} onChange={(e) => setTxnDateTo(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5" /></div>
-                  <select value={txnStatusFilter} onChange={(e) => setTxnStatusFilter(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5">
-                    <option value="all">All statuses</option><option value="completed">Completed</option><option value="pending">Pending</option><option value="failed">Failed</option>
+                <div className="flex flex-wrap gap-3 items-end bg-paper p-4 border border-wire rounded-sm">
+                  <div><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">From Date</label><input type="date" value={txnDateFrom} onChange={(e) => setTxnDateFrom(e.target.value)} className="text-xs border border-wire rounded-sm px-3 py-2 bg-paper font-semibold" /></div>
+                  <div><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">To Date</label><input type="date" value={txnDateTo} onChange={(e) => setTxnDateTo(e.target.value)} className="text-xs border border-wire rounded-sm px-3 py-2 bg-paper font-semibold" /></div>
+                  <select value={txnStatusFilter} onChange={(e) => setTxnStatusFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
+                    <option value="all">All Statuses</option><option value="completed">Completed</option><option value="pending">Pending</option><option value="failed">Failed</option>
                   </select>
-                  <select value={txnMethodFilter} onChange={(e) => setTxnMethodFilter(e.target.value)} className="text-xs border border-wire rounded-sm px-2 py-1.5">
-                    <option value="all">All methods</option><option value="mpesa">M-Pesa</option><option value="card">Card</option>
+                  <select value={txnMethodFilter} onChange={(e) => setTxnMethodFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
+                    <option value="all">All Methods</option><option value="mpesa">M-Pesa</option><option value="card">Card</option>
                   </select>
-                  <input value={txnSearchQ} onChange={(e) => setTxnSearchQ(e.target.value)} placeholder="Search email or reference..." className="text-xs border border-wire rounded-sm px-2 py-1.5 flex-1 min-w-[180px]" />
+                  <input value={txnSearchQ} onChange={(e) => setTxnSearchQ(e.target.value)} placeholder="Search email or ref..." className="text-xs font-medium border border-wire rounded-sm px-3 py-2 flex-1 min-w-[200px] bg-paper focus:outline-none focus:border-ink" />
                 </div>
 
-                <div className="border border-wire rounded-sm divide-y divide-wire mb-6">
-                  {filteredTxns.length === 0 && <EmptyState icon={CreditCard} label="No transactions found." />}
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {filteredTxns.length === 0 && <EmptyState icon={CreditCard} label="No transactions found matching filters." />}
                   {filteredTxns.map(t => (
-                    <div key={t.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
-                      <div><p className="text-sm font-semibold">{t.credits} credits · {fmtMoney(t.amount)}</p><p className="text-xs text-ink-400">{t.reference} · {t.email || '—'} · {new Date(t.created_at).toLocaleString()}</p></div>
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${t.status === 'completed' ? 'bg-ink-50 text-ink-600' : t.status === 'pending' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-signal'}`}>{t.status}</span>
+                    <div key={t.id} className="flex items-center justify-between p-4 flex-wrap gap-4 hover:bg-ink-50/30 transition-colors">
+                      <div><p className="text-sm font-bold text-ink">{t.credits} SMS Credits · <span className="font-black">{fmtMoney(t.amount)}</span></p><p className="text-xs font-mono text-ink-500 mt-0.5">{t.reference} · {t.email || '—'} · {safeDate(t.created_at)}</p></div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-sm ${t.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : t.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-signal'}`}>{t.status}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="border border-wire rounded-sm p-4">
-                  <p className="wire-tag mb-3 flex items-center gap-1.5"><Lock size={12} /> Manual credit adjustment</p>
-                  <div className="flex flex-wrap gap-2 items-end">
-                    <div><label className="text-[10px] text-ink-400 block">User email</label><input value={creditAdjustEmail} onChange={(e) => setCreditAdjustEmail(e.target.value)} placeholder="user@example.com" className="text-xs border border-wire rounded-sm px-2 py-1.5" /></div>
-                    <div><label className="text-[10px] text-ink-400 block">Amount (+/-)</label><input type="number" value={creditAdjustAmount} onChange={(e) => setCreditAdjustAmount(e.target.value)} placeholder="e.g. 50 or -10" className="text-xs border border-wire rounded-sm px-2 py-1.5 w-28" /></div>
-                    <div><label className="text-[10px] text-ink-400 block">Reason</label><input value={creditAdjustReason} onChange={(e) => setCreditAdjustReason(e.target.value)} placeholder="Reason for audit log" className="text-xs border border-wire rounded-sm px-2 py-1.5" /></div>
-                    <button onClick={() => runGated(`Adjust credits for ${creditAdjustEmail || '—'} by ${creditAdjustAmount || 0}?`, adjustCredits)} className="text-xs font-semibold px-3 py-2 rounded-sm bg-ink text-paper">Apply adjustment</button>
+                <div className="border border-wire rounded-sm p-6 bg-paper space-y-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-ink flex items-center gap-2"><Lock size={14} className="text-signal" /> Manual Credit Ledger Adjustment</p>
+                  <div className="flex flex-wrap gap-3 items-end">
+                    <div className="flex-1 min-w-[200px]"><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">User Email</label><input value={creditAdjustEmail} onChange={(e) => setCreditAdjustEmail(e.target.value)} placeholder="user@example.com" className="w-full text-xs border border-wire rounded-sm px-3 py-2.5 bg-paper font-semibold" /></div>
+                    <div className="w-36"><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Amount (+/-)</label><input type="number" value={creditAdjustAmount} onChange={(e) => setCreditAdjustAmount(e.target.value)} placeholder="e.g. 50 or -10" className="w-full text-xs border border-wire rounded-sm px-3 py-2.5 bg-paper font-semibold" /></div>
+                    <div className="flex-1 min-w-[200px]"><label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Audit Reason</label><input value={creditAdjustReason} onChange={(e) => setCreditAdjustReason(e.target.value)} placeholder="Reason logged in audit trail" className="w-full text-xs border border-wire rounded-sm px-3 py-2.5 bg-paper font-semibold" /></div>
+                    <button onClick={() => runGated(`Adjust credits for ${creditAdjustEmail || '—'} by ${creditAdjustAmount || 0}?`, adjustCredits)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Apply Adjustment</button>
                   </div>
                 </div>
               </div>
@@ -1096,13 +1175,13 @@ export default function AdminPage() {
 
             {/* SMS Logs */}
             {tab === 'sms' && (
-              <div className="border border-wire rounded-sm divide-y divide-wire">
-                {smsHistory.length === 0 && <EmptyState icon={MessageSquare} label="No SMS sent yet." />}
+              <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                {smsHistory.length === 0 && <EmptyState icon={MessageSquare} label="No broadcast SMS logs recorded." />}
                 {smsHistory.map(s => (
-                  <div key={s.id} className="p-3">
-                    <p className="text-sm mb-1">{s.message}</p>
-                    <p className="text-xs text-ink-400">To: {s.recipients} · {s.recipient_count} recipients · {s.cost} credits · {new Date(s.created_at).toLocaleString()}</p>
-                    <span className={`text-xs font-semibold ${s.status === 'delivered' ? 'text-ink-600' : 'text-signal'}`}>{s.status}</span>
+                  <div key={s.id} className="p-4 space-y-1 hover:bg-ink-50/30 transition-colors">
+                    <p className="text-sm font-bold text-ink">{s.message}</p>
+                    <p className="text-xs font-mono text-ink-500">Recipients: {s.recipients} ({s.recipient_count} total) · Cost: {s.cost} credits · {safeDate(s.created_at)}</p>
+                    <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${s.status === 'delivered' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-signal'}`}>{s.status}</span>
                   </div>
                 ))}
               </div>
@@ -1110,22 +1189,22 @@ export default function AdminPage() {
 
             {/* Subscribers */}
             {tab === 'subscribers' && (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-ink-600"><strong>{subscribers.length}</strong> total · <strong>{activeSubscribers.length}</strong> active</p>
-                  <button onClick={exportCSV} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire hover:bg-ink-50 flex items-center gap-1">
-                    <Download size={12} /> Export CSV
+              <div className="space-y-6">
+                <div className="flex items-center justify-between p-4 bg-ink-50 border border-wire rounded-sm">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink">Total Subscribers: <span className="font-black text-sm">{subscribers.length}</span> (Active: <span className="text-signal font-black">{activeSubscribers.length}</span>)</p>
+                  <button onClick={exportCSV} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-sm">
+                    <Download size={14} /> Export Subscribers CSV
                   </button>
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {subscribers.length === 0 && <EmptyState icon={Mail} label="No subscribers yet." />}
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {subscribers.length === 0 && <EmptyState icon={Mail} label="No newsletter subscribers recorded yet." />}
                   {subscribers.map(s => (
-                    <div key={s.id} className="flex items-center justify-between p-3 flex-wrap gap-2">
+                    <div key={s.id} className="flex items-center justify-between p-4 flex-wrap gap-4 hover:bg-ink-50/30 transition-colors">
                       <div>
-                        <p className="text-sm font-semibold">{s.email}</p>
-                        <p className="text-xs text-ink-400">Prefers: {s.preferences} · Joined {new Date(s.created_at).toLocaleDateString()}</p>
+                        <p className="text-sm font-bold text-ink font-mono">{s.email}</p>
+                        <p className="text-xs text-ink-500 mt-0.5">Preferences: {s.preferences} · Joined {safeDateShort(s.created_at)}</p>
                       </div>
-                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${s.status === 'active' ? 'bg-ink-50 text-ink-600' : 'bg-red-50 text-signal'}`}>{s.status}</span>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-sm ${s.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-signal'}`}>{s.status}</span>
                     </div>
                   ))}
                 </div>
@@ -1134,50 +1213,82 @@ export default function AdminPage() {
 
             {/* Search Analytics */}
             {tab === 'search' && (
-              <div>
-                <p className="text-sm text-ink-600 mb-4"><strong>{searchAnalytics.total || 0}</strong> total searches</p>
+              <div className="space-y-6">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-500">Total System Searches Recorded: <span className="font-black text-ink">{searchAnalytics.total || 0}</span></p>
                 <div className="grid sm:grid-cols-2 gap-6">
-                  <div><p className="wire-tag mb-3">Top Searches</p><div className="border border-wire rounded-sm divide-y divide-wire">{(searchAnalytics.top || []).length === 0 && <EmptyState icon={Search} label="No data yet." />}{(searchAnalytics.top || []).map((s, i) => (<div key={i} className="flex items-center justify-between p-3"><span className="text-sm">{s.query}</span><span className="text-xs font-semibold text-ink-600">{s.count} searches</span></div>))}</div></div>
-                  <div><p className="wire-tag mb-3">Recent Searches</p><div className="border border-wire rounded-sm divide-y divide-wire max-h-96 overflow-y-auto">{(searchAnalytics.recent || []).length === 0 && <EmptyState icon={Search} label="No data yet." />}{(searchAnalytics.recent || []).map((s, i) => (<div key={i} className="p-3 flex items-center justify-between"><span className="text-sm">{s.query}</span><span className="text-xs text-ink-400">{new Date(s.created_at).toLocaleString()}</span></div>))}</div></div>
+                  <div className="border border-wire rounded-sm p-5 bg-paper">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink mb-4">Top User Search Queries</p>
+                    <div className="border border-wire rounded-sm divide-y divide-wire">
+                      {(searchAnalytics.top || []).length === 0 && <EmptyState icon={Search} label="No search data recorded." />}
+                      {(searchAnalytics.top || []).map((s, i) => (
+                        <div key={i} className="flex items-center justify-between p-3.5 text-xs">
+                          <span className="font-bold text-ink">{s.query}</span>
+                          <span className="font-mono text-ink-400">{s.count} searches</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="border border-wire rounded-sm p-5 bg-paper">
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink mb-4">Recent Query Feed</p>
+                    <div className="border border-wire rounded-sm divide-y divide-wire max-h-96 overflow-y-auto">
+                      {(searchAnalytics.recent || []).length === 0 && <EmptyState icon={Search} label="No recent searches." />}
+                      {(searchAnalytics.recent || []).map((s, i) => (
+                        <div key={i} className="p-3.5 flex items-center justify-between text-xs">
+                          <span className="font-bold text-ink">{s.query}</span>
+                          <span className="font-mono text-ink-400">{safeDate(s.created_at)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* Export Center */}
             {tab === 'export' && (
-              <div>
-                <p className="text-sm text-ink-600 mb-4">Download platform data as CSV.</p>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <div className="space-y-6">
+                <div className="bg-ink-50 border border-wire rounded-sm p-6">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-ink mb-1">Platform Data Export Center</h2>
+                  <p className="text-xs text-ink-500">Download formatted CSV exports of platform databases instantly for offline auditing and reporting.</p>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    ['Users', 'users', UsersIcon],
-                    ['Transactions', 'transactions', CreditCard],
-                    ['Stories', 'stories', FileText],
-                    ['Subscribers', 'subscribers', Mail],
+                    ['Users Database', 'users', UsersIcon],
+                    ['Transaction Logs', 'transactions', CreditCard],
+                    ['Published Stories', 'stories', FileText],
+                    ['Subscriber Lists', 'subscribers', Mail],
                   ].map(([label, key, Icon]) => (
-                    <button key={key} onClick={() => exportEntity(key)} className="border border-wire rounded-sm p-4 text-left hover:border-ink transition-colors">
-                      <Icon size={18} className="mb-2" />
-                      <p className="text-sm font-semibold">{label}</p>
-                      <p className="text-xs text-ink-400 flex items-center gap-1 mt-1"><FileDown size={11} /> Export CSV</p>
+                    <button key={key} onClick={() => exportEntity(key)} className="border border-wire bg-paper rounded-sm p-6 text-left hover:border-ink transition-all shadow-sm group">
+                      <div className="w-10 h-10 bg-ink-50 rounded-sm grid place-items-center mb-4 group-hover:bg-ink group-hover:text-white transition-colors">
+                        <Icon size={18} />
+                      </div>
+                      <p className="text-sm font-bold text-ink">{label}</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-signal flex items-center gap-1.5 mt-2"><FileDown size={12} /> Download CSV</p>
                     </button>
                   ))}
                 </div>
-                <button onClick={exportAll} className="text-xs font-semibold px-4 py-2.5 rounded-sm bg-ink text-paper flex items-center gap-2"><Package size={14} /> Export All (zip of CSVs)</button>
+                <button onClick={exportAll} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-md">
+                  <Package size={16} /> Export Complete System Package (All Datasets)
+                </button>
               </div>
             )}
 
             {/* Admins */}
             {tab === 'admins' && isRoot && (
-              <div>
-                <div className="flex gap-2 mb-4 max-w-md">
-                  <input value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="admin@example.com" className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm" />
-                  <button onClick={() => runGated(`Grant admin access to ${newAdminEmail}?`, () => { addAdmin(newAdminEmail, user.email); showToast(`${newAdminEmail} added as admin`); setNewAdminEmail(''); })} className="btn-primary px-4 py-2 rounded-sm text-sm">Add admin</button>
+              <div className="space-y-6">
+                <div className="flex gap-3 max-w-lg bg-ink-50 p-4 border border-wire rounded-sm">
+                  <input value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="admin@example.com" className="flex-1 border border-wire rounded-sm px-3.5 py-2.5 text-xs font-semibold bg-paper focus:outline-none focus:border-ink" />
+                  <button onClick={() => runGated(`Grant admin access to ${newAdminEmail}?`, () => { addAdmin(newAdminEmail, user?.email); showToast(`${newAdminEmail} added as admin`); setNewAdminEmail(''); })} className="bg-signal text-white font-bold uppercase text-xs px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Grant Admin Access</button>
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  <div className="p-3 flex items-center justify-between"><span className="text-sm font-semibold">{user.email}</span><span className="text-xs text-ink-400 font-semibold">Root — cannot be removed</span></div>
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  <div className="p-4 flex items-center justify-between text-xs">
+                    <span className="font-bold text-ink font-mono">{user?.email}</span>
+                    <span className="font-bold uppercase tracking-wider text-signal bg-red-50 px-2 py-1 rounded-sm border border-red-200">Root Owner (Immutable)</span>
+                  </div>
                   {admins.map(email => (
-                    <div key={email} className="p-3 flex items-center justify-between">
-                      <span className="text-sm">{email}</span>
-                      <button onClick={() => runGated(`Remove admin access for ${email}?`, () => { removeAdmin(email, user.email); showToast(`${email} removed`); })} className="text-xs font-semibold text-signal">Remove</button>
+                    <div key={email} className="p-4 flex items-center justify-between text-xs hover:bg-ink-50/30 transition-colors">
+                      <span className="font-mono font-bold text-ink">{email}</span>
+                      <button onClick={() => runGated(`Revoke admin access for ${email}?`, () => { removeAdmin(email, user?.email); showToast(`${email} removed`); })} className="text-signal font-bold uppercase tracking-wider hover:underline">Revoke Access</button>
                     </div>
                   ))}
                 </div>
@@ -1186,37 +1297,51 @@ export default function AdminPage() {
 
             {/* System Settings (root) */}
             {tab === 'settings' && isRoot && (
-              <div className="space-y-6">
-                {loadingTabs.settings && <p className="text-xs text-ink-400 flex items-center gap-2"><Spinner /> Loading settings…</p>}
-                <div className="border border-wire rounded-sm p-4 space-y-3 max-w-xl">
-                  <p className="wire-tag flex items-center gap-1.5"><Settings size={12} /> Platform</p>
-                  <div><label className="text-[10px] text-ink-400 block">Platform name</label><input value={platformSettings.name} onChange={(e) => setPlatformSettings({ ...platformSettings, name: e.target.value })} className="w-full border border-wire rounded-sm px-3 py-2 text-sm" /></div>
-                  <div><label className="text-[10px] text-ink-400 block">Description</label><textarea value={platformSettings.description} onChange={(e) => setPlatformSettings({ ...platformSettings, description: e.target.value })} rows={3} className="w-full border border-wire rounded-sm px-3 py-2 text-sm" /></div>
+              <div className="space-y-8">
+                {loadingTabs.settings && <p className="text-xs font-bold uppercase tracking-wider text-ink-400 flex items-center gap-2"><Spinner /> Loading system settings...</p>}
+                
+                <div className="border border-wire rounded-sm p-6 bg-paper space-y-4 max-w-2xl">
+                  <p className="text-xs font-bold uppercase tracking-widest text-ink flex items-center gap-2"><Settings size={14} className="text-signal" /> Core Platform Configuration</p>
                   <div>
-                    <label className="text-[10px] text-ink-400 block mb-1">Social links</label>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Platform Name</label>
+                    <input value={platformSettings.name} onChange={(e) => setPlatformSettings({ ...platformSettings, name: e.target.value })} className="w-full border border-wire rounded-sm px-3.5 py-2.5 text-xs font-bold bg-paper" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Platform Description</label>
+                    <textarea value={platformSettings.description} onChange={(e) => setPlatformSettings({ ...platformSettings, description: e.target.value })} rows={3} className="w-full border border-wire rounded-sm px-3.5 py-2.5 text-xs font-medium bg-paper resize-none" />
+                  </div>
+                  
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-2">Connected Social Networks</label>
                     {platformSettings.socialLinks.map((l, i) => (
                       <div key={i} className="flex gap-2 mb-2">
-                        <input value={l.platform} onChange={(e) => { const links = [...platformSettings.socialLinks]; links[i] = { ...l, platform: e.target.value }; setPlatformSettings({ ...platformSettings, socialLinks: links }); }} placeholder="Platform" className="w-28 border border-wire rounded-sm px-2 py-1.5 text-xs" />
-                        <input value={l.url} onChange={(e) => { const links = [...platformSettings.socialLinks]; links[i] = { ...l, url: e.target.value }; setPlatformSettings({ ...platformSettings, socialLinks: links }); }} placeholder="https://..." className="flex-1 border border-wire rounded-sm px-2 py-1.5 text-xs" />
-                        <button onClick={() => setPlatformSettings({ ...platformSettings, socialLinks: platformSettings.socialLinks.filter((_, idx) => idx !== i) })} className="text-signal"><X size={14} /></button>
+                        <input value={l.platform} onChange={(e) => { const links = [...platformSettings.socialLinks]; links[i] = { ...l, platform: e.target.value }; setPlatformSettings({ ...platformSettings, socialLinks: links }); }} placeholder="Platform" className="w-32 border border-wire rounded-sm px-3 py-2 text-xs bg-paper font-semibold" />
+                        <input value={l.url} onChange={(e) => { const links = [...platformSettings.socialLinks]; links[i] = { ...l, url: e.target.value }; setPlatformSettings({ ...platformSettings, socialLinks: links }); }} placeholder="https://..." className="flex-1 border border-wire rounded-sm px-3 py-2 text-xs bg-paper font-mono" />
+                        <button onClick={() => setPlatformSettings({ ...platformSettings, socialLinks: platformSettings.socialLinks.filter((_, idx) => idx !== i) })} className="text-signal p-2 hover:bg-red-50 rounded-sm"><X size={15} /></button>
                       </div>
                     ))}
-                    <button onClick={() => setPlatformSettings({ ...platformSettings, socialLinks: [...platformSettings.socialLinks, { platform: '', url: '' }] })} className="text-xs px-2 py-1 rounded-sm border border-wire">+ Add link</button>
+                    <button onClick={() => setPlatformSettings({ ...platformSettings, socialLinks: [...platformSettings.socialLinks, { platform: '', url: '' }] })} className="border border-wire bg-white hover:border-ink px-4 py-2 rounded-sm text-xs font-bold uppercase tracking-wider transition-colors">+ Add Social Link</button>
                   </div>
-                  <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={platformSettings.maintenanceMode} onChange={(e) => setPlatformSettings({ ...platformSettings, maintenanceMode: e.target.checked })} /> Maintenance mode</label>
-                  <div className="flex gap-2 pt-2">
-                    <button onClick={() => runConfirm('Save platform settings?', null, saveSettings)} className="text-xs font-semibold px-4 py-2 rounded-sm bg-ink text-paper">Save settings</button>
-                    <button onClick={() => runGated('Clear Cloudflare cache?', clearCache)} className="text-xs font-semibold px-4 py-2 rounded-sm border border-wire flex items-center gap-1"><RefreshCw size={12} /> Clear cache</button>
+
+                  <label className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-ink cursor-pointer pt-2">
+                    <input type="checkbox" checked={platformSettings.maintenanceMode} onChange={(e) => setPlatformSettings({ ...platformSettings, maintenanceMode: e.target.checked })} className="h-4 w-4 rounded border-wire text-ink focus:ring-0" /> 
+                    Enable Platform Maintenance Mode
+                  </label>
+
+                  <div className="flex gap-3 pt-4 border-t border-wire">
+                    <button onClick={() => runConfirm('Save platform settings?', null, saveSettings)} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm hover:bg-signal transition-colors shadow-sm">Save Configuration</button>
+                    <button onClick={() => runGated('Clear Cloudflare / Application Cache?', clearCache)} className="border border-wire bg-white hover:border-ink font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm transition-colors flex items-center gap-1.5"><RefreshCw size={13} /> Clear Cache</button>
                   </div>
                 </div>
 
-                <div className="border border-wire rounded-sm">
-                  <p className="wire-tag p-4 pb-0 flex items-center gap-1.5"><Server size={12} /> System log (last 100)</p>
+                <div className="border border-wire rounded-sm bg-paper">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink p-4 border-b border-wire flex items-center gap-2"><Server size={14} className="text-signal" /> System Diagnostic Logs (Last 100 Entries)</p>
                   <div className="divide-y divide-wire max-h-80 overflow-y-auto">
-                    {systemLogs.length === 0 && <EmptyState icon={Server} label="No log entries available." />}
+                    {systemLogs.length === 0 && <EmptyState icon={Server} label="No diagnostic log entries recorded." />}
                     {systemLogs.map((l, i) => (
-                      <div key={i} className="p-3 text-xs">
-                        <span className="font-semibold">{l.level || 'error'}</span> · {l.message} <span className="text-ink-400 block">{l.created_at ? new Date(l.created_at).toLocaleString() : ''}</span>
+                      <div key={i} className="p-3.5 text-xs font-mono space-y-0.5 hover:bg-ink-50/30 transition-colors">
+                        <span className="font-bold text-signal uppercase tracking-wider">{l.level || 'error'}</span> · <span className="text-ink-800">{l.message}</span> 
+                        <span className="text-[10px] text-ink-400 block">{safeDate(l.created_at)}</span>
                       </div>
                     ))}
                   </div>
@@ -1226,37 +1351,49 @@ export default function AdminPage() {
 
             {/* Security Center (root) */}
             {tab === 'security' && isRoot && (
-              <div className="space-y-6">
-                {loadingTabs.security && <p className="text-xs text-ink-400 flex items-center gap-2"><Spinner /> Loading security data…</p>}
-                <div className="flex justify-between items-center">
-                  <p className="wire-tag flex items-center gap-1.5"><Shield size={12} /> Active admin sessions</p>
-                  <button onClick={() => runGated('Force logout ALL users platform-wide? This cannot be undone.', forceLogoutAllUsers)} className="text-xs font-semibold px-3 py-2 rounded-sm border border-signal text-signal flex items-center gap-1"><LogOut size={12} /> Force logout all users</button>
+              <div className="space-y-8">
+                {loadingTabs.security && <p className="text-xs font-bold uppercase tracking-wider text-ink-400 flex items-center gap-2"><Spinner /> Loading security telemetry...</p>}
+                
+                <div className="flex items-center justify-between p-4 bg-ink-50 border border-wire rounded-sm">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-2"><Shield size={14} className="text-signal" /> Active Admin & User Sessions</p>
+                  <button onClick={() => runGated('Force logout ALL users platform-wide? This cannot be undone.', forceLogoutAllUsers)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5 shadow-sm">
+                    <LogOut size={14} /> Force Logout All Users
+                  </button>
                 </div>
-                <div className="border border-wire rounded-sm divide-y divide-wire">
-                  {activeSessions.length === 0 && <EmptyState icon={Clock} label="No active session data available." />}
+
+                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                  {activeSessions.length === 0 && <EmptyState icon={Clock} label="No active session metadata available." />}
                   {activeSessions.map((s, i) => (
-                    <div key={i} className="p-3 flex items-center justify-between text-xs">
-                      <span>{s.email || s.user}</span><span className="text-ink-400">{s.ip} · {s.device}</span><span className="text-ink-400">{s.lastActive ? new Date(s.lastActive).toLocaleString() : ''}</span>
+                    <div key={i} className="p-4 flex items-center justify-between text-xs hover:bg-ink-50/30 transition-colors">
+                      <span className="font-bold text-ink font-mono">{s.email || s.user}</span>
+                      <span className="text-ink-500 font-mono">{s.ip} · {s.device}</span>
+                      <span className="text-ink-400">{safeDate(s.lastActive)}</span>
                     </div>
                   ))}
                 </div>
 
-                <div>
-                  <p className="wire-tag mb-2 flex items-center gap-1.5"><AlertTriangle size={12} /> Security events</p>
-                  <div className="border border-wire rounded-sm divide-y divide-wire">
-                    {securityEvents.length === 0 && <EmptyState icon={AlertTriangle} label="No security events logged." />}
+                <div className="space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-2"><AlertTriangle size={14} className="text-signal" /> Recorded Security Events</p>
+                  <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                    {securityEvents.length === 0 && <EmptyState icon={AlertTriangle} label="No security incidents logged." />}
                     {securityEvents.map((e, i) => (
-                      <div key={i} className="p-3 text-xs"><span className="font-semibold">{e.type}</span> · {e.detail} <span className="text-ink-400 block">{e.created_at ? new Date(e.created_at).toLocaleString() : ''}</span></div>
+                      <div key={i} className="p-4 text-xs space-y-1 hover:bg-ink-50/30 transition-colors">
+                        <span className="font-bold text-signal uppercase tracking-wider">{e.type}</span> · <span className="font-medium text-ink">{e.detail}</span> 
+                        <span className="text-[10px] text-ink-400 block">{safeDate(e.created_at)}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
 
-                <div>
-                  <p className="wire-tag mb-2 flex items-center gap-1.5"><KeyRound size={12} /> API keys</p>
-                  <div className="border border-wire rounded-sm divide-y divide-wire">
-                    {apiKeys.length === 0 && <EmptyState icon={KeyRound} label="No API key data available." />}
+                <div className="space-y-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-2"><KeyRound size={14} className="text-signal" /> Active API Keys</p>
+                  <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                    {apiKeys.length === 0 && <EmptyState icon={KeyRound} label="No active API keys registered." />}
                     {apiKeys.map((k, i) => (
-                      <div key={i} className="p-3 flex items-center justify-between text-xs"><span>{k.name}</span><span className="text-ink-400 font-mono">{(k.key || '').replace(/.(?=.{4})/g, '•')}</span></div>
+                      <div key={i} className="p-4 flex items-center justify-between text-xs hover:bg-ink-50/30 transition-colors">
+                        <span className="font-bold text-ink">{k.name}</span>
+                        <span className="text-ink-500 font-mono">{(k.key || '').replace(/.(?=.{4})/g, '•')}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1265,12 +1402,12 @@ export default function AdminPage() {
 
             {/* Audit log */}
             {tab === 'log' && (
-              <div className="border border-wire rounded-sm divide-y divide-wire">
-                {adminLogs.length === 0 && <EmptyState icon={ScrollText} label="No admin actions yet." />}
+              <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+                {adminLogs.length === 0 && <EmptyState icon={ScrollText} label="No administrative actions logged yet." />}
                 {adminLogs.map(l => (
-                  <div key={l.id} className="p-3 text-sm">
-                    <span className="font-semibold">{l.actorEmail}</span> · {l.action.replaceAll('_', ' ')} · <span className="text-ink-400">{l.target}</span>
-                    <span className="text-xs text-ink-400 block">{new Date(l.timestamp).toLocaleString()}</span>
+                  <div key={l.id} className="p-4 text-xs space-y-1 hover:bg-ink-50/30 transition-colors">
+                    <span className="font-bold text-ink">{l.actorEmail}</span> executed <span className="font-bold uppercase tracking-wider text-signal">{l.action.replaceAll('_', ' ')}</span> on <span className="font-mono text-ink-600">{l.target}</span>
+                    <span className="text-[10px] text-ink-400 block">{safeDate(l.timestamp)}</span>
                   </div>
                 ))}
               </div>
@@ -1281,5 +1418,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
-const TABS_REF = { current: [] };

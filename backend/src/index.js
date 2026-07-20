@@ -18,6 +18,7 @@ import partner from './routes/partner.js';
 import notifications from './routes/notifications.js';
 import subscriptions from './routes/subscriptions.js';
 import archive from './routes/archive.js';
+import polls from './routes/polls.js';
 
 const app = new Hono();
 
@@ -88,10 +89,16 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
 }));
 
+// Enhanced Edge Caching Middleware for public read endpoints
 app.use('*', async (c, next) => {
   await next();
   const contentType = c.res.headers.get('Content-Type') || '';
-  if (/text\/html|application\/json|application\/javascript/.test(contentType)) {
+  const path = c.req.path;
+  
+  if (/application\/json/.test(contentType) && (path.includes('/trending') || path.includes('/feed'))) {
+    c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
+    c.res.headers.set('CDN-Cache-Control', 'max-age=300');
+  } else if (/text\/html|application\/json|application\/javascript/.test(contentType)) {
     if (!c.res.headers.get('CDN-Cache-Control')) {
       c.res.headers.set('CDN-Cache-Control', 'max-age=0, must-revalidate');
     }
@@ -240,7 +247,6 @@ app.get('/stories/trending', async (c) => {
        ORDER BY json_array_length(likes) DESC, created_at DESC
        LIMIT 5`
     ).all();
-    c.res.headers.set('Cache-Control', 'public, max-age=300');
     return c.json({ stories: results });
   } catch (e) {
     log('error', 'trending query failed', { error: e.message, requestId: c.get('requestId') });
@@ -260,8 +266,9 @@ app.route('/partner', partner);
 app.route('/notifications', notifications);
 app.route('/subscriptions', subscriptions);
 app.route('/archive', archive);
+app.route('/polls', polls);
 
-const NEWS_USER_ID = 'u_newsdesk';
+// ⚡ ADVANCED RSS CONFIGURATION & PARSING
 const NEWS_SOURCES = [
   { url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml', name: 'BBC Africa' },
   { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
@@ -269,6 +276,7 @@ const NEWS_SOURCES = [
   { url: 'https://www.capitalfm.co.ke/news/feed/', name: 'Capital FM' },
   { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
 ];
+
 const MAX_ARCHIVE_PER_DAY = 350;
 const MAX_ITEMS_PER_SOURCE = 20;
 
@@ -292,6 +300,19 @@ const xmlParser = new XMLParser({
   isArray: (name) => ['item', 'entry'].includes(name),
 });
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
+
 function parseRSSWithFastXml(text) {
   const items = [];
   try {
@@ -305,8 +326,16 @@ function parseRSSWithFastXml(text) {
       const contentEncoded = extractText(raw['content:encoded']) || '';
       const fullContent = contentEncoded || description;
       const image = extractImage(raw, fullContent);
+      const pubDate = extractText(raw.pubDate || raw.published || raw.updated || '');
+
       if (title && link) {
-        items.push({ title: cleanText(title), link: link, description: cleanText(fullContent).slice(0, 500), image });
+        items.push({ 
+          title: cleanText(title), 
+          link: link, 
+          description: cleanText(fullContent).slice(0, 500), 
+          image,
+          pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString()
+        });
       }
     }
   } catch (e) { console.error('XML parse error:', e.message); }
@@ -357,7 +386,7 @@ async function summarizeWithAI(title, description, sourceName, apiKey) {
   if (!apiKey) return null;
   try {
     const prompt = `Write a 2-3 sentence news summary for this headline. Make it original, journalistic, and engaging. Do NOT copy the original text. Write in your own words as a news reporter for OPINIONPLUS.\n\nHeadline: ${title}\nSource: ${sourceName}\n\nSummary:`;
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -366,7 +395,8 @@ async function summarizeWithAI(title, description, sourceName, apiKey) {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
         }),
-      }
+      },
+      10000
     );
     const data = await response.json();
     const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -382,7 +412,14 @@ async function fetchNews(env) {
   for (const source of NEWS_SOURCES) {
     let items = []; let insertedFromSource = 0;
     try {
-      const response = await fetch(source.url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', 'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8', 'Accept-Language': 'en-US,en;q=0.5' }, cf: { cacheTtl: 300 } });
+      const response = await fetchWithTimeout(source.url, { 
+        headers: { 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
+          'Accept': 'application/rss+xml, application/xml, text/xml' 
+        }, 
+        cf: { cacheTtl: 300 } 
+      }, 15000);
+      
       if (!response.ok) { console.error(`News fetch failed (${source.name}): HTTP ${response.status}`); continue; }
       const text = await response.text();
       if (!text || text.length < 100) { console.error(`News fetch failed (${source.name}): Empty response`); continue; }
@@ -392,22 +429,40 @@ async function fetchNews(env) {
 
     for (const item of items.slice(0, MAX_ITEMS_PER_SOURCE)) {
       try {
-        const existing = await env.DB.prepare('SELECT id FROM archive WHERE title = ? AND source_name = ?').bind(item.title, source.name).first();
+        const existing = await env.DB.prepare(
+          'SELECT id FROM archive WHERE source_url = ? OR (title = ? AND source_name = ?)'
+        ).bind(item.link, item.title, source.name).first();
         if (existing) continue;
+
         const today = new Date().toISOString().slice(0, 10);
         const row = await env.DB.prepare("SELECT COUNT(*) as count FROM archive WHERE date(created_at) = ?").bind(today).first();
         if (parseInt(row?.count || 0) >= MAX_ARCHIVE_PER_DAY) break;
+        
         const id = crypto.randomUUID();
         const aiSummary = await summarizeWithAI(item.title, item.description, source.name, env.GEMINI_API_KEY);
         const excerpt = aiSummary ? aiSummary.slice(0, 250) + '...' : (item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`);
-        const coverImage = item.image || COVER_IMAGES[source.name] || null;
+        
+        const coverImage = item.image || COVER_IMAGES[source.name] || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&h=400&fit=crop';
+        
         let body = '';
-        if (coverImage) body += `<img src="${coverImage}" alt="" style="max-width:100%;border-radius:4px;margin-bottom:12px;" />`;
-        body += `<p>${aiSummary || cleanText(item.description) || 'Read the full article below.'}</p>`;
-        body += `<p style="font-size:12px;color:#6b7180;">📰 Original source: <a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;">${source.name}</a></p>`;
-        body = injectAffiliateLinks(body);
-        await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending')").bind(id, source.name, item.link, item.title, excerpt, body, coverImage).run();
-        insertedFromSource++; totalInserted++;
+        if (coverImage) {
+          body += `<img src="${coverImage}" alt="${item.title}" style="width:100%;max-height:400px;object-fit:cover;border-radius:4px;margin-bottom:16px;" />`;
+        }
+        
+        body += `<p style="font-size:16px;line-height:1.6;margin-bottom:20px;">${aiSummary || cleanText(item.description) || 'Read the full coverage below.'}</p>`;
+        body += `<div style="margin:24px 0;padding:16px;background:#f9f7f3;border-left:4px solid #E0492B;border-radius:2px;">`;
+        body += `<p style="margin:0 0 8px;font-size:12px;font-weight:bold;text-transform:uppercase;color:#6b7180;">External Publication</p>`;
+        body += `<a href="${item.link}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#1C1917;color:#fff;padding:12px 20px;border-radius:2px;font-size:13px;font-weight:bold;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,0.1);">Read Full Article on ${source.name} →</a>`;
+        body += `</div>`;
+
+        body += injectAffiliateLinks(body);
+
+        await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending', ?)")
+          .bind(id, source.name, item.link, item.title, excerpt, body, coverImage, item.pubDate)
+          .run();
+          
+        insertedFromSource++; 
+        totalInserted++;
       } catch (e) { console.error(`News insert error (${source.name}): ${e.message}`); }
     }
     console.log(`${source.name}: ${insertedFromSource} inserted out of ${items.length} parsed`);
@@ -462,10 +517,12 @@ app.onError((err, c) => {
   const status = err.status || err.statusCode || 500;
   const requestId = c.get('requestId');
   const meta = { error: err.message, status, path: c.req.path, method: c.req.method, requestId };
+  
   if (status >= 400 && status < 500) {
     log('warn', 'client error', meta);
     return c.json({ error: err.message || 'Request error.', requestId }, status);
   }
+  
   log('error', 'unhandled error', { ...meta, stack: (err.stack || '').slice(0, 500) });
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
@@ -516,4 +573,5 @@ const worker = {
     await Promise.allSettled(jobs);
   },
 };
+
 export default worker;

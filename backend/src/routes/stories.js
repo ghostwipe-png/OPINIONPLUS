@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { apiKeyAuth } from '../middleware/apiKey.js';
+import { cache } from 'hono/cache';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 
 const stories = new Hono();
 
@@ -19,10 +21,6 @@ async function hydrateStory(db, row) {
     comments: comments.results,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Helpers (new — additive only, do not affect existing hydrateStory contract)
-// ---------------------------------------------------------------------------
 
 function isAdmin(user) {
   return !!user && (user.role === 'admin' || user.role === 'root');
@@ -50,7 +48,6 @@ function computeReadabilityGrade(text) {
   return { grade, wordCount, readingTime };
 }
 
-// quality_score is computed on read only — never persisted.
 function computeQualityScore(row) {
   const bodyText = String(row.body || '').replace(/<[^>]*>/g, ' ');
   const { grade, wordCount, readingTime } = computeReadabilityGrade(bodyText);
@@ -58,16 +55,11 @@ function computeQualityScore(row) {
   const hasLinks = /<a[\s>]/i.test(row.body || '');
 
   let score = 0;
-  // Word count: reward substantial articles, cap contribution at 30 pts
   score += Math.min(30, Math.round((wordCount / 800) * 30));
-  // Reading time: sweet spot 3-8 min gets full 15 pts
   if (readingTime >= 3 && readingTime <= 8) score += 15;
   else if (readingTime > 0) score += 7;
-  // Has image: 15 pts
   if (hasImage) score += 15;
-  // Has links (sourcing/citations): 10 pts
   if (hasLinks) score += 10;
-  // Readability: grade 6-10 is ideal for general audiences, 30 pts
   if (grade > 0) {
     if (grade >= 6 && grade <= 10) score += 30;
     else if (grade > 0 && grade < 6) score += 22;
@@ -91,21 +83,31 @@ function extractKeywords(title) {
     ?.filter((w) => w.length > 2 && !STOP.has(w)) || [];
 }
 
-// GET /stories?type=&privacy=public
-stories.get('/', async (c) => {
+// ⚡ CACHED: GET /stories (Cursor-based Feed Pagination)
+stories.get('/', cache({ cacheName: 'op-feed', cacheControl: 'public, max-age=60' }), async (c) => {
   const type = c.req.query('type');
   const authorId = c.req.query('authorId');
+  const cursor = c.req.query('cursor');
+  const limit = Math.max(1, Math.min(50, parseInt(c.req.query('limit'), 10) || 20));
+
   let sql = 'SELECT * FROM stories WHERE deleted = 0 AND privacy = "public"';
   const binds = [];
   if (type && type !== 'all') { sql += ' AND type = ?'; binds.push(type); }
   if (authorId) { sql += ' AND author_id = ?'; binds.push(authorId); }
-  sql += ' ORDER BY created_at DESC LIMIT 100';
+  if (cursor) {
+    sql += ' AND created_at < ?';
+    binds.push(cursor);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  binds.push(limit);
+
   const { results } = await c.env.DB.prepare(sql).bind(...binds).all();
   const hydrated = await Promise.all(results.map((r) => hydrateStory(c.env.DB, r)));
-  return c.json({ stories: hydrated });
+  const nextCursor = hydrated.length === limit ? hydrated[hydrated.length - 1].created_at : null;
+
+  return c.json({ stories: hydrated, nextCursor });
 });
 
-// Public API endpoint — authenticated via API key
 stories.get('/api/feed', apiKeyAuth, async (c) => {
   const user = c.get('user');
   const { results } = await c.env.DB.prepare(
@@ -115,10 +117,7 @@ stories.get('/api/feed', apiKeyAuth, async (c) => {
   return c.json({ publisher: user.publisher_name, stories: hydrated });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: GET /trending — top stories by engagement in last N days
-// ---------------------------------------------------------------------------
-stories.get('/trending', async (c) => {
+stories.get('/trending', cache({ cacheName: 'op-trending', cacheControl: 'public, max-age=300' }), async (c) => {
   const limit = Math.max(1, Math.min(50, parseInt(c.req.query('limit'), 10) || 10));
   const period = c.req.query('period') || '7d';
   const days = Math.max(1, parseInt(period.replace(/[^0-9]/g, ''), 10) || 7);
@@ -141,25 +140,17 @@ stories.get('/trending', async (c) => {
   ).bind(`-${days} days`, limit).all();
 
   const hydrated = await Promise.all(results.map((r) => hydrateStory(c.env.DB, r)));
-  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ trending: hydrated, period: `${days}d`, limit });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: GET /featured — all featured stories
-// ---------------------------------------------------------------------------
-stories.get('/featured', async (c) => {
+stories.get('/featured', cache({ cacheName: 'op-featured', cacheControl: 'public, max-age=300' }), async (c) => {
   const { results } = await c.env.DB.prepare(
     "SELECT * FROM stories WHERE deleted = 0 AND privacy = 'public' AND featured = 1 ORDER BY featured_at DESC"
   ).all();
   const hydrated = await Promise.all(results.map((r) => hydrateStory(c.env.DB, r)));
-  c.header('Cache-Control', 'public, max-age=300');
   return c.json({ featured: hydrated });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: GET /scheduled — admin only, view all scheduled stories
-// ---------------------------------------------------------------------------
 stories.get('/scheduled', requireAuth, async (c) => {
   const user = c.get('user');
   if (!isAdmin(user)) return c.json({ error: 'Unauthorized' }, 403);
@@ -169,9 +160,6 @@ stories.get('/scheduled', requireAuth, async (c) => {
   return c.json({ scheduled: results });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: Bulk operations (admin)
-// ---------------------------------------------------------------------------
 stories.post('/bulk-delete', requireAuth, async (c) => {
   const user = c.get('user');
   if (!isAdmin(user)) return c.json({ error: 'Unauthorized' }, 403);
@@ -206,12 +194,13 @@ stories.post('/bulk-archive', requireAuth, async (c) => {
   return c.json({ ok: true, count: ids.length });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: Enhanced deep search with relevance scoring
-// (kept at path GET /search — response shape extended with `relevance`,
-//  existing `results` key and fields are unchanged and additive-only)
-// ---------------------------------------------------------------------------
-stories.get('/search', async (c) => {
+// ⚡ PROTECTED: GET /search with strict rate limiting (30 requests per minute per IP)
+stories.get('/search', cache({ cacheName: 'op-search', cacheControl: 'public, max-age=60' }), async (c) => {
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  const limiter = createRateLimiter(c.env.DB, 60, 30);
+  const allowed = await limiter(ip, 'search');
+  if (!allowed) return c.json({ error: 'Too many search requests. Please slow down.' }, 429);
+
   const q = (c.req.query('q') || '').trim();
   if (q.length < 2) return c.json({ results: [] });
 
@@ -233,16 +222,13 @@ stories.get('/search', async (c) => {
      LIMIT 30`
   ).bind(searchTerm, exactPhrase, searchTerm, searchTerm, searchTerm).all();
 
-  // Log search
   const userId = c.get('user')?.id || null;
-  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   await c.env.DB.prepare('INSERT INTO search_history (id, query, user_id, ip) VALUES (?, ?, ?, ?)')
     .bind(crypto.randomUUID(), q.toLowerCase(), userId, ip).run();
 
   return c.json({ results });
 });
 
-// Admin: Search analytics
 stories.get('/search/analytics', async (c) => {
   const user = c.get('user');
   if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Unauthorized' }, 403);
@@ -256,7 +242,6 @@ stories.get('/search/analytics', async (c) => {
   return c.json({ top: topSearches.results, recent: recentSearches.results, total: totalSearches?.count || 0 });
 });
 
-// GET /stories/timeline/:userId — publishing history for visual timeline
 stories.get('/timeline/:userId', async (c) => {
   const userId = c.req.param('userId');
   const { results } = await c.env.DB.prepare(
@@ -265,15 +250,58 @@ stories.get('/timeline/:userId', async (c) => {
   return c.json({ timeline: results });
 });
 
+// ⚡ PROTECTED: POST /stories/:id/translate (Strict limit: 5 requests per 10 minutes per IP)
+stories.post('/:id/translate', async (c) => {
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  const limiter = createRateLimiter(c.env.DB, 600, 5);
+  const allowed = await limiter(ip, 'translate');
+  if (!allowed) return c.json({ error: 'Translation rate limit reached. Please try again later.' }, 429);
+
+  const storyId = c.req.param('id');
+  const { lang } = await c.req.json().catch(() => ({}));
+  
+  if (lang !== 'sw') {
+    return c.json({ error: 'Unsupported target language.' }, 400);
+  }
+
+  try {
+    const story = await c.env.DB.prepare('SELECT title, body FROM stories WHERE id = ? AND deleted = 0').bind(storyId).first();
+    if (!story) return c.json({ error: 'Story not found.' }, 404);
+
+    const apiKey = c.env.GEMINI_API_KEY;
+    if (!apiKey) return c.json({ error: 'AI translation service unavailable.' }, 500);
+
+    const prompt = `Translate the following news story headline and body html into fluent, journalistic Swahili. Maintain all HTML tags (<p>, <strong>, etc.) exactly as they are.\n\nTitle: ${story.title}\n\nBody: ${story.body}\n\nReturn JSON in this exact format: {"title": "...", "body": "..."}`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.3 },
+        }),
+      }
+    );
+
+    const data = await response.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const translated = JSON.parse(rawText);
+
+    return c.json({ ok: true, ...translated });
+  } catch (e) {
+    console.error('Translation error:', e.message);
+    return c.json({ error: 'Failed to translate story.' }, 500);
+  }
+});
+
 stories.get('/:id', async (c) => {
   const row = await c.env.DB.prepare('SELECT * FROM stories WHERE id = ? AND deleted = 0').bind(c.req.param('id')).first();
   if (!row) return c.json({ error: 'Not found' }, 404);
   const user = c.get('user');
   if (row.privacy === 'private' && row.author_id !== user?.id) return c.json({ error: 'Not found' }, 404);
 
-  // NEW: view tracking — one unique view per IP per story per day, plus a
-  // running view_count on the story row. Failures here must never break the
-  // read path, so they're best-effort.
   try {
     const ip = c.req.header('CF-Connecting-IP') || 'unknown';
     const inserted = await c.env.DB.prepare(
@@ -283,9 +311,7 @@ stories.get('/:id', async (c) => {
       await c.env.DB.prepare('UPDATE stories SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?').bind(row.id).run();
       row.view_count = (row.view_count || 0) + 1;
     }
-  } catch (e) {
-    // best-effort only
-  }
+  } catch (e) { }
 
   const hydrated = await hydrateStory(c.env.DB, row);
   const quality = computeQualityScore(row);
@@ -296,7 +322,6 @@ stories.post('/', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
   const id = crypto.randomUUID();
-  // NEW: scheduled publishing — if scheduled_at provided, force privacy to 'scheduled'
   const privacy = body.scheduled_at ? 'scheduled' : (body.privacy || 'public');
   await c.env.DB.prepare('INSERT INTO stories (id, author_id, title, excerpt, body, type, privacy, cover_image, scheduled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, user.id, body.title, body.excerpt || '', body.body, body.type || 'story', privacy, body.coverImage || null, body.scheduled_at || null).run();
@@ -314,7 +339,6 @@ stories.patch('/:id', requireAuth, async (c) => {
   const existing = await c.env.DB.prepare('SELECT * FROM stories WHERE id = ?').bind(id).first();
   if (!existing || existing.author_id !== user.id) return c.json({ error: 'Not found' }, 404);
   const body = await c.req.json();
-  // NEW: allow updating scheduled_at; if set (and privacy not explicitly overridden), keep/switch to 'scheduled'
   const privacy = body.privacy ?? (body.scheduled_at ? 'scheduled' : existing.privacy);
   await c.env.DB.prepare("UPDATE stories SET title = ?, excerpt = ?, body = ?, type = ?, privacy = ?, cover_image = ?, scheduled_at = ?, updated_at = datetime('now') WHERE id = ?")
     .bind(
@@ -406,9 +430,6 @@ stories.post('/collaborations/:id/accept', requireAuth, async (c) => {
   return c.json({ ok: true, message: 'You are now a co-author.' });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: POST /:id/feature — admin-only toggle featured status
-// ---------------------------------------------------------------------------
 stories.post('/:id/feature', requireAuth, async (c) => {
   const user = c.get('user');
   if (!isAdmin(user)) return c.json({ error: 'Unauthorized' }, 403);
@@ -424,9 +445,6 @@ stories.post('/:id/feature', requireAuth, async (c) => {
   return c.json({ ok: true, featured: !!featured });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: GET /:id/related — 4 related stories (2 same author, 2 similar title keywords)
-// ---------------------------------------------------------------------------
 stories.get('/:id/related', async (c) => {
   const id = c.req.param('id');
   const story = await c.env.DB.prepare('SELECT * FROM stories WHERE id = ? AND deleted = 0').bind(id).first();
@@ -454,9 +472,6 @@ stories.get('/:id/related', async (c) => {
   return c.json({ related: hydrated });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: GET /:id/analytics — admin/owner only
-// ---------------------------------------------------------------------------
 stories.get('/:id/analytics', requireAuth, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
@@ -479,18 +494,13 @@ stories.get('/:id/analytics', requireAuth, async (c) => {
     unique_views: uniqueViews?.count || 0,
     likes: likes?.count || 0,
     comments: comments?.count || 0,
-    shares_count: 0, // no shares table yet — reserved for future tracking
+    shares_count: 0,
     average_rating: avgRating?.avg ? Math.round(avgRating.avg * 10) / 10 : null,
     read_time_avg: readability.readingTime,
-    top_referrers: [], // reserved for future referrer tracking
+    top_referrers: [],
   });
 });
 
-// ---------------------------------------------------------------------------
-// NEW: publishScheduledStories — call this from the existing cron handler
-// (e.g. in the Worker's `scheduled` export) to flip due scheduled stories to
-// public. Not wired to an HTTP route itself.
-// ---------------------------------------------------------------------------
 export async function publishScheduledStories(db) {
   const due = await db.prepare(
     "SELECT id FROM stories WHERE privacy = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= datetime('now') AND deleted = 0"
@@ -498,7 +508,7 @@ export async function publishScheduledStories(db) {
   if (!due.results.length) return { published: 0 };
   const ids = due.results.map((r) => r.id);
   const placeholders = ids.map(() => '?').join(',');
-  await c.env.DB.prepare(`UPDATE stories SET privacy = 'archived' WHERE id IN (${placeholders})`).bind(...ids).run();
+  await db.prepare(`UPDATE stories SET privacy = 'archived' WHERE id IN (${placeholders})`).bind(...ids).run();
   return { published: ids.length, ids };
 }
 
