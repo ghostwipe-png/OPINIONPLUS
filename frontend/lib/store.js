@@ -57,7 +57,6 @@ async function fetchCsrfToken() {
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers };
 
-  // Add CSRF token for state-changing requests
   if (options.method && options.method !== 'GET') {
     const token = await fetchCsrfToken();
     if (token) headers['X-CSRF-Token'] = token;
@@ -79,10 +78,6 @@ async function api(path, options = {}) {
   return res.json();
 }
 
-// REQUEST RETRY (NEW) — thin wrapper around api(). Only retries GET requests,
-// and only on network failures or 5xx server errors; 4xx client errors are
-// never retried since retrying won't change the outcome. Not a replacement
-// for api() — mutation calls keep calling api() directly.
 async function apiWithRetry(path, options = {}) {
   const isGet = !options.method || options.method === 'GET';
   const maxRetries = isGet ? 2 : 0;
@@ -109,7 +104,6 @@ export function StoreProvider({ children }) {
   const [data, setData] = useState(SEED);
   const [ready, setReady] = useState(false);
 
-  // NEW — per-slice error state, offline status, and in-memory request cache.
   const [storiesError, setStoriesError] = useState(null);
   const [usersError, setUsersError] = useState(null);
   const [adminError, setAdminError] = useState(null);
@@ -123,9 +117,6 @@ export function StoreProvider({ children }) {
     setAdminError(null);
   }, []);
 
-  // REQUEST CACHING (NEW) — caches GET responses for 2 minutes, keyed by
-  // "GET:path". invalidateCache(pattern) clears matching keys, or everything
-  // when called with no argument.
   const invalidateCache = useCallback((pattern) => {
     if (!pattern) { cacheRef.current.clear(); return; }
     for (const key of cacheRef.current.keys()) {
@@ -144,8 +135,6 @@ export function StoreProvider({ children }) {
     return result;
   }, []);
 
-  // OFFLINE QUEUE (NEW) — when offline, mutations are queued (capped at 50,
-  // dropping the oldest beyond that) and replayed in order once back online.
   const processOfflineQueue = useCallback(async () => {
     const queue = offlineQueueRef.current;
     if (!queue.length) return;
@@ -163,7 +152,7 @@ export function StoreProvider({ children }) {
       if (offlineQueueRef.current.length > MAX_OFFLINE_QUEUE) offlineQueueRef.current.shift();
       return;
     }
-    fn().catch(() => { /* individual mutation functions handle their own error state/logging */ });
+    fn().catch(() => { /* handled internally */ });
   }, []);
 
   useEffect(() => {
@@ -178,7 +167,6 @@ export function StoreProvider({ children }) {
     };
   }, [processOfflineQueue]);
 
-  // Initialize data — show seed instantly, load API in background
   useEffect(() => {
     setData(loadLocal());
     setReady(true);
@@ -232,7 +220,7 @@ export function StoreProvider({ children }) {
   function normalizeStory(s) {
     return {
       id: s.id,
-      authorId: s.author_id,
+      authorId: s.author_id || null, // Safety override: Handles empty newsdesk mappings
       title: s.title,
       excerpt: s.excerpt || '',
       body: s.body,
@@ -327,9 +315,6 @@ export function StoreProvider({ children }) {
     }
   }, [enqueueOrRun, invalidateCache]);
 
-  // OPTIMISTIC UPDATE + ROLLBACK (NEW) — local state flips immediately; on
-  // API failure the previous likes array is restored. Signature/return type
-  // unchanged (still void).
   const toggleLike = useCallback((storyId, userId) => {
     let previousLikes;
     setData(d => ({
@@ -355,7 +340,6 @@ export function StoreProvider({ children }) {
     }
   }, [enqueueOrRun, invalidateCache]);
 
-  // OPTIMISTIC UPDATE + ROLLBACK (NEW)
   const rateStory = useCallback((storyId, userId, score) => {
     let previousRatings;
     setData(d => ({
@@ -381,7 +365,6 @@ export function StoreProvider({ children }) {
     }
   }, [enqueueOrRun, invalidateCache]);
 
-  // OPTIMISTIC UPDATE (temp id -> server id on success, removed on failure)
   const addComment = useCallback((storyId, comment) => {
     const tempId = uid('c');
     const newComment = { id: tempId, userId: comment.userId, body: comment.body, parentId: comment.parentId || null, createdAt: new Date().toISOString() };
@@ -542,7 +525,6 @@ export function StoreProvider({ children }) {
     users: data.users, stories: data.stories, follows: data.follows, reports: data.reports, admins: data.admins, adminLogs: data.adminLogs, ready,
     upsertUser, createStory, updateStory, deleteStory, toggleLike, rateStory, addComment, toggleFollow, reportStory, resolveReport,
     setUserSuspended, setMediaBlocked, adminDeleteStory, addAdmin, removeAdmin, isEmailAdmin,
-    // NEW
     isOnline, storiesError, usersError, adminError, clearAllErrors, invalidateCache,
   }), [data, ready, isOnline, storiesError, usersError, adminError, clearAllErrors, invalidateCache,
     upsertUser, createStory, updateStory, deleteStory, toggleLike, rateStory, addComment, toggleFollow, reportStory, resolveReport,

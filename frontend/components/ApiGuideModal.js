@@ -13,133 +13,99 @@ export default function ApiGuideModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-ink/60 z-50 grid place-items-center px-4">
-      <div className="bg-paper rounded-sm border border-wire w-full max-w-2xl max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-wire">
-          <h2 className="editorial-h text-xl font-bold flex items-center gap-2">
-            <Terminal size={20} /> API Guide
+    <div className="fixed inset-0 bg-ink/75 z-50 grid place-items-center p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="bg-paper rounded-sm border-2 border-ink w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 bg-ink text-white border-b border-white/10">
+          <h2 className="text-lg font-bold uppercase tracking-wider flex items-center gap-2">
+            <Terminal size={18} className="text-signal" /> API Developer Guide
           </h2>
-          <button onClick={onClose} className="w-8 h-8 grid place-items-center rounded-full hover:bg-ink-50">
-            <X size={18} />
+          <button onClick={onClose} className="text-white/60 hover:text-white p-1">
+            <X size={20} />
           </button>
         </div>
 
-        <div className="p-5 space-y-8 text-sm">
+        <div className="p-8 space-y-8 text-sm">
           {/* Generate */}
-          <section>
-            <h3 className="wire-tag mb-3 flex items-center gap-2">
-              <Key size={13} /> Generating a Key
+          <section className="space-y-3">
+            <h3 className="bg-ink text-white text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 inline-block rounded-sm">
+              1. Generating an API Key
             </h3>
-            <ol className="list-decimal pl-5 space-y-2 text-ink-600">
-              <li>Go to your <strong className="text-ink">Profile</strong> page</li>
-              <li>Expand the <strong className="text-ink">API Keys</strong> section</li>
-              <li>Enter a name (e.g. &quot;My Blog&quot; or &quot;News App&quot;)</li>
-              <li>Click <strong className="text-ink">Generate</strong></li>
-              <li>
-                <span className="text-signal font-semibold">Copy the key immediately</span> — it
-                won&apos;t be shown again. Store it somewhere safe.
-              </li>
+            <ol className="list-decimal pl-5 space-y-2 text-ink-600 font-medium">
+              <li>Navigate to your <strong className="text-ink">Profile</strong> dashboard.</li>
+              <li>Locate and expand the <strong className="text-ink">API Keys</strong> section.</li>
+              <li>Enter a recognizable identifier (e.g. &quot;My External Blog&quot;).</li>
+              <li>Click <strong className="text-ink">Generate</strong>. Copy the key immediately; it will not be shown again.</li>
             </ol>
           </section>
 
           {/* Usage */}
-          <section>
-            <h3 className="wire-tag mb-3 flex items-center gap-2">
-              <Globe size={13} /> Using Your Key
+          <section className="space-y-3">
+            <h3 className="bg-ink text-white text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 inline-block rounded-sm">
+              2. Querying Your Feed
             </h3>
-            <p className="text-ink-600 mb-3">
-              Send your key in the <code className="bg-ink-50 px-1.5 py-0.5 rounded text-xs font-mono">Authorization</code> header
-              to fetch your published stories:
+            <p className="text-ink-600 text-xs font-medium">
+              Pass your generated key inside the <code className="bg-wire/40 px-1.5 py-0.5 rounded font-mono text-ink">Authorization</code> header:
             </p>
             
-            <div className="bg-ink-50 border border-wire rounded-sm p-3 relative">
+            <div className="bg-ink text-white rounded-sm p-4 relative font-mono text-xs">
               <button
                 onClick={() => copy('Authorization: Bearer op_YOUR_KEY_HERE', 'header')}
-                className="absolute top-2 right-2 text-ink-400 hover:text-ink-600"
+                className="absolute top-3 right-3 text-white/60 hover:text-white"
+                title="Copy snippet"
               >
-                <Copy size={13} />
+                <Copy size={14} />
               </button>
-              <code className="text-xs font-mono text-ink-700 block whitespace-pre-wrap break-all">
+              <pre className="text-emerald-400 whitespace-pre-wrap break-all pr-8">
                 {`curl -H "Authorization: Bearer op_YOUR_KEY_HERE" \\
   https://opinionplus-api.opinionplus.workers.dev/api/feed`}
-              </code>
-              {copied === 'header' && (
-                <p className="text-xs text-ink-600 mt-1">Copied!</p>
-              )}
+              </pre>
+              {copied === 'header' && <p className="text-[10px] text-white/80 mt-2 font-sans font-bold">Snippet copied!</p>}
             </div>
           </section>
 
           {/* Response */}
-          <section>
-            <h3 className="wire-tag mb-3">Response Format</h3>
-            <div className="bg-ink-50 border border-wire rounded-sm p-3 relative">
+          <section className="space-y-3">
+            <h3 className="bg-ink text-white text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 inline-block rounded-sm">
+              3. Response Schema
+            </h3>
+            <div className="bg-ink text-white rounded-sm p-4 relative font-mono text-xs">
               <button
-                onClick={() => copy(JSON.stringify({
-                  publisher: "Your Name",
-                  stories: [{ id: "...", title: "...", body: "...", created_at: "...", cover_image: "..." }]
-                }, null, 2), 'response')}
-                className="absolute top-2 right-2 text-ink-400 hover:text-ink-600"
+                onClick={() => copy(JSON.stringify({ publisher: "Your Name", stories: [] }, null, 2), 'response')}
+                className="absolute top-3 right-3 text-white/60 hover:text-white"
               >
-                <Copy size={13} />
+                <Copy size={14} />
               </button>
-              <pre className="text-xs font-mono text-ink-700 whitespace-pre-wrap break-all">
+              <pre className="text-emerald-400 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
 {`{
   "publisher": "Your Publisher Name",
   "stories": [
     {
       "id": "story-uuid",
-      "author_id": "user-uuid",
       "title": "Story Title",
-      "excerpt": "Short excerpt...",
-      "body": "Full HTML body...",
-      "type": "story",
-      "cover_image": "https://...",
-      "created_at": "2026-07-16T...",
-      "updated_at": "2026-07-16T...",
-      "files": [...],
-      "likes": [...],
-      "comments": [...]
+      "body": "HTML content...",
+      "created_at": "2026-07-20T..."
     }
   ]
 }`}
               </pre>
-              {copied === 'response' && (
-                <p className="text-xs text-ink-600 mt-1">Copied!</p>
-              )}
             </div>
           </section>
 
           {/* Revoke */}
-          <section>
-            <h3 className="wire-tag mb-3 flex items-center gap-2">
-              <AlertTriangle size={13} /> Revoking a Key
+          <section className="space-y-3">
+            <h3 className="bg-ink text-white text-[11px] font-bold uppercase tracking-widest px-3 py-1.5 inline-block rounded-sm">
+              4. Key Revocation
             </h3>
-            <ol className="list-decimal pl-5 space-y-2 text-ink-600">
-              <li>Go to the <strong className="text-ink">API Keys</strong> section in your profile</li>
-              <li>Find the key you want to revoke</li>
-              <li>Click <strong className="text-signal">Revoke</strong></li>
-              <li>The key stops working immediately. Any site using it will get a 401 error.</li>
-            </ol>
-          </section>
-
-          {/* Endpoints */}
-          <section>
-            <h3 className="wire-tag mb-3">Endpoints</h3>
-            <div className="border border-wire rounded-sm divide-y divide-wire">
-              <div className="p-3">
-                <p className="font-semibold text-xs mb-1">GET /api/feed</p>
-                <p className="text-xs text-ink-400">Returns all your published stories as JSON. Requires API key.</p>
-              </div>
-              <div className="p-3">
-                <p className="font-semibold text-xs mb-1">GET /stories?authorId=YOUR_ID</p>
-                <p className="text-xs text-ink-400">Public endpoint. No API key needed. Returns published stories for any author.</p>
-              </div>
-            </div>
+            <p className="text-ink-600 text-xs font-medium">
+              You can instantly terminate any key from your profile dashboard. Requests using revoked credentials will immediately receive a <code className="text-signal font-mono font-bold">401 Unauthorized</code> response.
+            </p>
           </section>
         </div>
 
-        <div className="p-5 border-t border-wire">
-          <button onClick={onClose} className="btn-primary w-full py-2.5 rounded-sm text-sm">
+        <div className="p-6 border-t border-wire bg-ink-50">
+          <button onClick={onClose} className="bg-ink text-white font-bold uppercase text-xs tracking-wider w-full py-3 rounded-sm hover:bg-signal transition-colors">
             Got it
           </button>
         </div>

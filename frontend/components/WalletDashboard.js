@@ -10,14 +10,14 @@ const POLL_INTERVAL_MS = 30000;
 function SparkBars({ values = [] }) {
   const max = Math.max(1, ...values.map(v => v.total));
   return (
-    <div className="flex items-end gap-2 h-20">
+    <div className="flex items-end gap-2 h-24 pt-4 px-2">
       {values.map((v, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1" title={`${v.label}: KES ${(v.total / 100).toFixed(0)}`}>
-          <div className="w-full flex flex-col justify-end rounded-sm overflow-hidden" style={{ height: '64px' }}>
-            <div className="w-full bg-ink" style={{ height: `${Math.max(2, (v.referral / max) * 64)}px` }} />
-            <div className="w-full bg-ink-300" style={{ height: `${Math.max(0, (v.post / max) * 64)}px` }} />
+        <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1.5" title={`${v.label}: KES ${(v.total / 100).toFixed(0)}`}>
+          <div className="w-full flex flex-col justify-end rounded-sm overflow-hidden bg-wire/20" style={{ height: '72px' }}>
+            <div className="w-full bg-signal transition-all" style={{ height: `${Math.max(2, (v.referral / max) * 72)}px` }} />
+            <div className="w-full bg-ink transition-all" style={{ height: `${Math.max(0, (v.post / max) * 72)}px` }} />
           </div>
-          <span className="text-[9px] text-ink-400">{v.label}</span>
+          <span className="text-[10px] font-bold uppercase text-ink-500">{v.label}</span>
         </div>
       ))}
     </div>
@@ -26,10 +26,10 @@ function SparkBars({ values = [] }) {
 
 function EmptyState({ icon: Icon = Inbox, title, subtitle, cta }) {
   return (
-    <div className="border border-dashed border-wire rounded-sm p-6 text-center">
-      <div className="w-10 h-10 bg-ink-50 rounded-full grid place-items-center mx-auto mb-3"><Icon size={18} className="text-ink-400" /></div>
-      <p className="text-sm font-semibold mb-1">{title}</p>
-      {subtitle && <p className="text-xs text-ink-400 mb-3">{subtitle}</p>}
+    <div className="border border-dashed border-wire rounded-sm p-8 text-center bg-paper">
+      <div className="w-12 h-12 bg-ink-50 rounded-full grid place-items-center mx-auto mb-3"><Icon size={20} className="text-ink-400" /></div>
+      <p className="text-sm font-bold text-ink mb-1">{title}</p>
+      {subtitle && <p className="text-xs text-ink-500 mb-4">{subtitle}</p>}
       {cta}
     </div>
   );
@@ -48,7 +48,7 @@ export default function WalletDashboard() {
   const [withdrawPhone, setWithdrawPhone] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
   const [message, setMessage] = useState('');
-  const [historyFilter, setHistoryFilter] = useState('all'); // all | referrals | posts | withdrawals
+  const [historyFilter, setHistoryFilter] = useState('all');
   const [expandedItem, setExpandedItem] = useState(null);
   const balanceAnimRef = useRef(null);
   const pollRef = useRef(null);
@@ -59,7 +59,6 @@ export default function WalletDashboard() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // Animate the balance counting up/down whenever wallet.balance changes.
   useEffect(() => {
     if (!wallet) return;
     const target = wallet.balance || 0;
@@ -76,7 +75,6 @@ export default function WalletDashboard() {
     };
     balanceAnimRef.current = requestAnimationFrame(step);
     return () => { if (balanceAnimRef.current) cancelAnimationFrame(balanceAnimRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet?.balance]);
 
   const loadData = async ({ silent = false } = {}) => {
@@ -90,7 +88,7 @@ export default function WalletDashboard() {
       setWallet(walletRes);
       setEarnings(earningsRes);
       setReferralCode(refRes.code || '');
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
     if (!silent) setLoading(false);
   };
 
@@ -117,7 +115,7 @@ export default function WalletDashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage(`Withdrawal of KES ${withdrawAmount} queued successfully!`);
+        setMessage(`Withdrawal of KES ${withdrawAmount} requested successfully.`);
         setWithdrawAmount('');
         setWithdrawPhone('');
         setShowWithdraw(false);
@@ -131,13 +129,12 @@ export default function WalletDashboard() {
     setWithdrawing(false);
   };
 
-  if (loading) return <p className="text-sm text-ink-400">Loading wallet...</p>;
+  if (loading) return <p className="text-xs font-semibold text-ink-400">Loading wallet telemetry...</p>;
 
   const isAdmin = user?.role === 'admin' || user?.role === 'root';
   const isPartner = isAdmin || wallet?.tier === 'partner' || wallet?.tier === 'pro_partner';
   const balanceKes = (displayBalance / 100).toFixed(2);
 
-  // Build last-7-days referral vs post earnings for the sparkline chart.
   const now = new Date();
   const last7 = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date(now); d.setDate(now.getDate() - (6 - i));
@@ -164,160 +161,154 @@ export default function WalletDashboard() {
     historyFilter === 'posts' ? combinedHistory.filter(i => i._type === 'post') :
     combinedHistory.filter(i => i._type === 'withdrawal');
 
-  const conversionRate = wallet?.referral_count ? '—' : '—'; // no click-data available client-side; kept as placeholder metric
-
   return (
-    <div className="rule mt-10 pt-8">
-      <div className="flex items-center justify-between mb-5">
-        <span className="wire-tag flex items-center gap-2"><Wallet size={14} /> Partner Wallet</span>
+    <div className="bg-white border border-wire rounded-sm p-6 shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b-2 border-wire/60 pb-4 mb-6">
+        <div className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 flex items-center gap-2">
+          <Wallet size={14} /> Partner Wallet
+        </div>
         {isPartner && (
-          <span className="text-xs font-semibold text-ink-600">
-            Balance: <span className="text-signal">KES {balanceKes}</span>
+          <span className="text-xs font-bold text-ink">
+            Available: <span className="text-signal font-black text-sm">KES {balanceKes}</span>
           </span>
         )}
       </div>
 
       {!isPartner ? (
-        <div className="bg-ink-50 border border-wire rounded-sm p-4 text-center">
-          <p className="text-sm font-semibold mb-2">Unlock earning features</p>
-          <p className="text-xs text-ink-400 mb-4">Subscribe to the Partner Program to earn from referrals and engagement.</p>
-          <div className="flex gap-3 justify-center">
-            <a href="/pricing" className="btn-primary px-4 py-2 rounded-sm text-sm">View Plans</a>
-          </div>
+        <div className="bg-ink-50 border border-wire rounded-sm p-8 text-center space-y-4">
+          <p className="text-base font-bold text-ink">Unlock Partner Earnings</p>
+          <p className="text-xs font-medium text-ink-600 max-w-sm mx-auto">Join the Partner Program to monetize your readership through direct referrals and content engagement bonuses.</p>
+          <a href="/pricing" className="inline-block bg-ink text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm hover:bg-signal transition-colors">
+            View Partner Plans
+          </a>
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="border border-wire rounded-sm p-3 text-center">
-              <p className="text-xl font-bold editorial-h">{wallet?.referral_count || 0}</p>
-              <p className="text-xs text-ink-400">Referrals</p>
+            <div className="border border-wire bg-ink-50/50 rounded-sm p-4 text-center">
+              <p className="text-2xl font-black text-ink">{wallet?.referral_count || 0}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-1">Referrals</p>
             </div>
-            <div className="border border-wire rounded-sm p-3 text-center">
-              <p className="text-xl font-bold editorial-h">KES {((wallet?.total_earned || 0) / 100).toFixed(0)}</p>
-              <p className="text-xs text-ink-400">Earned</p>
+            <div className="border border-wire bg-ink-50/50 rounded-sm p-4 text-center">
+              <p className="text-2xl font-black text-ink">KES {((wallet?.total_earned || 0) / 100).toFixed(0)}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-1">Total Earned</p>
             </div>
-            <div className="border border-wire rounded-sm p-3 text-center">
-              <p className="text-xl font-bold editorial-h">KES {((wallet?.total_withdrawn || 0) / 100).toFixed(0)}</p>
-              <p className="text-xs text-ink-400">Withdrawn</p>
+            <div className="border border-wire bg-ink-50/50 rounded-sm p-4 text-center">
+              <p className="text-2xl font-black text-ink">KES {((wallet?.total_withdrawn || 0) / 100).toFixed(0)}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-1">Withdrawn</p>
             </div>
           </div>
 
-          {/* Quick actions */}
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => window.dispatchEvent(new CustomEvent('op:open-buy-credits'))} className="text-xs font-semibold px-3 py-2 rounded-sm bg-ink text-paper flex items-center gap-1"><Sparkles size={12} /> Buy SMS Credits</button>
-            <a href="/partner/leaderboard" className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><Trophy size={12} /> View Leaderboard</a>
-            {wallet?.tier === 'partner' && <a href="/pricing" className="text-xs font-semibold px-3 py-2 rounded-sm border border-wire flex items-center gap-1"><ArrowUpRight size={12} /> Upgrade to Pro</a>}
+          {/* Quick Actions */}
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button onClick={() => window.dispatchEvent(new CustomEvent('op:open-buy-credits'))} className="bg-ink text-white font-bold uppercase text-[11px] tracking-wider px-4 py-2.5 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5">
+              <Sparkles size={13} /> Buy SMS Credits
+            </button>
+            <a href="/partner/leaderboard" className="border border-wire bg-paper text-ink font-bold uppercase text-[11px] tracking-wider px-4 py-2.5 rounded-sm hover:border-ink transition-colors flex items-center gap-1.5">
+              <Trophy size={13} /> Leaderboard
+            </a>
           </div>
 
-          {/* Earnings chart */}
-          <div className="border border-wire rounded-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-ink-400">Earnings — last 7 days</p>
-              <div className="flex items-center gap-3 text-[10px] text-ink-400">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-ink inline-block rounded-sm" /> Referrals</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-ink-300 inline-block rounded-sm" /> Posts</span>
+          {/* Sparkline Chart */}
+          <div className="border border-wire rounded-sm p-4 bg-paper">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Weekly Performance</p>
+              <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-ink-500">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-signal inline-block rounded-sm" /> Referrals</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-ink inline-block rounded-sm" /> Posts</span>
               </div>
             </div>
             <SparkBars values={last7} />
           </div>
 
-          {/* Referral stats card */}
-          <div className="border border-wire rounded-sm p-4">
-            <p className="text-xs font-semibold mb-3 flex items-center gap-1"><Users size={12} /> Your Referral Link</p>
-            <div className="flex gap-2 mb-3">
-              <code className="flex-1 bg-ink-50 border border-wire rounded-sm px-3 py-2 text-xs break-all">
+          {/* Referral Link Box */}
+          <div className="border border-wire rounded-sm p-5 bg-paper space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1.5">
+              <Users size={14} className="text-signal" /> Your Exclusive Referral Link
+            </p>
+            <div className="flex gap-2">
+              <code className="flex-1 bg-ink-50 border border-wire rounded-sm px-3 py-2 text-xs font-mono text-ink truncate">
                 {shareLink}
               </code>
-              <button onClick={copyReferralLink} className="btn-outline px-3 py-2 rounded-sm text-xs">
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+              <button onClick={copyReferralLink} className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1">
+                {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="flex gap-2 mb-2">
-              <button onClick={shareWhatsapp} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire flex items-center gap-1"><MessageCircle size={12} /> WhatsApp</button>
-              <button onClick={shareTwitter} className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-wire flex items-center gap-1"><Twitter size={12} /> Twitter</button>
+            <div className="flex gap-2 pt-1">
+              <button onClick={shareWhatsapp} className="border border-wire bg-paper hover:bg-ink-50 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm flex items-center gap-1.5 transition-colors">
+                <MessageCircle size={13} className="text-emerald-600" /> Share WhatsApp
+              </button>
+              <button onClick={shareTwitter} className="border border-wire bg-paper hover:bg-ink-50 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm flex items-center gap-1.5 transition-colors">
+                <Twitter size={13} className="text-sky-500" /> Share Twitter
+              </button>
             </div>
-            <p className="text-xs text-ink-400">Earn KES 100 when someone subscribes using your link. Total bonus earned: KES {((wallet?.total_earned || 0) / 100).toFixed(0)}.</p>
           </div>
 
-          {/* Withdrawal tracker */}
-          <div>
-            <button onClick={() => setShowWithdraw(!showWithdraw)} className="text-xs font-semibold text-signal flex items-center gap-1">
-              <ArrowUpRight size={12} /> {showWithdraw ? 'Cancel' : 'Withdraw to M-Pesa'}
-            </button>
+          {/* Withdrawal Section */}
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Payouts</p>
+              <button onClick={() => setShowWithdraw(!showWithdraw)} className="bg-signal text-white font-bold uppercase text-[11px] tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors">
+                {showWithdraw ? 'Cancel' : 'Withdraw to M-Pesa'}
+              </button>
+            </div>
+
             {showWithdraw && (
-              <div className="mt-3 space-y-2 p-3 border border-wire rounded-sm">
-                <input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder="Amount (min KES 100)" type="number" className="w-full border border-wire rounded-sm px-3 py-2 text-sm" />
-                <input value={withdrawPhone} onChange={(e) => setWithdrawPhone(e.target.value)} placeholder="M-Pesa number (+254...)" className="w-full border border-wire rounded-sm px-3 py-2 text-sm" />
-                <button onClick={requestWithdrawal} disabled={withdrawing} className="btn-primary w-full py-2 rounded-sm text-sm">
-                  {withdrawing ? <Loader2 size={14} className="animate-spin inline" /> : `Withdraw KES ${withdrawAmount || '0'} (Fee: KES 5)`}
+              <div className="p-4 border border-wire bg-ink-50 rounded-sm space-y-3">
+                <input value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} placeholder="Amount in KES (min 100)" type="number" className="w-full border border-wire rounded-sm px-3 py-2 text-xs font-medium bg-paper focus:outline-none focus:border-ink" />
+                <input value={withdrawPhone} onChange={(e) => setWithdrawPhone(e.target.value)} placeholder="M-Pesa phone (+254...)" className="w-full border border-wire rounded-sm px-3 py-2 text-xs font-medium bg-paper focus:outline-none focus:border-ink" />
+                <button onClick={requestWithdrawal} disabled={withdrawing} className="bg-ink text-white font-bold uppercase text-xs tracking-wider w-full py-2.5 rounded-sm hover:bg-signal transition-colors">
+                  {withdrawing ? <Loader2 size={14} className="animate-spin inline" /> : `Confirm Withdrawal (Fee: KES 5)`}
                 </button>
-                {message && <p className="text-xs text-ink-600">{message}</p>}
+                {message && <p className="text-xs font-bold text-ink">{message}</p>}
               </div>
             )}
 
-            {pendingWithdrawals.length === 0 && completedWithdrawals.length === 0 ? (
-              <div className="mt-3">
-                <EmptyState icon={Clock} title="No withdrawals yet" subtitle="Once you request a payout, you can track its status here." />
-              </div>
-            ) : (
-              <div className="mt-3 space-y-2">
+            {pendingWithdrawals.length > 0 && (
+              <div className="space-y-2">
                 {pendingWithdrawals.map(w => (
-                  <div key={w.id} className="flex items-center justify-between p-2 border border-amber-200 bg-amber-50 rounded-sm text-xs">
-                    <span className="flex items-center gap-1.5 text-amber-700"><Clock size={12} className="animate-pulse" /> Withdrawal in progress — KES {(w.amount / 100).toFixed(0)}</span>
-                    <span className="text-amber-600">Est. within 24h</span>
-                  </div>
-                ))}
-                {completedWithdrawals.slice(0, 3).map(w => (
-                  <div key={w.id} className="flex items-center justify-between p-2 border border-wire rounded-sm text-xs">
-                    <span className="flex items-center gap-1.5 text-ink-600"><CheckCircle2 size={12} /> Withdrawal complete — KES {(w.amount / 100).toFixed(0)}</span>
-                    <span className="text-ink-400">{new Date(w.created_at).toLocaleDateString()}</span>
+                  <div key={w.id} className="flex items-center justify-between p-3 border border-amber-300 bg-amber-50 rounded-sm text-xs font-bold text-amber-800">
+                    <span className="flex items-center gap-2"><Clock size={14} className="animate-pulse" /> Payout Pending — KES {(w.amount / 100).toFixed(0)}</span>
+                    <span>Processing</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Filterable transaction history */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-ink-400 flex items-center gap-1"><Gift size={12} /> Earnings History</p>
+          {/* History */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Transaction History</p>
               <div className="flex gap-1">
                 {['all', 'referrals', 'posts', 'withdrawals'].map(f => (
-                  <button key={f} onClick={() => setHistoryFilter(f)} className={`text-[10px] font-semibold px-2 py-1 rounded-full border ${historyFilter === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
-                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  <button key={f} onClick={() => setHistoryFilter(f)} className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-sm border transition-colors ${historyFilter === f ? 'bg-ink text-white border-ink' : 'border-wire text-ink-600 hover:border-ink'}`}>
+                    {f}
                   </button>
                 ))}
               </div>
             </div>
 
             {filteredHistory.length === 0 ? (
-              <EmptyState icon={Inbox} title="Nothing here yet" subtitle="Your earnings and withdrawals will show up in this list." />
+              <EmptyState title="No transactions yet" subtitle="Your earnings and payouts will appear here." />
             ) : (
-              <div className="space-y-1 max-h-52 overflow-y-auto">
+              <div className="border border-wire rounded-sm divide-y divide-wire bg-paper max-h-60 overflow-y-auto">
                 {filteredHistory.map((item, i) => {
                   const key = `${item._type}-${item.id || i}`;
-                  const isOpen = expandedItem === key;
-                  const icon = item._type === 'referral' ? <Gift size={12} /> : item._type === 'post' ? <Sparkles size={12} /> : <ArrowUpRight size={12} />;
-                  const label = item._type === 'referral' ? 'Referral bonus' : item._type === 'post' ? 'Post earnings' : 'Withdrawal';
+                  const label = item._type === 'referral' ? 'Referral Bonus' : item._type === 'post' ? 'Post Engagement' : 'Withdrawal Payout';
                   const amount = item._type === 'referral' ? item.bonus_paid : item.amount;
                   return (
-                    <button key={key} onClick={() => setExpandedItem(isOpen ? null : key)} className="w-full text-left p-2 border border-wire rounded-sm text-xs flex flex-col gap-1 hover:bg-ink-50">
-                      <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 text-ink-600">{icon} {label}</span>
-                        <span className="font-semibold">KES {(Number(amount || 0) / 100).toFixed(0)}</span>
+                    <div key={key} className="p-3.5 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-ink">{label}</p>
+                        <p className="text-[11px] font-medium text-ink-400 mt-0.5">{new Date(item.created_at).toLocaleDateString()}</p>
                       </div>
-                      <div className="flex items-center justify-between text-ink-400">
-                        <span>{new Date(item.created_at).toLocaleDateString()}</span>
-                        {item._type === 'withdrawal' && <span>{item.status}</span>}
-                      </div>
-                      {isOpen && (
-                        <div className="pt-1 mt-1 border-t border-wire text-ink-400 space-y-0.5">
-                          {item._type === 'withdrawal' && <p>Phone: {item.phone}</p>}
-                          {item._type === 'withdrawal' && item.withdrawal_reference && <p>Reference: {item.withdrawal_reference}</p>}
-                          <p>Recorded: {new Date(item.created_at).toLocaleString()}</p>
-                        </div>
-                      )}
-                    </button>
+                      <span className={`font-black ${item._type === 'withdrawal' ? 'text-signal' : 'text-emerald-600'}`}>
+                        {item._type === 'withdrawal' ? '-' : '+'}KES {(Number(amount || 0) / 100).toFixed(0)}
+                      </span>
+                    </div>
                   );
                 })}
               </div>

@@ -15,8 +15,7 @@ const FALLBACK_PACKAGES = [
 ];
 
 function formatKes(amountInCents) {
-  const kes = amountInCents / 100;
-  return `KES ${kes.toLocaleString('en-KE')}`;
+  return `KES ${(amountInCents / 100).toLocaleString('en-KE')}`;
 }
 
 function perSmsCost(pkg) {
@@ -24,13 +23,11 @@ function perSmsCost(pkg) {
   return (pkg.amount / 100 / pkg.credits).toFixed(2);
 }
 
-// Maps common Paystack-style error text to a friendlier message.
 function friendlyError(rawMessage) {
   const msg = (rawMessage || '').toLowerCase();
   if (msg.includes('insufficient')) return 'Your payment method declined the charge (insufficient funds).';
   if (msg.includes('declined')) return 'Your card or mobile money provider declined this payment.';
-  if (msg.includes('timeout') || msg.includes('timed out')) return 'The payment provider took too long to respond. Please try again.';
-  if (msg.includes('network') || msg.includes('fetch')) return 'Check your connection and try again.';
+  if (msg.includes('timeout')) return 'The payment gateway timed out. Please try again.';
   return rawMessage || 'Payment failed. Please try again.';
 }
 
@@ -42,29 +39,28 @@ async function fetchCsrfToken() {
   } catch (e) { return ''; }
 }
 
-// Simple inline SVGs so we don't depend on external asset hosting.
 function MpesaIcon({ className }) {
   return (
     <svg viewBox="0 0 48 32" className={className} role="img" aria-label="M-Pesa">
-      <rect width="48" height="32" rx="4" fill="#4CAF50" />
-      <text x="24" y="21" textAnchor="middle" fontSize="11" fontWeight="700" fill="#fff" fontFamily="Arial, sans-serif">M-PESA</text>
+      <rect width="48" height="32" rx="2" fill="#4CAF50" />
+      <text x="24" y="21" textAnchor="middle" fontSize="11" fontWeight="800" fill="#fff" fontFamily="Inter, sans-serif">M-PESA</text>
     </svg>
   );
 }
 function VisaIcon({ className }) {
   return (
     <svg viewBox="0 0 48 32" className={className} role="img" aria-label="Visa">
-      <rect width="48" height="32" rx="4" fill="#1A1F71" />
-      <text x="24" y="21" textAnchor="middle" fontSize="12" fontWeight="700" fontStyle="italic" fill="#fff" fontFamily="Arial, sans-serif">VISA</text>
+      <rect width="48" height="32" rx="2" fill="#1A1F71" />
+      <text x="24" y="21" textAnchor="middle" fontSize="12" fontWeight="800" fontStyle="italic" fill="#fff" fontFamily="Inter, sans-serif">VISA</text>
     </svg>
   );
 }
 function MastercardIcon({ className }) {
   return (
     <svg viewBox="0 0 48 32" className={className} role="img" aria-label="Mastercard">
-      <rect width="48" height="32" rx="4" fill="#f5f5f5" stroke="#e2e2e2" />
-      <circle cx="20" cy="16" r="9" fill="#EB001B" />
-      <circle cx="28" cy="16" r="9" fill="#F79E1B" fillOpacity="0.9" />
+      <rect width="48" height="32" rx="2" fill="#1c1917" stroke="#333" />
+      <circle cx="19" cy="16" r="8" fill="#EB001B" />
+      <circle cx="29" cy="16" r="8" fill="#F79E1B" fillOpacity="0.85" />
     </svg>
   );
 }
@@ -76,7 +72,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState('select');
   const [error, setError] = useState('');
-  const [errorKind, setErrorKind] = useState('generic'); // generic | network
+  const [errorKind, setErrorKind] = useState('generic');
   const [lastReference, setLastReference] = useState('');
   const [quickBuyId, setQuickBuyId] = useState('');
   const modalRef = useRef(null);
@@ -91,17 +87,16 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         if (!cancelled && res.ok && Array.isArray(data.packages) && data.packages.length > 0) {
           setPackages(data.packages.map(p => ({ ...p, popular: p.id === 'sms_50' })));
         }
-      } catch (e) { /* keep fallback */ }
+      } catch (e) {}
       finally { if (!cancelled) setPackagesLoading(false); }
     })();
     try {
       const saved = window.localStorage.getItem(QUICK_BUY_KEY);
       if (saved) { setQuickBuyId(saved); setSelected(saved); }
-    } catch (e) { /* localStorage may be unavailable */ }
+    } catch (e) {}
     return () => { cancelled = true; };
   }, []);
 
-  // Basic focus trap + Escape-to-close for accessibility.
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') { onClose(); return; }
@@ -132,11 +127,11 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
       } else {
         setErrorKind('generic');
-        setError('Payment verification failed. If you were charged, contact support with reference: ' + reference);
+        setError('Payment verification failed. Contact support with reference: ' + reference);
       }
     } catch (e) {
       setErrorKind('network');
-      setError('Could not confirm payment. If you were charged, contact support with reference: ' + reference);
+      setError('Could not confirm payment. Contact support with reference: ' + reference);
     } finally {
       setLoading(false);
     }
@@ -149,14 +144,10 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
 
     try {
       const csrfToken = await fetchCsrfToken();
-
       const res = await fetch(`${API_BASE}/payments/initialize`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({ packageId: selected }),
       });
 
@@ -175,8 +166,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         return;
       }
 
-      const accessCode = data.access_code;
-      if (!accessCode) {
+      if (!data.access_code) {
         setErrorKind('generic');
         setError('Payment system error. Please try again.');
         setLoading(false);
@@ -185,7 +175,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
 
       if (window.PaystackPop) {
         const paystack = new window.PaystackPop();
-        paystack.resumeTransaction(accessCode, {
+        paystack.resumeTransaction(data.access_code, {
           onSuccess: (response) => { verifyPayment(response.reference); },
           onClose: () => { setLoading(false); },
           onError: (err) => { setErrorKind('generic'); setError(friendlyError(err?.message)); setLoading(false); },
@@ -194,7 +184,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         window.location.href = data.authorization_url;
       } else {
         setErrorKind('generic');
-        setError('Payment system is loading. Please refresh and try again.');
+        setError('Payment gateway unavailable.');
         setLoading(false);
       }
     } catch (e) {
@@ -204,100 +194,113 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
     }
   };
 
-  const handleKeyNav = (e, index) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    e.preventDefault();
-    const nextIndex = e.key === 'ArrowDown' ? Math.min(index + 1, packages.length - 1) : Math.max(index - 1, 0);
-    setSelected(packages[nextIndex].id);
-    document.getElementById(`pkg-${packages[nextIndex].id}`)?.focus();
-  };
-
   return (
-    <div className="fixed inset-0 bg-ink/60 z-50 grid place-items-center px-4" role="dialog" aria-modal="true" aria-labelledby="buy-credits-title">
-      <div ref={modalRef} className="bg-paper rounded-sm border border-wire w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-wire">
-          <h2 id="buy-credits-title" className="editorial-h text-xl font-bold">{step === 'success' ? 'Payment Successful!' : 'Buy SMS Credits'}</h2>
-          <button ref={firstButtonRef} onClick={onClose} aria-label="Close" className="w-8 h-8 grid place-items-center rounded-full hover:bg-ink-50"><X size={18} /></button>
+    <div className="fixed inset-0 bg-ink/70 z-50 grid place-items-center p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="buy-credits-title">
+      <div ref={modalRef} className="bg-paper rounded-sm border-2 border-ink w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 bg-ink text-white border-b border-white/10">
+          <h2 id="buy-credits-title" className="text-lg font-bold uppercase tracking-wide">
+            {step === 'success' ? 'Payment Successful' : 'Top Up SMS Credits'}
+          </h2>
+          <button ref={firstButtonRef} onClick={onClose} aria-label="Close" className="text-white/60 hover:text-white p-1">
+            <X size={20} />
+          </button>
         </div>
 
         {step === 'success' ? (
-          <div className="p-8 text-center">
-            <div className="w-16 h-16 bg-ink-50 rounded-full grid place-items-center mx-auto mb-4 animate-[pulse_1.2s_ease-in-out]">
-              <Check size={32} className="text-ink-600" style={{ animation: 'op-check-pop 0.4s ease-out' }} />
+          <div className="p-8 text-center space-y-4">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full grid place-items-center mx-auto text-emerald-600">
+              <Check size={32} />
             </div>
-            <style>{`@keyframes op-check-pop { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }`}</style>
-            <p className="text-lg font-semibold mb-2">{pkg.credits} credits added!</p>
-            <p className="text-sm text-ink-400 mb-6">You can now send {pkg.credits} SMS messages.</p>
+            <p className="text-xl font-bold text-ink">{pkg.credits} SMS Credits Added!</p>
+            <p className="text-sm text-ink-500">Your account has been successfully credited.</p>
             {lastReference && (
               <a href={`${API_BASE}/payments/receipt/${encodeURIComponent(lastReference)}`} target="_blank" rel="noreferrer"
-                className="btn-outline w-full py-2.5 rounded-sm text-sm flex items-center justify-center gap-2 mb-3">
+                className="border border-ink text-ink font-bold uppercase text-xs tracking-wider w-full py-3 rounded-sm flex items-center justify-center gap-2 hover:bg-ink hover:text-white transition-colors">
                 <Download size={14} /> Download Receipt
               </a>
             )}
-            <button onClick={onClose} className="btn-primary w-full py-2.5 rounded-sm text-sm">Got it</button>
+            <button onClick={onClose} className="bg-signal text-white font-bold uppercase text-xs tracking-wider w-full py-3 rounded-sm hover:bg-signal/90 transition-colors">
+              Continue
+            </button>
           </div>
         ) : (
-          <div className="p-5 space-y-5">
+          <div className="p-6 space-y-6">
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-ink-400">Select a package</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Select Credit Package</p>
                 {quickBuyId && packages.some(p => p.id === quickBuyId) && (
-                  <button onClick={() => setSelected(quickBuyId)} className="text-xs font-semibold text-signal flex items-center gap-1">
-                    <Zap size={12} /> Quick Buy
+                  <button onClick={() => setSelected(quickBuyId)} className="text-xs font-bold text-signal flex items-center gap-1 uppercase tracking-wider">
+                    <Zap size={12} fill="currentColor" /> Quick Buy
                   </button>
                 )}
               </div>
-              <div className="space-y-2" role="radiogroup" aria-label="SMS credit packages">
-                {packages.map((p, i) => (
-                  <button key={p.id} id={`pkg-${p.id}`} onClick={() => setSelected(p.id)} onKeyDown={(e) => handleKeyNav(e, i)}
-                    disabled={loading} role="radio" aria-checked={selected === p.id} tabIndex={selected === p.id ? 0 : -1}
-                    className={`w-full flex items-center justify-between p-3 rounded-sm border text-left disabled:opacity-50 transition-all duration-150 ${selected === p.id ? 'border-ink bg-ink-50 scale-[1.01]' : 'border-wire hover:border-ink'}`}>
+              
+              <div className="space-y-2.5" role="radiogroup" aria-label="SMS credit packages">
+                {packages.map((p) => (
+                  <button 
+                    key={p.id} 
+                    onClick={() => setSelected(p.id)}
+                    disabled={loading} 
+                    role="radio" 
+                    aria-checked={selected === p.id}
+                    className={`w-full flex items-center justify-between p-4 rounded-sm border text-left transition-all ${
+                      selected === p.id ? 'border-2 border-ink bg-ink-50 shadow-sm' : 'border-wire bg-paper hover:border-ink'
+                    }`}
+                  >
                     <div>
-                      <p className="text-sm font-semibold flex items-center gap-2">
+                      <p className="text-sm font-bold text-ink flex items-center gap-2">
                         {p.name}
-                        {bestValue?.id === p.id && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-signal text-paper">BEST VALUE</span>}
+                        {bestValue?.id === p.id && <span className="text-[9px] font-bold px-2 py-0.5 rounded-sm bg-signal text-white">BEST VALUE</span>}
                       </p>
-                      <p className="text-xs text-ink-400">KES {perSmsCost(p)}/SMS</p>
+                      <p className="text-xs font-medium text-ink-500 mt-0.5">KES {perSmsCost(p)} per SMS</p>
                     </div>
-                    <div className="text-right"><p className="text-sm font-bold">{formatKes(p.amount)}</p>{p.popular && <span className="text-xs text-signal font-semibold">Popular</span>}</div>
+                    <div className="text-right">
+                      <p className="text-base font-black text-ink">{formatKes(p.amount)}</p>
+                      {p.popular && <span className="text-[10px] font-bold text-signal uppercase tracking-wider">Popular</span>}
+                    </div>
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <p className="text-xs font-semibold text-ink-400 mb-3">Payment method</p>
-              <div className="flex items-center gap-2">
-                <MpesaIcon className="h-8 w-auto" />
-                <VisaIcon className="h-8 w-auto" />
-                <MastercardIcon className="h-8 w-auto" />
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-2">Accepted Payment Methods</p>
+              <div className="flex items-center gap-3">
+                <MpesaIcon className="h-9 w-auto shadow-sm" />
+                <VisaIcon className="h-9 w-auto shadow-sm" />
+                <MastercardIcon className="h-9 w-auto shadow-sm" />
               </div>
-              <p className="text-xs text-ink-400 mt-2">Paystack accepts M-Pesa, Visa, Mastercard & more.</p>
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-signal rounded-sm p-3 text-sm text-signal flex items-start gap-2" role="alert">
-                {errorKind === 'network' ? <WifiOff size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
-                <div className="flex-1">
+              <div className="bg-red-50 border border-signal rounded-sm p-4 text-xs font-bold text-signal flex items-start gap-3" role="alert">
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
                   <span>{error}</span>
-                  <button onClick={handlePayment} className="mt-2 flex items-center gap-1 text-xs font-semibold underline">
-                    <RefreshCw size={12} /> Try Again
+                  <button onClick={handlePayment} className="flex items-center gap-1 text-[11px] underline">
+                    <RefreshCw size={11} /> Try Again
                   </button>
                 </div>
               </div>
             )}
 
             <div className="border-t border-wire pt-4 flex items-center justify-between">
-              <div><p className="text-sm font-semibold">{pkg?.name}</p><p className="text-xs text-ink-400">{pkg?.credits} credits</p></div>
-              <p className="text-lg font-bold">{pkg && formatKes(pkg.amount)}</p>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Total Due</p>
+                <p className="text-sm font-bold text-ink">{pkg?.name} ({pkg?.credits} credits)</p>
+              </div>
+              <p className="text-2xl font-black text-ink">{pkg && formatKes(pkg.amount)}</p>
             </div>
 
-            <button onClick={handlePayment} disabled={loading || packagesLoading || !pkg}
-              className="btn-primary w-full py-3 rounded-sm text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Processing...</> : <><CreditCard size={15} /> Pay {pkg && formatKes(pkg.amount)} — Get {pkg?.credits} Credits</>}
+            <button 
+              onClick={handlePayment} 
+              disabled={loading || packagesLoading || !pkg}
+              className="bg-signal text-white font-bold uppercase text-xs tracking-wider w-full py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-md"
+            >
+              {loading ? <><Loader2 size={16} className="animate-spin" /> Authorizing Payment...</> : <><CreditCard size={16} /> Pay {pkg && formatKes(pkg.amount)}</>}
             </button>
-
-            <p className="text-xs text-ink-400 text-center">Secured by Paystack. M-Pesa, Visa, Mastercard accepted.</p>
           </div>
         )}
       </div>

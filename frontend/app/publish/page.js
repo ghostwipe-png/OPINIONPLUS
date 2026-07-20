@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Image as ImageIcon, Paperclip, X } from 'lucide-react';
+import { Image as ImageIcon, Paperclip, X, FileText, Film, Save, Send, Sparkles } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore } from '../../lib/store';
 import RichTextEditor from '../../components/RichTextEditor';
@@ -54,8 +54,7 @@ function PublishForm() {
         /* ignore */
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editId, stories.length]);
+  }, [editId, stories]);
 
   useEffect(() => {
     if (ready && !isAuthenticated) router.push('/login');
@@ -107,117 +106,163 @@ function PublishForm() {
   if (!ready || !isAuthenticated) return null;
 
   return (
-    <div className="max-w-3xl mx-auto px-5 py-12">
-      <p className="wire-tag mb-3">{editId ? 'Edit post' : 'New post'}</p>
-      <h1 className="editorial-h text-3xl font-bold mb-8">
-        {editId ? 'Update your story' : 'Write it down. Put your name on it.'}
-      </h1>
-
-      <div className="space-y-6">
-        <div className="flex gap-3">
-          {['story', 'documentary'].map((t) => (
-            <button
-              key={t}
-              onClick={() => set({ type: t })}
-              className={`px-4 py-2 rounded-full text-xs font-semibold border ${
-                draft.type === t ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'
-              }`}
-            >
-              {t === 'story' ? 'Story' : 'Documentary'}
-            </button>
-          ))}
+    <div className="bg-paper min-h-screen py-12 pb-24">
+      <div className="max-w-3xl mx-auto px-5">
+        
+        {/* Header Banner */}
+        <div className="mb-8 border-b-2 border-wire/60 pb-6">
+          <div className="bg-ink text-white font-bold uppercase text-xs px-3 py-1.5 inline-block rounded-sm mb-3">
+            {editId ? 'Edit Publication' : 'New Publication Suite'}
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black text-ink tracking-tight">
+            {editId ? 'Update your story' : 'Write it down. Put your name on it.'}
+          </h1>
         </div>
 
-        <input
-          value={draft.title}
-          onChange={(e) => set({ title: e.target.value })}
-          placeholder="Headline"
-          className="editorial-h w-full text-3xl font-bold border-b border-wire focus:border-ink outline-none py-2"
-        />
-
-        <textarea
-          value={draft.excerpt}
-          onChange={(e) => set({ excerpt: e.target.value })}
-          placeholder="One or two lines that pull a reader in — shown on the feed and share cards."
-          rows={2}
-          className="w-full text-sm border-b border-wire focus:border-ink outline-none py-2 resize-none"
-        />
-
-        <div>
-          <p className="wire-tag mb-2">Cover image</p>
-          {draft.coverImage ? (
-            <div className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={draft.coverImage} alt="" className="w-full rounded-sm border border-wire" />
-              <button
-                onClick={() => set({ coverImage: '' })}
-                className="absolute top-2 right-2 bg-ink text-paper w-7 h-7 rounded-full grid place-items-center"
-              >
-                <X size={14} />
-              </button>
+        <div className="space-y-8">
+          
+          {/* Format Type Selector */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mb-2">Content Format</p>
+            <div className="flex gap-3">
+              {[
+                { id: 'story', label: 'Story', icon: FileText },
+                { id: 'documentary', label: 'Documentary', icon: Film },
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => set({ type: id })}
+                  className={`flex-1 py-3 px-4 rounded-sm border font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${
+                    draft.type === id 
+                      ? 'bg-ink text-white border-ink shadow-sm' 
+                      : 'border-wire bg-white text-ink-600 hover:border-ink'
+                  }`}
+                >
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <button
-              onClick={addCover}
-              className="btn-outline w-full py-6 rounded-sm flex flex-col items-center gap-2 text-sm"
-            >
-              <ImageIcon size={20} />
-              Add a cover image or video
-            </button>
-          )}
-        </div>
+          </div>
 
-        <div>
-          <p className="wire-tag mb-2">Story</p>
-          <RichTextEditor
-            value={draft.body}
-            onChange={(html) => set({ body: html })}
-            placeholder="Start writing…"
-          />
-        </div>
-
-        <div>
-          <p className="wire-tag mb-2">Attachments (PDF, docs)</p>
+          {/* Title Input */}
           <div className="space-y-2">
-            {draft.files.map((f, i) => (
-              <div key={i} className="flex items-center justify-between border border-wire rounded-sm px-3 py-2">
-                <span className="text-sm flex items-center gap-2">
-                  <Paperclip size={14} /> {f.name}
-                </span>
-                <button onClick={() => removeFile(i)} aria-label="Remove file">
-                  <X size={14} />
+            <label className="text-xs font-bold uppercase tracking-widest text-ink-400 block">Headline</label>
+            <input
+              value={draft.title}
+              onChange={(e) => set({ title: e.target.value })}
+              placeholder="Enter a compelling headline..."
+              className="w-full text-2xl sm:text-3xl font-black text-ink bg-white border border-wire rounded-sm p-4 focus:outline-none focus:border-ink transition-colors placeholder:text-ink-300"
+            />
+          </div>
+
+          {/* Excerpt Input */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-ink-400 block">Excerpt / Subtitle</label>
+            <textarea
+              value={draft.excerpt}
+              onChange={(e) => set({ excerpt: e.target.value })}
+              placeholder="One or two lines that pull a reader in — shown on the feed and share cards."
+              rows={2}
+              className="w-full text-sm font-medium text-ink bg-white border border-wire rounded-sm p-3 focus:outline-none focus:border-ink resize-none placeholder:text-ink-300"
+            />
+          </div>
+
+          {/* Cover Image Uploader */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-ink-400">Cover Visual</p>
+            {draft.coverImage ? (
+              <div className="relative rounded-sm overflow-hidden border border-wire group bg-white shadow-sm">
+                <img src={draft.coverImage} alt="" className="w-full max-h-80 object-cover" />
+                <button
+                  onClick={() => set({ coverImage: '' })}
+                  className="absolute top-3 right-3 bg-ink text-white p-2 rounded-sm hover:bg-signal transition-colors shadow-lg"
+                  title="Remove image"
+                >
+                  <X size={16} />
                 </button>
               </div>
-            ))}
-            <label className="btn-outline block text-center py-2.5 rounded-sm text-sm cursor-pointer">
-              Add a file
+            ) : (
+              <button
+                onClick={addCover}
+                className="w-full border-2 border-dashed border-wire bg-white hover:border-ink rounded-sm p-8 flex flex-col items-center justify-center gap-2 text-ink-600 transition-colors group cursor-pointer"
+              >
+                <div className="w-12 h-12 bg-ink-50 rounded-full grid place-name-center group-hover:bg-ink group-hover:text-white transition-colors">
+                  <ImageIcon size={22} className="mx-auto mt-3" />
+                </div>
+                <span className="text-xs font-bold uppercase tracking-wider text-ink mt-2">Add Cover Image or Media</span>
+                <span className="text-[11px] text-ink-400">Supports high-res photography and graphics via Cloudinary</span>
+              </button>
+            )}
+          </div>
+
+          {/* Rich Text Editor */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-ink-400">Story Body</p>
+            <div className="bg-white border border-wire rounded-sm shadow-sm overflow-hidden">
+              <RichTextEditor
+                value={draft.body}
+                onChange={(html) => set({ body: html })}
+                placeholder="Start writing your feature article..."
+              />
+            </div>
+          </div>
+
+          {/* File Attachments */}
+          <div className="space-y-3 bg-white border border-wire rounded-sm p-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-ink">Attachments & Documents</p>
+            {draft.files.length > 0 && (
+              <div className="space-y-2">
+                {draft.files.map((f, i) => (
+                  <div key={i} className="flex items-center justify-between border border-wire rounded-sm px-4 py-2.5 bg-ink-50">
+                    <span className="text-xs font-bold text-ink flex items-center gap-2">
+                      <Paperclip size={14} className="text-signal" /> {f.name}
+                    </span>
+                    <button onClick={() => removeFile(i)} aria-label="Remove file" className="text-signal hover:opacity-75">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="border border-ink bg-paper hover:bg-ink hover:text-white text-ink text-xs font-bold uppercase tracking-wider block text-center py-3 rounded-sm cursor-pointer transition-colors">
+              + Attach Document (PDF, DOCX)
               <input type="file" accept=".pdf,.doc,.docx" onChange={addFile} className="hidden" />
             </label>
           </div>
-        </div>
 
-        <div>
-          <p className="wire-tag mb-2">Privacy</p>
-          <select
-            value={draft.privacy}
-            onChange={(e) => set({ privacy: e.target.value })}
-            className="border border-wire rounded-sm px-3 py-2 text-sm"
-          >
-            <option value="public">Public — anyone can read it</option>
-            <option value="private">Private — only you</option>
-            <option value="archived">Archived — hidden from the feed</option>
-          </select>
-        </div>
+          {/* Privacy Settings */}
+          <div className="space-y-2 bg-white border border-wire rounded-sm p-6">
+            <label className="text-xs font-bold uppercase tracking-widest text-ink block mb-2">Publication Privacy</label>
+            <select
+              value={draft.privacy}
+              onChange={(e) => set({ privacy: e.target.value })}
+              className="w-full border border-wire rounded-sm px-4 py-3 text-xs font-bold uppercase tracking-wider bg-paper focus:outline-none focus:border-ink"
+            >
+              <option value="public">Public — Anyone can read and share</option>
+              <option value="private">Private — Visible only to your account</option>
+              <option value="archived">Archived — Hidden from public feeds</option>
+            </select>
+          </div>
 
-        <div className="rule pt-6 flex items-center gap-3 flex-wrap">
-          <button onClick={() => publish()} className="btn-primary px-5 py-2.5 rounded-sm text-sm">
-            {editId ? 'Save changes' : 'Publish'}
-          </button>
-          {!editId && (
-            <button onClick={saveDraftLocally} className="btn-outline px-5 py-2.5 rounded-sm text-sm">
-              {saved ? 'Draft saved ✓' : 'Save draft'}
+          {/* Action Buttons */}
+          <div className="rule pt-8 flex items-center gap-4 flex-wrap">
+            <button 
+              onClick={() => publish()} 
+              className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-2 shadow-md"
+            >
+              <Send size={15} /> {editId ? 'Save Changes' : 'Publish Story'}
             </button>
-          )}
+            
+            {!editId && (
+              <button 
+                onClick={saveDraftLocally} 
+                className="border border-ink bg-white text-ink font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2"
+              >
+                <Save size={15} /> {saved ? 'Draft Saved ✓' : 'Save Local Draft'}
+              </button>
+            )}
+          </div>
+
         </div>
       </div>
     </div>
@@ -226,7 +271,7 @@ function PublishForm() {
 
 export default function PublishPage() {
   return (
-    <Suspense fallback={<div className="max-w-3xl mx-auto px-5 py-12"><p>Loading editor...</p></div>}>
+    <Suspense fallback={<div className="max-w-3xl mx-auto px-5 py-24 text-center font-bold text-ink-400">Loading editor suite...</div>}>
       <PublishForm />
     </Suspense>
   );

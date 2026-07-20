@@ -42,11 +42,6 @@ async function api(path, options = {}) {
   return data;
 }
 
-// ---------- v10: local-storage backed helpers (templates, scheduled, recents, onboarding) ----------
-// These features are client-side only per the spec ("scheduling handled
-// client-side for now", "Templates stored in localStorage"), so they degrade
-// gracefully to empty state if localStorage is unavailable.
-
 const LS_TEMPLATES = 'sms:templates';
 const LS_SCHEDULED = 'sms:scheduled';
 const LS_RECENTS = 'sms:recent-recipients';
@@ -73,13 +68,9 @@ function writeLS(key, value) {
   if (typeof window === 'undefined') return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore quota / privacy-mode errors
-  }
+  } catch {}
 }
 
-// Rough GSM-7 vs Unicode SMS segmentation. Not a full GSM-7 charset check,
-// but catches the common case (emoji / non-Latin) that halves the length budget.
 function smsParts(message) {
   const isUnicode = /[^\x00-\x7F]/.test(message);
   const singleLimit = isUnicode ? 70 : 160;
@@ -90,7 +81,6 @@ function smsParts(message) {
   return { parts, limit: singleLimit, isUnicode, len };
 }
 
-// Minimal CSV parser: handles quoted fields and commas within quotes.
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -153,8 +143,7 @@ export default function SmsDashboard() {
   const [loading, setLoading] = useState(true);
   const [showBuyCredits, setShowBuyCredits] = useState(false);
 
-  // ---- v10: new state ----
-  const [csvPreview, setCsvPreview] = useState(null); // { newContacts, duplicates }
+  const [csvPreview, setCsvPreview] = useState(null);
   const fileInputRef = useRef(null);
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -262,41 +251,18 @@ export default function SmsDashboard() {
       loadData();
     } catch (e) {
       if (e.status === 402) {
-        setResult({
-          type: 'error',
-          text: `Insufficient credits. Purchase more credits to continue sending SMS.`
-        });
+        setResult({ type: 'error', text: `Insufficient credits. Purchase more credits to continue sending SMS.` });
       } else if (e.status === 403 || (e.message && (e.message.includes('insufficient') || e.message.includes('Insufficient')))) {
-        setResult({
-          type: 'error',
-          text: 'SMS account has insufficient funds. Please top up your SMS provider account.'
-        });
+        setResult({ type: 'error', text: 'SMS account has insufficient funds. Please top up your SMS provider account.' });
       } else if (e.status === 502) {
-        setResult({
-          type: 'error',
-          text: `SMS gateway error: ${e.data?.details?.message || e.message}. Please try again or contact support.`
-        });
-      } else if (e.status === 400) {
-        setResult({
-          type: 'error',
-          text: e.message || 'Invalid request. Check your message and recipients.'
-        });
-      } else if (e.status === 500) {
-        setResult({
-          type: 'error',
-          text: e.data?.details?.message || e.message || 'Server error. SMS gateway may not be configured.'
-        });
+        setResult({ type: 'error', text: `SMS gateway error: ${e.data?.details?.message || e.message}. Please try again.` });
       } else {
-        setResult({
-          type: 'error',
-          text: e.message || 'Failed to send SMS. Please try again.'
-        });
+        setResult({ type: 'error', text: e.message || 'Failed to send SMS. Please try again.' });
       }
     }
     setSending(false);
   };
 
-  // ---- v10: bulk CSV import ----
   const onCsvSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -304,7 +270,6 @@ export default function SmsDashboard() {
     const rows = parseCsv(text);
     if (!rows.length) { setCsvPreview({ newContacts: [], duplicates: [] }); return; }
 
-    // Detect header row (name, phone columns in any order)
     let start = 0;
     let nameIdx = 0, phoneIdx = 1;
     const header = rows[0].map((h) => h.trim().toLowerCase());
@@ -341,16 +306,13 @@ export default function SmsDashboard() {
       try {
         await api('/sms/contacts', { method: 'POST', body: JSON.stringify({ name: c.name, phone: c.phone }) });
         added++;
-      } catch {
-        // skip failures individually, continue importing the rest
-      }
+      } catch {}
     }
     setCsvPreview(null);
     loadData();
     setResult({ type: 'success', text: `Imported ${added} contact${added !== 1 ? 's' : ''}.` });
   };
 
-  // ---- v10: templates ----
   const applyTemplate = (tpl) => {
     setMessage(tpl.body);
     setTemplatesOpen(false);
@@ -368,7 +330,6 @@ export default function SmsDashboard() {
     setResult({ type: 'success', text: 'Template saved.' });
   };
 
-  // ---- v10: scheduling (client-side; uses the existing send endpoint when due) ----
   const scheduleSms = () => {
     if (!message.trim() || selectedContacts.length === 0 || !scheduleAt) return;
     const entry = {
@@ -394,13 +355,8 @@ export default function SmsDashboard() {
     writeLS(LS_SCHEDULED, next);
   };
 
-  const sendAllContacts = () => {
-    setSelectedContacts(contacts.map((c) => c.phone));
-  };
-
-  const addRecent = (phone) => {
-    if (!selectedContacts.includes(phone)) setSelectedContacts([...selectedContacts, phone]);
-  };
+  const sendAllContacts = () => setSelectedContacts(contacts.map((c) => c.phone));
+  const addRecent = (phone) => { if (!selectedContacts.includes(phone)) setSelectedContacts([...selectedContacts, phone]); };
 
   const parts = smsParts(message);
   const progressPct = message.length === 0 ? 0 : Math.min(100, Math.round((message.length / (parts.parts * (parts.isUnicode ? 67 : 153) || parts.limit)) * 100));
@@ -413,114 +369,106 @@ export default function SmsDashboard() {
   ];
 
   return (
-    <div className="rule mt-10 pt-8">
-      {/* Buy Credits Modal */}
+    <div className="bg-white border border-wire rounded-sm p-6 shadow-sm">
       {showBuyCredits && (
         <BuyCreditsModal 
           onClose={() => setShowBuyCredits(false)} 
-          onSuccess={(addedCredits) => { 
-            setCredits(c => c + addedCredits); 
-            loadData(); 
-          }} 
+          onSuccess={(addedCredits) => { setCredits(c => c + addedCredits); loadData(); }} 
         />
       )}
 
-      <div className="flex items-center justify-between mb-5">
-        <button className="wire-tag flex items-center gap-2">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b-2 border-wire/60 pb-4 mb-6">
+        <div className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 flex items-center gap-2">
           <MessageSquare size={14} /> SMS Dashboard
-        </button>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-ink-600 flex items-center gap-2">
-            <CreditCard size={13} />
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-xs font-bold text-ink-600 flex items-center gap-1.5">
+            <CreditCard size={13} className="text-signal" />
             {credits} credit{credits !== 1 ? 's' : ''} · {totalSent} sent
           </span>
           <button
             onClick={() => setShowBuyCredits(true)}
-            className="text-xs font-semibold text-signal hover:underline flex items-center gap-1"
+            className="bg-signal text-white font-bold uppercase text-[10px] tracking-wider px-3 py-1.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1"
           >
             <ShoppingCart size={12} /> Buy credits
           </button>
         </div>
       </div>
 
-      {/* v10: first-time onboarding */}
+      {/* Onboarding Banner */}
       {!onboarded && !loading && (
-        <div className="mb-5 p-3 border border-wire rounded-sm bg-ink-50/60 text-xs text-ink-600 flex flex-wrap items-center gap-3">
-          <Info size={14} className="shrink-0 text-ink-400" />
-          <span className="flex items-center gap-1.5">
-            <span className={contacts.length > 0 ? 'line-through text-ink-400' : 'font-semibold'}>1. Add your first contact</span>
-            <span className="text-ink-300">→</span>
-            <span className={message.trim() ? 'line-through text-ink-400' : 'font-semibold'}>2. Compose a message</span>
-            <span className="text-ink-300">→</span>
-            <span className="font-semibold">3. Send</span>
+        <div className="mb-6 p-4 border border-wire rounded-sm bg-ink-50 text-xs text-ink-600 flex flex-wrap items-center gap-3">
+          <Info size={16} className="shrink-0 text-signal" />
+          <span className="flex items-center gap-2 font-medium">
+            <span className={contacts.length > 0 ? 'line-through text-ink-400' : 'font-bold text-ink'}>1. Add contacts</span>
+            <span>→</span>
+            <span className={message.trim() ? 'line-through text-ink-400' : 'font-bold text-ink'}>2. Compose message</span>
+            <span>→</span>
+            <span className="font-bold text-ink">3. Broadcast</span>
           </span>
-          <button onClick={() => { writeLS(LS_ONBOARDED, true); setOnboarded(true); }} className="ml-auto text-ink-400 hover:text-ink"><X size={13} /></button>
+          <button onClick={() => { writeLS(LS_ONBOARDED, true); setOnboarded(true); }} className="ml-auto text-ink-400 hover:text-ink"><X size={14} /></button>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 text-xs font-semibold flex-wrap">
+      <div className="flex gap-2 mb-6 text-xs font-bold uppercase tracking-wider flex-wrap">
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-3 py-1.5 rounded-sm border flex items-center gap-1.5 ${
-              tab === t.id ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'
+            className={`px-4 py-2 rounded-sm border flex items-center gap-2 transition-colors ${
+              tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire text-ink-600 hover:border-ink'
             }`}
           >
-            <t.icon size={12} /> {t.label}
+            <t.icon size={13} /> {t.label}
             {t.id === 'scheduled' && scheduled.length > 0 && (
-              <span className="ml-1 px-1.5 rounded-full bg-signal text-paper text-[10px]">{scheduled.length}</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-signal text-white text-[10px]">{scheduled.length}</span>
             )}
           </button>
         ))}
       </div>
 
-      {/* Result notification */}
+      {/* Result Notification */}
       {result && (
-        <div className={`mb-4 p-3 rounded-sm text-sm flex items-start gap-2 ${
-          result.type === 'success'
-            ? 'bg-ink-50 border border-wire text-ink-700'
-            : 'bg-red-50 border border-signal text-signal'
+        <div className={`mb-6 p-4 rounded-sm text-xs font-medium flex items-start gap-3 ${
+          result.type === 'success' ? 'bg-ink-50 border border-wire text-ink-700' : 'bg-red-50 border border-signal text-signal'
         }`}>
-          {result.type === 'success' ? <CheckCircle size={16} className="shrink-0 mt-0.5" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5" />}
-          <span className="flex-1">{result.text}</span>
-          <button onClick={() => setResult(null)} className="shrink-0 hover:opacity-70"><X size={14} /></button>
+          {result.type === 'success' ? <CheckCircle size={16} className="shrink-0 mt-0.5 text-emerald-600" /> : <AlertTriangle size={16} className="shrink-0 mt-0.5" />}
+          <span className="flex-1 font-semibold">{result.text}</span>
+          <button onClick={() => setResult(null)} className="shrink-0 hover:opacity-75"><X size={14} /></button>
         </div>
       )}
 
-      {/* Loading state */}
-      {loading && (
-        <p className="text-sm text-ink-400 mb-4">Loading SMS dashboard...</p>
-      )}
+      {loading && <p className="text-xs font-medium text-ink-400 mb-4 animate-pulse">Loading dashboard telemetry...</p>}
 
-      {/* Send SMS Tab */}
+      {/* SEND SMS TAB */}
       {tab === 'send' && !loading && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setTemplatesOpen((o) => !o)}
-                className="btn-outline px-3 py-1.5 rounded-sm text-xs flex items-center gap-1.5"
+                className="border border-wire bg-paper hover:bg-ink-50 px-3 py-2 rounded-sm text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors"
               >
                 <LayoutTemplate size={13} /> Templates
               </button>
               {templatesOpen && (
-                <div className="absolute z-20 top-9 left-0 w-64 bg-paper border border-wire rounded-sm shadow-lg py-1">
+                <div className="absolute z-20 top-10 left-0 w-64 bg-paper border border-wire rounded-sm shadow-xl py-2">
                   {templates.map((t) => (
                     <button
                       key={t.id}
                       onClick={() => applyTemplate(t)}
-                      className="w-full text-left px-3 py-1.5 text-xs text-ink-600 hover:bg-ink-50 flex items-center justify-between"
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-ink-700 hover:bg-ink-50 flex items-center justify-between"
                     >
                       {t.name}
                       {t.custom && <span className="text-[10px] text-ink-400">custom</span>}
                     </button>
                   ))}
-                  <div className="border-t border-wire mt-1 pt-1 px-2">
-                    <button onClick={() => { setTemplatesOpen(false); setSaveTemplateOpen(true); }} className="text-xs text-signal font-semibold py-1">
-                      + Save current message as template
+                  <div className="border-t border-wire mt-2 pt-2 px-3">
+                    <button onClick={() => { setTemplatesOpen(false); setSaveTemplateOpen(true); }} className="text-xs font-bold text-signal hover:underline">
+                      + Save current as template
                     </button>
                   </div>
                 </div>
@@ -531,69 +479,57 @@ export default function SmsDashboard() {
               type="button"
               onClick={sendAllContacts}
               disabled={contacts.length === 0}
-              className="text-xs font-semibold text-ink-600 hover:text-signal flex items-center gap-1 disabled:opacity-40"
+              className="text-xs font-bold uppercase tracking-wider text-ink-600 hover:text-signal flex items-center gap-1.5 disabled:opacity-40"
             >
               <Users2 size={13} /> Send to all contacts ({contacts.length})
             </button>
           </div>
 
           {saveTemplateOpen && (
-            <div className="flex gap-2 items-center border border-wire rounded-sm p-2">
+            <div className="flex gap-2 items-center border border-wire bg-ink-50 rounded-sm p-3">
               <input
                 value={newTemplateName}
                 onChange={(e) => setNewTemplateName(e.target.value)}
                 placeholder="Template name"
-                className="flex-1 border border-wire rounded-sm px-2 py-1.5 text-sm"
+                className="flex-1 bg-paper border border-wire rounded-sm px-3 py-2 text-xs font-medium focus:outline-none focus:border-ink"
               />
-              <button onClick={saveCustomTemplate} className="btn-primary px-3 py-1.5 rounded-sm text-xs">Save</button>
-              <button onClick={() => setSaveTemplateOpen(false)} className="text-xs text-ink-400">Cancel</button>
+              <button onClick={saveCustomTemplate} className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal transition-colors">Save</button>
+              <button onClick={() => setSaveTemplateOpen(false)} className="text-xs font-bold text-ink-400">Cancel</button>
             </div>
           )}
 
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type your SMS message..."
-            rows={3}
+            placeholder="Type your SMS broadcast message..."
+            rows={4}
             maxLength={480}
-            className="w-full border border-wire rounded-sm px-3 py-2 text-sm resize-none"
+            className="w-full border border-wire rounded-sm p-3 text-sm focus:outline-none focus:border-ink resize-none bg-paper"
           />
 
-          {/* v10: character counter with parts + progress bar + unicode detection */}
           <div>
-            <div className="flex items-center justify-between text-xs text-ink-400 mb-1">
-              <span>
-                {parts.parts} SMS ({message.length}/480 characters){parts.isUnicode && ' · Unicode (reduced limit)'}
-              </span>
+            <div className="flex items-center justify-between text-xs font-semibold text-ink-500 mb-1.5">
+              <span>{parts.parts} SMS · {message.length}/480 chars {parts.isUnicode && '· Unicode'}</span>
               {message.length > (parts.isUnicode ? 60 : 140) && parts.parts === 1 && (
-                <span className="text-signal font-semibold">Approaching limit</span>
+                <span className="text-signal font-bold uppercase tracking-wider text-[10px]">Approaching limit</span>
               )}
             </div>
-            <div className="h-1.5 rounded-full bg-ink-50 overflow-hidden">
-              <div
-                className={`h-full transition-all ${progressPct > 85 ? 'bg-signal' : 'bg-ink'}`}
-                style={{ width: `${progressPct}%` }}
-              />
+            <div className="h-1.5 rounded-sm bg-wire/40 overflow-hidden">
+              <div className={`h-full transition-all ${progressPct > 85 ? 'bg-signal' : 'bg-ink'}`} style={{ width: `${progressPct}%` }} />
             </div>
             {credits < 1 && (
-              <p className="text-xs text-signal mt-1 font-semibold">
-                — You have 0 credits.
-                <button onClick={() => setShowBuyCredits(true)} className="underline ml-1">Buy credits</button>
+              <p className="text-xs font-bold text-signal mt-1.5">
+                0 credits remaining. <button onClick={() => setShowBuyCredits(true)} className="underline">Top up now</button>
               </p>
             )}
           </div>
 
-          {/* v10: recent recipients */}
           {recentRecipients.length > 0 && (
             <div>
-              <p className="text-xs font-semibold mb-1.5">Recent recipients</p>
-              <div className="flex flex-wrap gap-1.5">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-2">Recent recipients</p>
+              <div className="flex flex-wrap gap-2">
                 {recentRecipients.map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => addRecent(num)}
-                    className="text-xs px-2 py-1 rounded-full border border-wire text-ink-600 hover:border-ink"
-                  >
+                  <button key={num} onClick={() => addRecent(num)} className="text-xs font-medium px-3 py-1 rounded-full border border-wire hover:border-ink text-ink-600">
                     {num}
                   </button>
                 ))}
@@ -601,19 +537,16 @@ export default function SmsDashboard() {
             </div>
           )}
 
-          {/* Contact selection */}
           <div>
-            <p className="text-xs font-semibold mb-2">Recipients ({selectedContacts.length})</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-2">Recipients ({selectedContacts.length})</p>
             {contacts.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className="flex flex-wrap gap-2 mb-3 max-h-36 overflow-y-auto p-2 border border-wire rounded-sm bg-ink-50/30">
                 {contacts.map(c => (
                   <button
                     key={c.id}
                     onClick={() => toggleContact(c.phone)}
-                    className={`text-xs px-2 py-1 rounded-full border ${
-                      selectedContacts.includes(c.phone)
-                        ? 'bg-ink text-paper border-ink'
-                        : 'border-wire text-ink-600 hover:border-ink'
+                    className={`text-xs font-medium px-3 py-1 rounded-full border transition-colors ${
+                      selectedContacts.includes(c.phone) ? 'bg-ink text-white border-ink' : 'border-wire bg-paper text-ink-600 hover:border-ink'
                     }`}
                   >
                     {c.name} ({c.phone})
@@ -626,133 +559,85 @@ export default function SmsDashboard() {
                 value={manualNumber}
                 onChange={(e) => setManualNumber(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addManualNumber()}
-                placeholder="+254700000000"
-                className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm"
+                placeholder="Add number (+254...)"
+                className="flex-1 border border-wire rounded-sm px-3 py-2 text-xs font-medium bg-paper focus:outline-none focus:border-ink"
               />
-              <button onClick={addManualNumber} className="btn-outline px-3 py-2 rounded-sm text-sm">
+              <button onClick={addManualNumber} className="border border-wire bg-paper px-4 py-2 rounded-sm text-xs font-bold uppercase hover:bg-ink hover:text-white transition-colors">
                 <Plus size={14} />
               </button>
             </div>
-            {selectedContacts.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {selectedContacts.map((num, i) => (
-                  <span key={i} className="text-xs bg-ink-50 border border-wire px-2 py-0.5 rounded-full flex items-center gap-1">
-                    {num}
-                    <button onClick={() => toggleContact(num)} className="hover:text-signal"><X size={10} /></button>
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
-          <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex flex-wrap gap-3 items-center pt-2 border-t border-wire">
             <button
               onClick={sendSms}
               disabled={sending || !message.trim() || selectedContacts.length === 0 || credits < selectedContacts.length}
-              className="btn-primary px-5 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
+              className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-2 disabled:opacity-50"
             >
-              <Send size={14} /> {sending ? 'Sending...' : `Send (${selectedContacts.length} SMS — ${selectedContacts.length} credit${selectedContacts.length !== 1 ? 's' : ''})`}
+              <Send size={14} /> {sending ? 'Broadcasting...' : `Send Broadcast (${selectedContacts.length} Credits)`}
             </button>
-
-            <div className="relative">
-              <button
-                onClick={() => setScheduleOpen((o) => !o)}
-                disabled={!message.trim() || selectedContacts.length === 0}
-                className="btn-outline px-4 py-2.5 rounded-sm text-sm flex items-center gap-2 disabled:opacity-50"
-              >
-                <CalendarClock size={14} /> Send later
-              </button>
-              {scheduleOpen && (
-                <div className="absolute z-20 bottom-12 left-0 w-64 bg-paper border border-wire rounded-sm shadow-lg p-3">
-                  <label className="text-xs font-semibold text-ink-600 block mb-1">Send at</label>
-                  <input
-                    type="datetime-local"
-                    value={scheduleAt}
-                    onChange={(e) => setScheduleAt(e.target.value)}
-                    className="w-full border border-wire rounded-sm px-2 py-1.5 text-sm mb-2"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={scheduleSms} disabled={!scheduleAt} className="btn-primary px-3 py-1.5 rounded-sm text-xs flex-1 disabled:opacity-50">Schedule</button>
-                    <button onClick={() => setScheduleOpen(false)} className="text-xs text-ink-400">Cancel</button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => setScheduleOpen((o) => !o)}
+              disabled={!message.trim() || selectedContacts.length === 0}
+              className="border border-ink text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2 disabled:opacity-50"
+            >
+              <CalendarClock size={14} /> Schedule
+            </button>
           </div>
+
+          {scheduleOpen && (
+            <div className="p-4 border border-wire bg-ink-50 rounded-sm space-y-3">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink">Choose broadcast time</p>
+              <input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} className="w-full border border-wire rounded-sm px-3 py-2 text-xs bg-paper" />
+              <div className="flex gap-2">
+                <button onClick={scheduleSms} disabled={!scheduleAt} className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 rounded-sm">Confirm Schedule</button>
+                <button onClick={() => setScheduleOpen(false)} className="text-xs font-bold text-ink-400">Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Contacts Tab */}
+      {/* CONTACTS TAB */}
       {tab === 'contacts' && !loading && (
-        <div className="space-y-4">
-          <div className="flex gap-2 max-w-md flex-wrap">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Name"
-              className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm"
-            />
-            <input
-              value={newPhone}
-              onChange={(e) => setNewPhone(e.target.value)}
-              placeholder="+254700000000"
-              className="flex-1 border border-wire rounded-sm px-3 py-2 text-sm"
-            />
-            <button onClick={addContact} className="btn-primary px-3 py-2 rounded-sm text-sm">
-              <Plus size={14} />
-            </button>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full Name" className="border border-wire rounded-sm px-3 py-2 text-xs font-medium bg-paper focus:outline-none focus:border-ink" />
+            <div className="flex gap-2">
+              <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+254..." className="flex-1 border border-wire rounded-sm px-3 py-2 text-xs font-medium bg-paper focus:outline-none focus:border-ink" />
+              <button onClick={addContact} className="bg-ink text-white font-bold px-4 py-2 rounded-sm hover:bg-signal transition-colors"><Plus size={14} /></button>
+            </div>
           </div>
 
-          {/* v10: CSV import */}
-          <div>
+          <div className="pt-2">
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onCsvSelected} className="hidden" id="sms-csv-input" />
-            <label htmlFor="sms-csv-input" className="btn-outline px-3 py-2 rounded-sm text-xs inline-flex items-center gap-1.5 cursor-pointer">
-              <Upload size={13} /> Import contacts (CSV)
+            <label htmlFor="sms-csv-input" className="border border-wire bg-paper hover:bg-ink-50 px-4 py-2.5 rounded-sm text-xs font-bold uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer transition-colors">
+              <Upload size={14} /> Import CSV list
             </label>
-            <p className="text-xs text-ink-400 mt-1">CSV columns: name, phone (header row optional).</p>
           </div>
 
           {csvPreview && (
-            <div className="border border-wire rounded-sm p-3 space-y-2">
-              <p className="text-sm font-semibold">
-                {csvPreview.newContacts.length} new contact{csvPreview.newContacts.length !== 1 ? 's' : ''} found, {csvPreview.duplicates.length} duplicate{csvPreview.duplicates.length !== 1 ? 's' : ''} skipped
+            <div className="border border-wire bg-ink-50 rounded-sm p-4 space-y-3">
+              <p className="text-xs font-bold text-ink uppercase tracking-wider">
+                {csvPreview.newContacts.length} valid contacts found, {csvPreview.duplicates.length} duplicates filtered.
               </p>
-              {csvPreview.newContacts.length > 0 && (
-                <div className="max-h-40 overflow-y-auto border border-wire rounded-sm divide-y divide-wire">
-                  {csvPreview.newContacts.map((c, i) => (
-                    <div key={i} className="flex justify-between px-2 py-1 text-xs">
-                      <span>{c.name}</span>
-                      <span className="text-ink-400">{c.phone}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={confirmCsvImport}
-                  disabled={csvPreview.newContacts.length === 0}
-                  className="btn-primary px-3 py-1.5 rounded-sm text-xs disabled:opacity-50"
-                >
-                  Import {csvPreview.newContacts.length} contact{csvPreview.newContacts.length !== 1 ? 's' : ''}
-                </button>
-                <button onClick={() => setCsvPreview(null)} className="text-xs text-ink-400">Cancel</button>
-              </div>
+              <button onClick={confirmCsvImport} disabled={csvPreview.newContacts.length === 0} className="bg-signal text-white font-bold uppercase text-xs px-5 py-2 rounded-sm">
+                Complete Import
+              </button>
             </div>
           )}
 
           {contacts.length === 0 ? (
-            <p className="text-sm text-ink-400">No contacts yet. Add your first one above.</p>
+            <p className="text-xs font-medium text-ink-400">No contacts saved in your directory yet.</p>
           ) : (
-            <div className="border border-wire rounded-sm divide-y divide-wire">
+            <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
               {contacts.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-3">
+                <div key={c.id} className="flex items-center justify-between p-3.5">
                   <div>
-                    <p className="text-sm font-semibold">{c.name}</p>
-                    <p className="text-xs text-ink-400">{c.phone}</p>
+                    <p className="text-sm font-bold text-ink">{c.name}</p>
+                    <p className="text-xs font-medium text-ink-400 font-mono">{c.phone}</p>
                   </div>
-                  <button onClick={() => deleteContact(c.id)} className="text-signal text-xs hover:opacity-70">
-                    <Trash2 size={13} />
-                  </button>
+                  <button onClick={() => deleteContact(c.id)} className="text-signal hover:opacity-75 p-1"><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>
@@ -760,43 +645,23 @@ export default function SmsDashboard() {
         </div>
       )}
 
-      {/* History Tab */}
+      {/* HISTORY TAB */}
       {tab === 'history' && !loading && (
         <div>
           {history.length === 0 ? (
-            <p className="text-sm text-ink-400">No messages sent yet.</p>
+            <p className="text-xs font-medium text-ink-400">No message broadcast history found.</p>
           ) : (
-            <div className="border border-wire rounded-sm divide-y divide-wire">
+            <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
               {history.map(h => (
-                <div key={h.id} className="p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm mb-1 flex-1">{h.message}</p>
+                <div key={h.id} className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-medium text-ink flex-1">{h.message}</p>
                     <DeliveryStatusBadge status={h.status} />
                   </div>
-                  <p className="text-xs text-ink-400">
-                    To: {h.recipients} · {h.recipient_count} recipient{h.recipient_count !== 1 ? 's' : ''} · {h.cost} credit{h.cost !== 1 ? 's' : ''}
-                  </p>
-                  <p className="text-xs text-ink-400 flex items-center gap-2">
-                    {new Date(h.created_at).toLocaleString()}
-                    {h.recipient_count > 1 && (
-                      <button
-                        onClick={() => setExpandedHistoryId(expandedHistoryId === h.id ? null : h.id)}
-                        className="underline hover:text-ink-600"
-                      >
-                        {expandedHistoryId === h.id ? 'Hide per-recipient status' : 'Show per-recipient status'}
-                      </button>
-                    )}
-                  </p>
-                  {expandedHistoryId === h.id && (
-                    <div className="mt-2 border border-wire rounded-sm divide-y divide-wire">
-                      {String(h.recipients).split(',').map((num) => (
-                        <div key={num} className="flex items-center justify-between px-2 py-1 text-xs">
-                          <span>{num.trim()}</span>
-                          <DeliveryStatusBadge status={h.status} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between text-xs text-ink-400 font-medium">
+                    <span>Recipients: {h.recipient_count} · Cost: {h.cost} credits</span>
+                    <span>{new Date(h.created_at).toLocaleString()}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -804,24 +669,20 @@ export default function SmsDashboard() {
         </div>
       )}
 
-      {/* v10: Scheduled Tab */}
+      {/* SCHEDULED TAB */}
       {tab === 'scheduled' && !loading && (
         <div>
           {scheduled.length === 0 ? (
-            <p className="text-sm text-ink-400">No scheduled messages. Use "Send later" from the Send tab to schedule one.</p>
+            <p className="text-xs font-medium text-ink-400">No broadcasts currently scheduled.</p>
           ) : (
-            <div className="border border-wire rounded-sm divide-y divide-wire">
+            <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
               {scheduled.map((s) => (
-                <div key={s.id} className="p-3 flex items-start justify-between gap-3">
+                <div key={s.id} className="p-4 flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-sm mb-1">{s.message}</p>
-                    <p className="text-xs text-ink-400">
-                      To {s.recipients.length} recipient{s.recipients.length !== 1 ? 's' : ''} · Scheduled for {new Date(s.sendAt).toLocaleString()}
-                    </p>
+                    <p className="text-sm font-medium text-ink mb-1">{s.message}</p>
+                    <p className="text-xs font-bold text-signal uppercase tracking-wider">Scheduled for: {new Date(s.sendAt).toLocaleString()}</p>
                   </div>
-                  <button onClick={() => cancelScheduled(s.id)} className="text-signal text-xs hover:opacity-70 shrink-0">
-                    <Trash2 size={13} />
-                  </button>
+                  <button onClick={() => cancelScheduled(s.id)} className="text-signal hover:opacity-75"><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
