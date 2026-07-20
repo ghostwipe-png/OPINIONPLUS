@@ -1,9 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { Component, useMemo } from 'react';
 import { useStore } from '../lib/store';
-import { getCategoryStyle } from './categoryStyle';
+
+const CATEGORY_COLORS = {
+  story: { bg: '#1C1917', text: '#FFFFFF', label: 'Story' },
+  documentary: { bg: '#C99A3B', text: '#1C1917', label: 'Documentary' },
+  news: { bg: '#E0492B', text: '#FFFFFF', label: 'News' },
+  default: { bg: '#6B7180', text: '#FFFFFF', label: 'Opinion' },
+};
+
+function getCategoryStyle(story) {
+  if (!story) return CATEGORY_COLORS.default;
+  if (story.authorId === 'u_newsdesk') return CATEGORY_COLORS.news;
+  if (story.type === 'story' || story.type === 'documentary') return CATEGORY_COLORS[story.type] || CATEGORY_COLORS.default;
+  return CATEGORY_COLORS.default;
+}
 
 function formatDate(d) {
   try {
@@ -28,8 +41,8 @@ function CategoryTag({ story }) {
 function HeroCard({ story, headlineClass, imageClass = 'h-full' }) {
   const { users } = useStore();
   if (!story) return null;
-  
-  const author = users.find((u) => u.id === story.authorId);
+
+  const author = users?.find((u) => u.id === story.authorId);
   const { bg } = getCategoryStyle(story);
 
   return (
@@ -73,17 +86,42 @@ function HeroSkeleton({ className = '' }) {
   return <div className={`rounded-sm bg-ink-100 animate-pulse ${className}`} />;
 }
 
-export default function HeroGrid() {
+class HeroGridBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error) {
+    console.error('HeroGrid failed to render:', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="max-w-6xl mx-auto px-5 pt-6">
+          <div className="rounded-sm border border-dashed border-wire p-8 text-center text-sm text-ink-400">
+            Top stories are unavailable right now.
+          </div>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function HeroGridInner() {
   const { stories, ready } = useStore();
 
   const top5 = useMemo(() => {
     return (stories || [])
-      .filter((s) => !s.deleted && s.privacy === 'public' && s.authorId !== 'u_newsdesk')
+      .filter((s) => s && !s.deleted && s.privacy === 'public' && s?.authorId !== 'u_newsdesk')
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 5);
   }, [stories]);
 
-  if (!ready) {
+  if (!ready || (ready && (stories?.length ?? 0) === 0)) {
     return (
       <section className="max-w-6xl mx-auto px-5 pt-6">
         <div className="grid gap-2 md:grid-cols-5 md:grid-rows-2 md:h-[520px]">
@@ -94,7 +132,15 @@ export default function HeroGrid() {
     );
   }
 
-  if (top5.length === 0) return null;
+  if (top5.length === 0) {
+    return (
+      <section className="max-w-6xl mx-auto px-5 pt-6" aria-label="Top stories">
+        <div className="rounded-sm border border-dashed border-wire p-8 text-center text-sm text-ink-400">
+          No top stories to show yet.
+        </div>
+      </section>
+    );
+  }
 
   const [s1, s2, s3, s4, s5] = top5;
 
@@ -138,5 +184,13 @@ export default function HeroGrid() {
         )}
       </div>
     </section>
+  );
+}
+
+export default function HeroGrid() {
+  return (
+    <HeroGridBoundary>
+      <HeroGridInner />
+    </HeroGridBoundary>
   );
 }
