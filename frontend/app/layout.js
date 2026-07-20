@@ -3,6 +3,7 @@ import './globals.css';
 import Providers from '../components/Providers';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import InstallPrompt from '../components/InstallPrompt';
 
 const display = Playfair_Display({
   subsets: ['latin'],
@@ -37,11 +38,14 @@ export const metadata = {
   alternates: {
     canonical: siteUrl,
   },
-  manifest: '/site.webmanifest',
+  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'OPINIONPLUS',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
   openGraph: {
     title: siteTitle,
@@ -70,9 +74,9 @@ export const metadata = {
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: '#1C1917',
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: '#111111',
 };
 
 export default function RootLayout({ children }) {
@@ -107,8 +111,10 @@ export default function RootLayout({ children }) {
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
-        <link rel="manifest" href="/site.webmanifest" />
+        <link rel="manifest" href="/manifest.json" />
         <meta name="author" content="OPINIONPLUS" />
+        <meta name="application-name" content="OpinionPlus" />
+        <meta name="theme-color" content="#111111" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="https://generativelanguage.googleapis.com" />
@@ -116,12 +122,27 @@ export default function RootLayout({ children }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify([websiteSchema, orgSchema]) }}
         />
+        {/* Service Worker Auto-Registration Script for Android/PWA */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').catch(function(err) {
+                    console.log('ServiceWorker registration failed: ', err);
+                  });
+                });
+              }
+            `,
+          }}
+        />
       </head>
-      <body className="font-body bg-paper text-ink min-h-screen flex flex-col antialiased">
+      <body className="font-body bg-paper text-ink min-h-screen flex flex-col antialiased selection:bg-signal selection:text-white">
         <Providers>
           <Navbar />
           <main className="flex-1">{children}</main>
           <Footer />
+          <InstallPrompt />
         </Providers>
       </body>
     </html>

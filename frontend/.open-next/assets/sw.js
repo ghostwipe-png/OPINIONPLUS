@@ -1,57 +1,48 @@
-const CACHE_NAME = 'opinionplus-v2';
+const CACHE_NAME = 'opinionplus-cache-v1';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/favicon.ico',
+];
 
+// Install Event
 self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE);
+    })
+  );
   self.skipWaiting();
 });
 
+// Activate Event
 self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      );
+    })
+  );
   self.clients.claim();
 });
 
+// Fetch Event (Stale-while-revalidate strategy)
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networked = fetch(event.request).then((response) => {
-        if (response && response.status === 200) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+    caches.match(event.request).then((cachedResponse) => {
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseClone);
+          });
         }
-        return response;
-      });
-      return cached || networked;
-    })
-  );
-});
+        return networkResponse;
+      }).catch(() => cachedResponse);
 
-// Push notification handler
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-
-  const data = event.data.json();
-  const options = {
-    body: data.body || '',
-    icon: '/android-chrome-192x192.png',
-    badge: '/favicon-32x32.png',
-    data: { url: data.url || '/' },
-    actions: data.actions || [],
-    vibrate: [200, 100, 200],
-    tag: data.tag || 'opinionplus',
-    renotify: true,
-  };
-
-  event.waitUntil(self.registration.showNotification(data.title || 'OPINIONPLUS', options));
-});
-
-// Notification click handler
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const url = event.notification.data?.url || '/';
-  event.waitUntil(
-    clients.matchAll({ type: 'window' }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url === url && 'focus' in client) return client.focus();
-      }
-      if (clients.openWindow) return clients.openWindow(url);
+      return cachedResponse || fetchPromise;
     })
   );
 });

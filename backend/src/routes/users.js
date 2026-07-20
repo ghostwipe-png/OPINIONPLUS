@@ -1,7 +1,38 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
+import { cache } from 'hono/cache';
 
 const users = new Hono();
+
+// ⚡ LEADERBOARD ROUTE (Must be placed BEFORE /:id to prevent routing conflicts)
+users.get('/leaderboard', cache({ cacheName: 'op-leaderboard', cacheControl: 'public, max-age=3600' }), async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(`
+      SELECT 
+        u.id, 
+        u.publisher_name, 
+        u.logo_url,
+        COUNT(DISTINCT s.id) as story_count,
+        SUM(COALESCE(s.view_count, 0)) as total_views,
+        (SELECT COUNT(*) FROM likes l JOIN stories st ON l.story_id = st.id WHERE st.author_id = u.id) as total_likes,
+        (
+          SUM(COALESCE(s.view_count, 0)) + 
+          ((SELECT COUNT(*) FROM likes l JOIN stories st ON l.story_id = st.id WHERE st.author_id = u.id) * 5)
+        ) as impact_score
+      FROM users u
+      JOIN stories s ON u.id = s.author_id
+      WHERE s.deleted = 0 AND s.privacy = 'public'
+      GROUP BY u.id
+      ORDER BY impact_score DESC
+      LIMIT 100
+    `).all();
+
+    return c.json({ leaderboard: results });
+  } catch (e) {
+    console.error('Leaderboard error:', e);
+    return c.json({ error: 'Failed to load leaderboard' }, 500);
+  }
+});
 
 users.get('/:id', async (c) => {
   const row = await c.env.DB.prepare(
