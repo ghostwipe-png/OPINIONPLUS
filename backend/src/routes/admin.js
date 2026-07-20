@@ -116,4 +116,42 @@ admin.delete('/admins/:email', requireRoot, requirePin, async (c) => {
   return c.json({ ok: true });
 });
 
+// --- News Management ---
+admin.get('/news/toggle', async (c) => {
+  const row = await c.env.DB.prepare(
+    "SELECT value FROM platform_settings WHERE key = 'news_enabled'"
+  ).first();
+  const enabled = row ? row.value !== 'false' : true;
+  return c.json({ enabled });
+});
+
+admin.post('/news/toggle', requirePin, async (c) => {
+  const { enabled } = await c.req.json();
+  await c.env.DB.prepare(
+    "INSERT INTO platform_settings (key, value) VALUES ('news_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
+  ).bind(enabled ? 'true' : 'false').run();
+  await log(c, enabled ? 'news_enabled' : 'news_disabled', 'platform');
+  return c.json({ ok: true, enabled: !!enabled });
+});
+
+admin.get('/news/list', async (c) => {
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM stories WHERE author_id = 'u_newsdesk' AND deleted = 0 ORDER BY created_at DESC LIMIT 500"
+  ).all();
+  return c.json({ news: results });
+});
+
+admin.post('/news/bulk-delete', requirePin, async (c) => {
+  const { ids } = await c.req.json();
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ error: 'ids must be a non-empty array' }, 400);
+  }
+  const placeholders = ids.map(() => '?').join(',');
+  await c.env.DB.prepare(
+    `UPDATE stories SET deleted = 1 WHERE id IN (${placeholders}) AND author_id = 'u_newsdesk'`
+  ).bind(...ids).run();
+  await log(c, 'bulk_delete_news', `${ids.length} articles`);
+  return c.json({ ok: true, deleted: ids.length });
+});
+
 export default admin;

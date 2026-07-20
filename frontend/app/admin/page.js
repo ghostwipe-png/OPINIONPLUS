@@ -16,30 +16,22 @@ const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
-/* ---------------------------------------------------------------------- */
-/* Helpers                                                                 */
-/* ---------------------------------------------------------------------- */
-
 function getCsrfToken() {
   if (typeof document === 'undefined') return '';
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-// Central fetch helper: attaches credentials, CSRF token, and (optionally) the
-// confirmed admin PIN for destructive actions. Falls back gracefully on error.
 async function adminFetch(path, { method = 'GET', body, pin, pinValue } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (method !== 'GET') headers['X-CSRF-Token'] = getCsrfToken();
   if (pin) headers['X-Admin-Pin'] = pinValue || DEMO_PIN;
   const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    credentials: 'include',
-    headers,
+    method, credentials: 'include', headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   let data = null;
-  try { data = await res.json(); } catch (e) { /* no body */ }
+  try { data = await res.json(); } catch (e) {}
   if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
   return data;
 }
@@ -71,10 +63,6 @@ function tierLabel(tier) {
     default: return 'Basic';
   }
 }
-
-/* ---------------------------------------------------------------------- */
-/* Small shared UI pieces                                                  */
-/* ---------------------------------------------------------------------- */
 
 function PinGate({ onConfirm, onCancel, label }) {
   const [pin, setPin] = useState('');
@@ -153,10 +141,6 @@ function SparkBars({ values = [], labelFmt = (v) => v }) {
   );
 }
 
-/* ---------------------------------------------------------------------- */
-/* Main page                                                               */
-/* ---------------------------------------------------------------------- */
-
 export default function AdminPage() {
   const { user, isAdmin, isRoot, ready } = useAuth();
   const {
@@ -199,11 +183,11 @@ export default function AdminPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [loadingTabs, setLoadingTabs] = useState({});
-  const [health, setHealth] = useState('unknown'); // ok | error | unknown
+  const [health, setHealth] = useState('unknown');
 
   // Users enhancements
   const [expandedUserId, setExpandedUserId] = useState(null);
-  const [editingUser, setEditingUser] = useState(null); // { id, publisherName, email, tier }
+  const [editingUser, setEditingUser] = useState(null);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [userTierFilter, setUserTierFilter] = useState('all');
 
@@ -231,6 +215,12 @@ export default function AdminPage() {
   const [securityEvents, setSecurityEvents] = useState([]);
   const [apiKeys, setApiKeys] = useState([]);
 
+  // News management
+  const [newsEnabled, setNewsEnabled] = useState(true);
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [selectedNewsIds, setSelectedNewsIds] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+
   const showToast = useCallback((message, type = 'ok') => {
     const id = Math.random().toString(36).slice(2);
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -255,8 +245,6 @@ export default function AdminPage() {
       if (idleTimer.current) clearTimeout(idleTimer.current);
     };
   }, [isAdmin]);
-
-  /* ---------------------------- data loading ---------------------------- */
 
   const loadAllData = async () => {
     setLoading('financial', true);
@@ -294,7 +282,7 @@ export default function AdminPage() {
       const res = await fetch(`${API_BASE}/archive?${params}`, { credentials: 'include' });
       const data = await res.json();
       setArchiveItems(data.items || []); setArchiveTotal(data.total || 0); setArchiveTotalPages(data.totalPages || 1);
-    } catch (e) { /* ignore */ } finally { setLoading('archive', false); }
+    } catch (e) {} finally { setLoading('archive', false); }
   };
 
   const loadArchiveStats = async () => {
@@ -362,13 +350,12 @@ export default function AdminPage() {
     } catch (e) { console.error(e); showToast('Failed to update withdrawal', 'error'); }
   };
 
-  // Settings / security / logs loaders (best-effort — endpoints may not all exist yet)
   const loadSettings = async () => {
     setLoading('settings', true);
     try {
       const data = await adminFetch('/admin/settings');
       setPlatformSettings({ name: data.name || '', description: data.description || '', maintenanceMode: !!data.maintenanceMode, socialLinks: data.socialLinks || [] });
-    } catch (e) { /* keep local defaults if endpoint missing */ }
+    } catch (e) {}
     try {
       const logs = await adminFetch('/admin/logs');
       setSystemLogs(logs.entries || logs.logs || []);
@@ -430,7 +417,7 @@ export default function AdminPage() {
   const toggleFeatured = async (storyId) => {
     setFeaturedIds((prev) => prev.includes(storyId) ? prev.filter((i) => i !== storyId) : [...prev, storyId]);
     try { await adminFetch(`/admin/story/${storyId}/feature`, { method: 'POST', body: { featured: !featuredIds.includes(storyId) } }); }
-    catch (e) { /* optimistic UI stays even if endpoint missing */ }
+    catch (e) {}
   };
 
   const exportEntity = (entity) => {
@@ -443,10 +430,50 @@ export default function AdminPage() {
     showToast('Exporting all datasets…');
   };
 
+  // News management functions
+  const loadNewsToggle = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/news/toggle`, { credentials: 'include' });
+      const data = await res.json();
+      setNewsEnabled(data.enabled !== false);
+    } catch (e) {}
+  };
+
+  const loadNewsArticles = async () => {
+    setNewsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/news/list`, { credentials: 'include' });
+      const data = await res.json();
+      setNewsArticles(data.news || []);
+    } catch (e) { setNewsArticles([]); }
+    setNewsLoading(false);
+  };
+
+  const toggleNewsEnabled = async () => {
+    const newValue = !newsEnabled;
+    setNewsEnabled(newValue);
+    try {
+      await adminFetch('/admin/news/toggle', { method: 'POST', pin: true, pinValue: lastPinRef.current, body: { enabled: newValue } });
+      showToast(`News aggregation ${newValue ? 'enabled' : 'disabled'}`);
+    } catch (e) {
+      setNewsEnabled(!newValue);
+      showToast('Failed to toggle news', 'error');
+    }
+  };
+
+  const bulkDeleteNews = async () => {
+    if (selectedNewsIds.length === 0) return;
+    try {
+      await adminFetch('/admin/news/bulk-delete', { method: 'POST', pin: true, pinValue: lastPinRef.current, body: { ids: selectedNewsIds } });
+      showToast(`${selectedNewsIds.length} news articles deleted`);
+      setSelectedNewsIds([]);
+      loadNewsArticles();
+    } catch (e) { showToast('Failed to delete news articles', 'error'); }
+  };
+
   useEffect(() => { if (tab === 'settings' && isRoot) loadSettings(); }, [tab, isRoot]);
   useEffect(() => { if (tab === 'security' && isRoot) loadSecurity(); }, [tab, isRoot]);
-
-  /* ------------------------------ shortcuts ------------------------------ */
+  useEffect(() => { if (tab === 'news') { loadNewsToggle(); loadNewsArticles(); } }, [tab]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -482,8 +509,6 @@ export default function AdminPage() {
       </div>
     );
   }
-
-  /* ------------------------------ derived data ------------------------------ */
 
   const filteredUsers = users.filter(u =>
     u.publisherName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -543,6 +568,7 @@ export default function AdminPage() {
 
   const TABS = [
     { id: 'archive', label: 'Archive', icon: Archive },
+    { id: 'news', label: 'News Management', icon: Zap },
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'users', label: `Users (${users.length})`, icon: UsersIcon },
     { id: 'content', label: `Content (${activeStories.length})`, icon: FileText },
@@ -591,14 +617,13 @@ export default function AdminPage() {
         </div>
 
         <div className="flex gap-6 mt-6 items-start">
-          {/* Sidebar navigation */}
           <aside className={`shrink-0 ${sidebarCollapsed ? 'w-12' : 'w-56'} transition-all duration-200 hidden sm:block`}>
             <button onClick={() => setSidebarCollapsed(c => !c)} className={`mb-2 w-full flex items-center gap-2 text-xs px-2 py-2 rounded-sm border ${darkCard}`}>
               <Menu size={13} /> {!sidebarCollapsed && 'Collapse'}
             </button>
             <nav className="flex flex-col gap-1">
               {TABS.map((t, i) => (
-                <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search'].includes(t.id)) loadAllData(); }}
+                <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
                   title={`Ctrl+${i + 1}`}
                   className={`px-3 py-2 rounded-sm border flex items-center gap-2 text-xs font-semibold text-left transition-colors ${tab === t.id ? 'bg-ink text-paper border-ink' : `${darkCard} text-ink-600`}`}>
                   <t.icon size={13} className="shrink-0" /> {!sidebarCollapsed && <span className="truncate">{t.label}</span>}
@@ -607,10 +632,9 @@ export default function AdminPage() {
             </nav>
           </aside>
 
-          {/* Mobile tab bar (horizontal, unchanged fallback) */}
           <div className="flex gap-2 flex-wrap mb-2 text-xs font-semibold sm:hidden">
             {TABS.map(t => (
-              <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search'].includes(t.id)) loadAllData(); }}
+              <button key={t.id} onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
                 className={`px-3 py-2 rounded-sm border flex items-center gap-1.5 ${tab === t.id ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'}`}>
                 <t.icon size={13} /> {t.label}
               </button>
@@ -682,9 +706,94 @@ export default function AdminPage() {
               </div>
             )}
 
+            {/* News Management */}
+            {tab === 'news' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="wire-tag flex items-center gap-1.5"><Zap size={12} /> News Management</p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-ink-400">{newsArticles.length} articles</span>
+                    <button
+                      onClick={toggleNewsEnabled}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-paper transition-transform ${newsEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                    <span className="text-xs font-semibold">{newsEnabled ? 'ON' : 'OFF'}</span>
+                  </div>
+                </div>
+
+                {newsLoading ? (
+                  <p className="text-xs text-ink-400 flex items-center gap-2"><Spinner /> Loading…</p>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <label className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedNewsIds.length === newsArticles.length && newsArticles.length > 0}
+                          onChange={() => {
+                            if (selectedNewsIds.length === newsArticles.length) {
+                              setSelectedNewsIds([]);
+                            } else {
+                              setSelectedNewsIds(newsArticles.map(n => n.id));
+                            }
+                          }}
+                        />
+                        Select all
+                      </label>
+                      {selectedNewsIds.length > 0 && (
+                        <button
+                          onClick={() => runGated(`Permanently delete ${selectedNewsIds.length} selected news articles? This cannot be undone.`, bulkDeleteNews)}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-sm border border-signal text-signal flex items-center gap-1"
+                        >
+                          <Trash2 size={12} /> Delete selected ({selectedNewsIds.length})
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="border border-wire rounded-sm divide-y divide-wire">
+                      {newsArticles.length === 0 && <EmptyState icon={Zap} label="No news articles found." />}
+                      {newsArticles.map(article => (
+                        <div key={article.id} className={`p-3 flex items-start gap-3 ${selectedNewsIds.includes(article.id) ? 'bg-ink-50' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedNewsIds.includes(article.id)}
+                            onChange={() => setSelectedNewsIds(prev => prev.includes(article.id) ? prev.filter(id => id !== article.id) : [...prev, article.id])}
+                            className="mt-1"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold">{article.title}</p>
+                            <p className="text-xs text-ink-400 line-clamp-1">{article.excerpt}</p>
+                            <p className="text-xs text-ink-400 mt-0.5">{new Date(article.created_at).toLocaleDateString()}</p>
+                          </div>
+                          <Link href={`/story/${article.id}`} className="text-xs px-2 py-1 rounded-sm border border-wire hover:bg-ink-50 shrink-0">
+                            <Eye size={12} />
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Overview */}
             {tab === 'overview' && (
               <div>
+                <div className="flex items-center justify-between p-4 border border-wire rounded-sm mb-4">
+                  <div>
+                    <p className="text-sm font-semibold">News Aggregation</p>
+                    <p className="text-xs text-ink-400">Enable or disable automatic news fetching from RSS sources</p>
+                  </div>
+                  <button
+                    onClick={toggleNewsEnabled}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-paper transition-transform ${newsEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                   <div className="border border-wire rounded-sm p-4">
                     <p className="text-xs text-ink-400 mb-1">Revenue Today</p>
@@ -1173,6 +1282,4 @@ export default function AdminPage() {
   );
 }
 
-// Ref bucket used by the keyboard-shortcut handler to look up the current tab list
-// without re-binding the listener on every render.
 const TABS_REF = { current: [] };

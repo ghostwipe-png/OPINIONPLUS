@@ -2,24 +2,31 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { LayoutList, LayoutGrid, TrendingUp } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { useStore } from '../lib/store';
-import StoryCard, { StoryCardSkeleton } from '../components/StoryCard';
 import BreakingTicker from '../components/BreakingTicker';
 import HeroGrid from '../components/HeroGrid';
+import FilterBar from '../components/FilterBar';
+import MagazineRow, { MagazineRowSkeleton } from '../components/MagazineRow';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const PAGE_SIZE = 20;
 
+const FILTERS = ['all', 'story', 'documentary', 'news'];
+const FILTER_LABELS = {
+  all: 'Top Stories',
+  story: 'Stories',
+  documentary: 'Documentaries',
+  news: 'News',
+};
+
 export default function HomePage() {
   const { stories, ready } = useStore();
   const [filter, setFilter] = useState('all');
-  const [view, setView] = useState('list'); // 'list' | 'grid' — persisted below
+  const [view, setView] = useState('list');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [trending, setTrending] = useState([]);
 
-  // Restore the person's preferred view on mount. Falls back silently if
-  // localStorage is unavailable (private browsing, SSR, etc).
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem('op_feed_view');
@@ -52,7 +59,6 @@ export default function HomePage() {
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [stories, filter]);
 
-  // Reset pagination whenever the filter changes so "Load more" starts fresh.
   useEffect(() => { setVisibleCount(PAGE_SIZE); }, [filter]);
 
   const paged = visible.slice(0, visibleCount);
@@ -64,76 +70,32 @@ export default function HomePage() {
 
       <HeroGrid />
 
-      <section className="border-b border-wire bg-ink-50/40">
-        <div className="max-w-6xl mx-auto px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="wire-tag">OPINIONPLUS — Every voice, a masthead</p>
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <Link href="/publish" className="btn-primary px-5 py-3 rounded-sm text-sm text-center">
-              Publish your story
-            </Link>
-            <Link href="/about" className="btn-outline px-5 py-3 rounded-sm text-sm text-center">
-              Read the mission
-            </Link>
-          </div>
-        </div>
-      </section>
+      <FilterBar
+        filter={filter}
+        onFilterChange={setFilter}
+        filters={FILTERS}
+        filterLabels={FILTER_LABELS}
+      />
 
       {trending.length > 0 && (
         <section className="max-w-6xl mx-auto px-5 pt-10" aria-labelledby="trending-heading">
-          <h2 id="trending-heading" className="wire-tag mb-4 flex items-center gap-1.5">
+          <h2 id="trending-heading" className="wire-tag mb-2 flex items-center gap-1.5">
             <TrendingUp size={12} /> Trending this week
           </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-x-8 sm:grid-cols-3">
             {trending.slice(0, 3).map((s) => (
-              <StoryCard key={`trending-${s.id}`} story={s} />
+              <MagazineRow key={`trending-${s.id}`} story={s} />
             ))}
           </div>
         </section>
       )}
 
       <section className="max-w-6xl mx-auto px-5 py-12" aria-labelledby="feed-heading">
-        <div className="sticky top-16 z-30 bg-paper/95 backdrop-blur -mx-5 px-5 py-3 mb-6 border-b border-wire flex items-center justify-between flex-wrap gap-4">
-          <h2 id="feed-heading" className="editorial-h text-2xl font-bold">The feed</h2>
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex gap-2 text-xs font-semibold" role="tablist" aria-label="Filter stories">
-              {['all', 'story', 'documentary', 'news'].map((f) => (
-                <button
-                  key={f}
-                  role="tab"
-                  aria-selected={filter === f}
-                  onClick={() => setFilter(f)}
-                  className={`px-3 py-1.5 rounded-full border transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none ${
-                    filter === f ? 'bg-ink text-paper border-ink' : 'border-wire text-ink-600'
-                  }`}
-                >
-                  {f === 'all' ? 'All' : f === 'story' ? 'Stories' : f === 'documentary' ? 'Documentaries' : 'News'}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 border border-wire rounded-full p-0.5">
-              <button
-                onClick={() => setViewAndSave('list')}
-                aria-label="List view"
-                aria-pressed={view === 'list'}
-                className={`p-1.5 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none ${view === 'list' ? 'bg-ink text-paper' : 'text-ink-400'}`}
-              >
-                <LayoutList size={14} />
-              </button>
-              <button
-                onClick={() => setViewAndSave('grid')}
-                aria-label="Grid view"
-                aria-pressed={view === 'grid'}
-                className={`p-1.5 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none ${view === 'grid' ? 'bg-ink text-paper' : 'text-ink-400'}`}
-              >
-                <LayoutGrid size={14} />
-              </button>
-            </div>
-          </div>
-        </div>
+        <h2 id="feed-heading" className="sr-only">The feed</h2>
 
         {!ready ? (
-          <div className={view === 'grid' ? 'grid gap-4 sm:grid-cols-2' : 'flex flex-col'}>
-            {Array.from({ length: 6 }).map((_, i) => <StoryCardSkeleton key={i} />)}
+          <div className="flex flex-col">
+            {Array.from({ length: 6 }).map((_, i) => <MagazineRowSkeleton key={i} />)}
           </div>
         ) : visible.length === 0 ? (
           <div className="border border-dashed border-wire rounded-sm p-12 text-center">
@@ -151,9 +113,9 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            <div className={`transition-opacity duration-200 ${view === 'grid' ? 'grid gap-4 sm:grid-cols-2' : 'flex flex-col'}`}>
+            <div className="flex flex-col">
               {paged.map((s) => (
-                <StoryCard key={s.id} story={s} />
+                <MagazineRow key={s.id} story={s} />
               ))}
             </div>
             {hasMore && (

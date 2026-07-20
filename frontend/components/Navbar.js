@@ -99,10 +99,6 @@ export default function Navbar() {
 
           <nav className="hidden md:flex items-center gap-5 text-sm font-medium" aria-label="Primary">
             <SearchBar />
-            <NavLink href="/">Feed</NavLink>
-            <NavLink href="/pricing" className="flex items-center gap-1">
-              <Gift size={14} /> Partner
-            </NavLink>
 
             <button
               onClick={clearUnread}
@@ -117,6 +113,11 @@ export default function Navbar() {
                 </span>
               )}
             </button>
+
+            <NavLink href="/">Feed</NavLink>
+            <NavLink href="/pricing" className="flex items-center gap-1">
+              <Gift size={14} /> Partner
+            </NavLink>
 
             <PushNotificationToggle />
             {isAuthenticated && (

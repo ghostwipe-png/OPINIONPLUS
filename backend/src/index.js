@@ -30,11 +30,6 @@ const ALLOWED_ORIGINS = [
 // ---------------------------------------------------------------------------
 // Structured logging helper
 // ---------------------------------------------------------------------------
-// Cloudflare Workers don't have a persistent process, so there's no real
-// "uptime" or "queue depth" to report — those only make sense for long-running
-// servers. What we CAN do meaningfully: a request id for tracing across log
-// lines, structured (JSON) log entries with timestamps, and an actual DB
-// connectivity check for the health endpoint.
 function log(level, message, meta = {}) {
   const entry = { level, message, ts: new Date().toISOString(), ...meta };
   if (level === 'error') console.error(JSON.stringify(entry));
@@ -45,7 +40,6 @@ function log(level, message, meta = {}) {
 // Middleware
 // ---------------------------------------------------------------------------
 
-// Request ID — attached to every request/response for tracing through logs.
 app.use('*', async (c, next) => {
   const requestId = c.req.header('X-Request-ID') || crypto.randomUUID();
   c.set('requestId', requestId);
@@ -61,11 +55,6 @@ app.use('*', async (c, next) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Security headers (NEW) — OWASP-recommended headers on every response.
-// Placed after request-id tracing, before CORS, so every response (including
-// CORS preflights and error responses) carries them.
-// ---------------------------------------------------------------------------
 app.use('*', async (c, next) => {
   await next();
   c.res.headers.set('X-Content-Type-Options', 'nosniff');
@@ -96,7 +85,7 @@ app.use('*', async (c, next) => {
         'max-age=63072000; includeSubDomains; preload'
       );
     }
-  } catch (e) { /* malformed URL — skip HSTS rather than fail the request */ }
+  } catch (e) { /* skip HSTS */ }
 });
 
 app.use('*', cors({
@@ -106,13 +95,6 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
 }));
 
-// ---------------------------------------------------------------------------
-// Compression hints (NEW) — signal to Cloudflare's edge that compressible
-// response types should be compressed. Cloudflare auto-compresses eligible
-// content types already; this just makes the intent explicit and gives us a
-// hook to tune caching semantics for API responses later without touching
-// route code.
-// ---------------------------------------------------------------------------
 app.use('*', async (c, next) => {
   await next();
   const contentType = c.res.headers.get('Content-Type') || '';
@@ -123,12 +105,6 @@ app.use('*', async (c, next) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// DB wrapper (NEW) — attaches a retry-wrapped D1 handle at c.get('db').
-// Purely additive: existing code using c.env.DB directly is untouched. Routes
-// that want automatic retry on SQLITE_BUSY/SQLITE_LOCKED can opt in by
-// reading c.get('db') instead.
-// ---------------------------------------------------------------------------
 app.use('*', async (c, next) => {
   try {
     if (c.env?.DB) {
@@ -140,10 +116,6 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// ---------------------------------------------------------------------------
-// Request timeout protection (NEW) — Workers have a 30s CPU ceiling; this
-// gives a clean 504 with 5s of buffer instead of a hard platform kill.
-// ---------------------------------------------------------------------------
 app.use('*', async (c, next) => {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
@@ -217,10 +189,9 @@ app.get('/', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Metrics (NEW) — admin/root only. Each stat is fetched independently so a
-// missing table/column degrades that one field to null instead of failing
-// the whole endpoint.
+// Metrics
 // ---------------------------------------------------------------------------
+
 async function safeFirst(env, sql) {
   try {
     return await env.DB.prepare(sql).first();
@@ -278,14 +249,11 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Trending stories — top stories by like count in the last 7 days.
-// Cached for 5 minutes at the edge since it doesn't need to be second-fresh.
+// Trending stories
 // ---------------------------------------------------------------------------
 
 app.get('/stories/trending', async (c) => {
   try {
-    // `likes` is stored as a JSON array column on stories; json_array_length
-    // gives us a like count we can sort by directly in SQL.
     const { results } = await c.env.DB.prepare(
       `SELECT * FROM stories
        WHERE deleted = 0 AND privacy = 'public'
@@ -319,7 +287,7 @@ app.route('/subscriptions', subscriptions);
 app.route('/archive', archive);
 
 // ---------------------------------------------------------------------------
-// News Aggregator — Archives to private repository
+// News Aggregator
 // ---------------------------------------------------------------------------
 
 const NEWS_USER_ID = 'u_newsdesk';
@@ -414,15 +382,10 @@ function injectAffiliateLinks(html) {
   return html + `<div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;"><p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p><p style="margin:0 0 8px;"><a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online</p><p style="margin:0;"><a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more</p></div>`;
 }
 
-// ---------------------------------------------------------------------------
-// AI Summarizer — Gemini Flash (free tier)
-// ---------------------------------------------------------------------------
 async function summarizeWithAI(title, description, sourceName, apiKey) {
   if (!apiKey) return null;
-
   try {
     const prompt = `Write a 2-3 sentence news summary for this headline. Make it original, journalistic, and engaging. Do NOT copy the original text. Write in your own words as a news reporter for OPINIONPLUS.\n\nHeadline: ${title}\nSource: ${sourceName}\n\nSummary:`;
-
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
@@ -434,7 +397,6 @@ async function summarizeWithAI(title, description, sourceName, apiKey) {
         }),
       }
     );
-
     const data = await response.json();
     const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     return summary?.trim() || null;
@@ -464,7 +426,6 @@ async function fetchNews(env) {
         const today = new Date().toISOString().slice(0, 10);
         const row = await env.DB.prepare("SELECT COUNT(*) as count FROM archive WHERE date(created_at) = ?").bind(today).first();
         if (parseInt(row?.count || 0) >= MAX_ARCHIVE_PER_DAY) break;
-
         const id = crypto.randomUUID();
         const aiSummary = await summarizeWithAI(item.title, item.description, source.name, env.GEMINI_API_KEY);
         const excerpt = aiSummary ? aiSummary.slice(0, 250) + '...' : (item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`);
@@ -474,7 +435,6 @@ async function fetchNews(env) {
         body += `<p>${aiSummary || cleanText(item.description) || 'Read the full article below.'}</p>`;
         body += `<p style="font-size:12px;color:#6b7180;">📰 Original source: <a href="${item.link}" target="_blank" rel="noopener" style="color:#E0492B;">${source.name}</a></p>`;
         body = injectAffiliateLinks(body);
-
         await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending')").bind(id, source.name, item.link, item.title, excerpt, body, coverImage).run();
         insertedFromSource++; totalInserted++;
       } catch (e) { console.error(`News insert error (${source.name}): ${e.message}`); }
@@ -493,44 +453,26 @@ app.get('/news-fetch', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Retention cleanup — deletes old, already-resolved data. Never touches
-// pending archive items, live stories, or anything a human hasn't already
-// decided on. Same auth pattern as /news-fetch (shared cron secret) so it can
-// run unattended from the Cron Trigger, but is also reachable manually.
+// Retention cleanup
 // ---------------------------------------------------------------------------
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
-
   try {
-    const r = await env.DB.prepare(
-      "DELETE FROM archive WHERE status = 'approved' AND reviewed_at < datetime('now', '-30 days')"
-    ).run();
+    const r = await env.DB.prepare("DELETE FROM archive WHERE status = 'approved' AND reviewed_at < datetime('now', '-30 days')").run();
     results.archiveApproved = r.meta?.changes || 0;
   } catch (e) { log('error', 'cleanup: archive approved failed', { error: e.message }); }
-
   try {
-    const r = await env.DB.prepare(
-      "DELETE FROM archive WHERE status = 'rejected' AND reviewed_at < datetime('now', '-7 days')"
-    ).run();
+    const r = await env.DB.prepare("DELETE FROM archive WHERE status = 'rejected' AND reviewed_at < datetime('now', '-7 days')").run();
     results.archiveRejected = r.meta?.changes || 0;
   } catch (e) { log('error', 'cleanup: archive rejected failed', { error: e.message }); }
-
-  // These two tables are optional depending on deployment — swallow errors if
-  // they don't exist rather than failing the whole cleanup run.
   try {
-    const r = await env.DB.prepare(
-      "DELETE FROM search_history WHERE created_at < datetime('now', '-90 days')"
-    ).run();
+    const r = await env.DB.prepare("DELETE FROM search_history WHERE created_at < datetime('now', '-90 days')").run();
     results.searchHistory = r.meta?.changes || 0;
-  } catch (e) { /* table may not exist in this deployment */ }
-
+  } catch (e) { /* optional table */ }
   try {
-    const r = await env.DB.prepare(
-      "DELETE FROM rate_limits WHERE created_at < datetime('now', '-1 days')"
-    ).run();
+    const r = await env.DB.prepare("DELETE FROM rate_limits WHERE created_at < datetime('now', '-1 days')").run();
     results.rateLimits = r.meta?.changes || 0;
-  } catch (e) { /* table may not exist in this deployment */ }
-
+  } catch (e) { /* optional table */ }
   log('info', 'retention cleanup complete', results);
   return results;
 }
@@ -552,33 +494,20 @@ app.get('/admin-cleanup', async (c) => {
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
-// ENHANCED — adds path/method/requestId diagnostics, splits log level by
-// status class, truncates stack traces, and echoes requestId back to the
-// client for support/debugging. Response shape for unexpected (5xx) errors
-// is unchanged: { error: 'Something went wrong.' } (requestId is additive).
 app.onError((err, c) => {
   const status = err.status || err.statusCode || 500;
   const requestId = c.get('requestId');
-  const meta = {
-    error: err.message,
-    status,
-    path: c.req.path,
-    method: c.req.method,
-    requestId,
-  };
-
+  const meta = { error: err.message, status, path: c.req.path, method: c.req.method, requestId };
   if (status >= 400 && status < 500) {
     log('warn', 'client error', meta);
     return c.json({ error: err.message || 'Request error.', requestId }, status);
   }
-
   log('error', 'unhandled error', { ...meta, stack: (err.stack || '').slice(0, 500) });
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
 
 // ---------------------------------------------------------------------------
-// Cron jobs — each wrapped independently so one failing job never blocks the
-// others in the same scheduled invocation.
+// Cron jobs
 // ---------------------------------------------------------------------------
 async function runCronJob(name, fn) {
   try {
@@ -594,28 +523,34 @@ const worker = {
   async scheduled(event, env, ctx) {
     const jobs = [];
 
+    // --- News aggregation (every 30 min) — checks admin toggle first ---
     if (event.cron === '*/30 * * * *') {
-      jobs.push(runCronJob('news-aggregation', () => fetchNews(env)));
+      jobs.push(runCronJob('news-aggregation', async () => {
+        try {
+          const row = await env.DB.prepare(
+            "SELECT value FROM platform_settings WHERE key = 'news_enabled'"
+          ).first();
+          if (row && row.value === 'false') {
+            log('info', 'news aggregation skipped', { reason: 'disabled by admin toggle' });
+            return { skipped: true };
+          }
+        } catch (e) {
+          // If the table doesn't exist yet, default to enabled
+        }
+        return fetchNews(env);
+      }));
     }
 
-    // Publishes scheduled stories every 5 minutes. Register this cron
-    // expression ('*/5 * * * *') in wrangler.toml's [triggers] block to
-    // activate it. Loaded dynamically and feature-detected so this file
-    // still compiles and runs even if routes/stories.js doesn't (yet) export
-    // publishScheduledStories.
     if (event.cron === '*/5 * * * *') {
       jobs.push(runCronJob('publish-scheduled-stories', async () => {
         const storiesModule = await import('./routes/stories.js');
         if (typeof storiesModule.publishScheduledStories === 'function') {
           return await storiesModule.publishScheduledStories(env);
         }
-        log('warn', 'publishScheduledStories not exported from routes/stories.js — skipping', {});
         return null;
       }));
     }
 
-    // Daily retention sweep — pick whichever cron expression you register for
-    // this in wrangler.toml, e.g. '0 3 * * *' for 3am daily.
     if (event.cron === '0 3 * * *') {
       jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
     }
