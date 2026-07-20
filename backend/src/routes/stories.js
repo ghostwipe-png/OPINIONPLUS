@@ -250,7 +250,7 @@ stories.get('/timeline/:userId', async (c) => {
   return c.json({ timeline: results });
 });
 
-// ⚡ PROTECTED: POST /stories/:id/translate (Strict limit: 5 requests per 10 minutes per IP)
+// ⚡ PROTECTED: POST /stories/:id/translate (Fixed markdown fence stripping for robust JSON parsing)
 stories.post('/:id/translate', async (c) => {
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   const limiter = createRateLimiter(c.env.DB, 600, 5);
@@ -271,7 +271,7 @@ stories.post('/:id/translate', async (c) => {
     const apiKey = c.env.GEMINI_API_KEY;
     if (!apiKey) return c.json({ error: 'AI translation service unavailable.' }, 500);
 
-    const prompt = `Translate the following news story headline and body html into fluent, journalistic Swahili. Maintain all HTML tags (<p>, <strong>, etc.) exactly as they are.\n\nTitle: ${story.title}\n\nBody: ${story.body}\n\nReturn JSON in this exact format: {"title": "...", "body": "..."}`;
+    const prompt = `Translate the following news story headline and body html into fluent, journalistic Swahili. Maintain all HTML tags (<p>, <strong>, etc.) exactly as they are.\n\nTitle: ${story.title}\n\nBody: ${story.body}\n\nReturn ONLY valid JSON in this exact format with no markdown blocks: {"title": "...", "body": "..."}`;
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -286,7 +286,11 @@ stories.post('/:id/translate', async (c) => {
     );
 
     const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    let rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) throw new Error('Empty response from AI');
+
+    // ⚡ Clean potential markdown code blocks (e.g. ```json ... ```)
+    rawText = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const translated = JSON.parse(rawText);
 
     return c.json({ ok: true, ...translated });

@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react'; // ⚡ NEW: QR Code library
+import { QRCodeSVG } from 'qrcode.react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StoryCard from '../../../components/StoryCard';
@@ -52,18 +52,15 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(profile || {});
 
-  // API Keys State
   const [apiKeys, setApiKeys] = useState([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKey, setNewKey] = useState(null);
   const [showKeys, setShowKeys] = useState(false);
   const [showApiGuide, setShowApiGuide] = useState(false);
 
-  // QR Code State
   const [qrStory, setQrStory] = useState(null);
   const qrRef = useRef();
 
-  // API Usage / Tier State
   const [apiUsage, setApiUsage] = useState(null);
   const [upgrading, setUpgrading] = useState(false);
 
@@ -129,7 +126,6 @@ export default function ProfilePage() {
     }
   };
 
-  // ⚡ NEW: Download QR Code as PNG
   const downloadQRCode = () => {
     if (!qrRef.current || !qrStory) return;
     const svgElement = qrRef.current.querySelector('svg');
@@ -168,10 +164,11 @@ export default function ProfilePage() {
     );
   }
 
+  // ⚡ Normalized filtering and sorting supporting both snake_case and camelCase
   const theirStories = stories
-    .filter((s) => s.authorId === id && !s.deleted)
+    .filter((s) => (s.authorId === id || s.author_id === id) && !s.deleted)
     .filter((s) => s.privacy === 'public' || isOwner)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => new Date(b.createdAt || b.created_at) - new Date(a.createdAt || a.created_at));
 
   const followerCount = Object.values(follows).filter((list) => list.includes(id)).length;
   const iFollow = user ? (follows[user.id] || []).includes(id) : false;
@@ -195,11 +192,14 @@ export default function ProfilePage() {
     </div>
   );
 
+  const publisherName = profile.publisherName || profile.publisher_name;
+  const logoUrl = profile.logoUrl || profile.logo_url;
+
   return (
     <div className="bg-paper min-h-screen pb-20 relative">
       {showApiGuide && <ApiGuideModal onClose={() => setShowApiGuide(false)} />}
 
-      {/* ⚡ NEW: QR Code Modal */}
+      {/* QR Code Modal */}
       {qrStory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-paper border border-wire rounded-sm max-w-sm w-full p-6 relative shadow-2xl">
@@ -228,16 +228,16 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* PREMIUM MASTHEAD HEADER */}
+      {/* MASTHEAD HEADER */}
       <div className="bg-ink text-white pt-16 pb-16 border-b-4 border-signal">
         <div className="max-w-5xl mx-auto px-5">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
             <div className="relative shrink-0 group">
               <div className="w-32 h-32 md:w-40 md:h-40 rounded-sm overflow-hidden border-2 border-white/20 bg-ink-800 shadow-xl">
-                <img src={editing ? form.logoUrl : profile.logoUrl} alt={profile.publisherName} className="w-full h-full object-cover" />
+                <img src={editing ? form.logoUrl : logoUrl} alt={publisherName} className="w-full h-full object-cover" />
               </div>
               {editing && (
-                <button onClick={changeLogo} className="absolute bottom-2 right-2 bg-signal text-white p-2 rounded-sm shadow-lg hover:bg-white hover:text-signal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Change logo">
+                <button onClick={changeLogo} className="absolute bottom-2 right-2 bg-signal text-white p-2 rounded-sm shadow-lg hover:bg-white hover:text-signal transition-colors" aria-label="Change logo">
                   <Camera size={16} />
                 </button>
               )}
@@ -247,9 +247,9 @@ export default function ProfilePage() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                 <div className="flex-1">
                   {editing ? (
-                    <input value={form.publisherName} onChange={(e) => setForm((f) => ({ ...f, publisherName: e.target.value }))} className="w-full bg-white/10 border border-white/20 text-white text-3xl md:text-4xl font-black tracking-tight px-3 py-1 rounded-sm focus:outline-none focus:border-signal" />
+                    <input value={form.publisherName || form.publisher_name} onChange={(e) => setForm((f) => ({ ...f, publisherName: e.target.value }))} className="w-full bg-white/10 border border-white/20 text-white text-3xl md:text-4xl font-black tracking-tight px-3 py-1 rounded-sm focus:outline-none focus:border-signal" />
                   ) : (
-                    <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-none uppercase">{profile.publisherName}</h1>
+                    <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-none uppercase">{publisherName}</h1>
                   )}
                   {profile.suspended && <span className="inline-block bg-signal text-white text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-sm mt-2">Account suspended</span>}
                 </div>
@@ -276,29 +276,13 @@ export default function ProfilePage() {
                 <span>•</span>
                 <span>{followerCount} Followers</span>
               </div>
-              {editing ? (
-                <div className="space-y-3 mt-2">
-                  <textarea value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} rows={3} className="w-full bg-white/10 border border-white/20 text-white text-sm px-3 py-2 rounded-sm focus:outline-none focus:border-signal resize-none placeholder-white/40" placeholder="Tell your story..." />
-                  <input value={form.socialLink || ''} onChange={(e) => setForm((f) => ({ ...f, socialLink: e.target.value }))} placeholder="Website or Social link (optional)" className="w-full bg-white/10 border border-white/20 text-white text-sm px-3 py-2 rounded-sm focus:outline-none focus:border-signal placeholder-white/40" />
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm md:text-base text-white/80 max-w-2xl font-medium leading-relaxed">{profile.bio || "This publisher hasn't written a bio yet."}</p>
-                  {profile.socialLink && (
-                    <a href={profile.socialLink} target="_blank" rel="noopener noreferrer" className="inline-block text-signal text-sm font-bold mt-3 hover:text-white transition-colors underline decoration-signal/30 underline-offset-4">
-                      {profile.socialLink.replace(/^https?:\/\//, '')}
-                    </a>
-                  )}
-                </>
-              )}
+              <p className="text-sm md:text-base text-white/80 max-w-2xl font-medium leading-relaxed">{profile.bio || "This publisher hasn't written a bio yet."}</p>
             </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-5 py-12 space-y-16">
-        
-        {/* DASHBOARDS (Only visible to owner) */}
         {isOwner && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             <div className="lg:col-span-7 space-y-10">
@@ -320,14 +304,8 @@ export default function ProfilePage() {
                     </button>
                   </div>
                 )}
-                {isAdminUser && (
-                  <p className="text-xs font-bold text-signal uppercase tracking-widest bg-signal/10 inline-block px-3 py-1.5 rounded-sm">
-                    Admin access — all limits lifted.
-                  </p>
-                )}
               </section>
 
-              {/* API Keys Card */}
               <section>
                 <SectionHeader 
                   title={`API Keys ${showKeys ? '▲' : '▼'}`} 
@@ -342,8 +320,6 @@ export default function ProfilePage() {
 
                 {showKeys && (
                   <div className="bg-white border border-wire rounded-sm p-6 shadow-sm space-y-6">
-                    <p className="text-sm font-medium text-ink-600">Generate API keys to syndicate your stories to external sites.</p>
-                    
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input 
                         value={newKeyName} 
@@ -378,9 +354,6 @@ export default function ProfilePage() {
                               <div>
                                 <p className="text-sm font-bold text-ink">{k.name}</p>
                                 <p className="text-[11px] font-mono text-ink-500 mt-1">{k.prefix}••••••••••••</p>
-                                <p className="text-[10px] uppercase tracking-wider text-ink-400 mt-1">
-                                  Created {new Date(k.created_at).toLocaleDateString()} {k.last_used_at && ` · Last used ${new Date(k.last_used_at).toLocaleDateString()}`}
-                                </p>
                               </div>
                               <button onClick={() => revokeKey(k.id)} className="text-[10px] font-bold text-ink-400 hover:text-signal transition-colors flex items-center gap-1.5 uppercase tracking-wider px-3 py-2 border border-wire rounded-sm hover:border-signal">
                                 <Trash2 size={13} /> Revoke
@@ -404,7 +377,7 @@ export default function ProfilePage() {
         )}
 
         <section>
-          <MastheadNewsletter publisherId={id} publisherName={profile.publisherName} />
+          <MastheadNewsletter publisherId={id} publisherName={publisherName} />
         </section>
 
         <section>
@@ -413,23 +386,21 @@ export default function ProfilePage() {
           {theirStories.length === 0 ? (
             <div className="border border-dashed border-wire bg-white rounded-sm p-12 text-center">
               <p className="text-lg font-bold text-ink mb-1">No stories yet.</p>
-              <p className="text-sm text-ink-500">When this publisher releases content, it will appear here.</p>
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {theirStories.map((s) => (
-                <div key={s.id} className="relative group">
+                <div key={s.id} className="bg-white border border-wire rounded-sm p-4 flex flex-col justify-between shadow-xs">
                   <StoryCard story={s} />
                   
-                  {/* ⚡ NEW: Creator Action Overlay for QR Generation */}
+                  {/* ⚡ Permanently visible QR code button for authors */}
                   {isOwner && (
-                    <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="mt-4 pt-3 border-t border-wire flex justify-end">
                       <button 
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQrStory(s); }}
-                        className="bg-white/90 backdrop-blur-sm text-ink border border-wire p-2 rounded-full shadow-lg hover:bg-signal hover:text-white hover:border-signal transition-all"
-                        title="Generate QR Code"
+                        className="bg-ink text-white text-[11px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"
                       >
-                        <QrCode size={16} />
+                        <QrCode size={14} /> QR Code
                       </button>
                     </div>
                   )}
