@@ -1,10 +1,9 @@
 import { notFound } from 'next/navigation';
 import StoryClientView from './StoryClientView';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://opinionplus.opinionplus.workers.dev';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://opinionplus-api.opinionplus.workers.dev';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://opinionplus.online';
 
-// ⚡ 1. Dynamic OpenGraph Metadata Generation
 export async function generateMetadata({ params }) {
   const { id } = params;
   
@@ -16,11 +15,9 @@ export async function generateMetadata({ params }) {
     const story = data.story;
 
     const title = story.title;
-    // Strip HTML from the body to create a clean text summary for Twitter/WhatsApp
     const rawBody = story.body?.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim() || '';
     const description = story.excerpt || `${rawBody.substring(0, 150)}...`;
     
-    // Use the story image, or fall back to the default image we added in Step 1
     const image = story.cover_image || story.coverImage || `${SITE_URL}/default-og-image.jpg`;
     const storyUrl = `${SITE_URL}/story/${id}`;
 
@@ -55,13 +52,11 @@ export async function generateMetadata({ params }) {
   }
 }
 
-// ⚡ 2. Server Page Component with JSON-LD Structured Data
 export default async function StoryPage({ params }) {
   const { id } = params;
 
   let story = null;
   try {
-    // Fetch the story data on the server
     const res = await fetch(`${API_BASE}/stories/${id}`, { next: { revalidate: 60 } });
     if (res.ok) {
       const data = await res.json();
@@ -77,7 +72,6 @@ export default async function StoryPage({ params }) {
 
   const image = story.cover_image || story.coverImage || `${SITE_URL}/default-og-image.jpg`;
 
-  // Build the Schema.org JSON-LD object for Google News & Search optimization
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -95,20 +89,17 @@ export default async function StoryPage({ params }) {
       name: 'OpinionPlus',
       logo: {
         '@type': 'ImageObject',
-        url: `${SITE_URL}/logo.png` // Ensure you have a logo.png in your frontend/public folder!
+        url: `${SITE_URL}/logo.png`
       }
     }
   };
 
   return (
     <>
-      {/* Inject the Structured Data into the DOM secretly for Search Engines */}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-
-      {/* Render the interactive client UI */}
       <StoryClientView />
     </>
   );

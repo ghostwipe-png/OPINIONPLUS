@@ -12,9 +12,9 @@ import CommentThread from '../../../components/CommentThread';
 import StoryCard from '../../../components/StoryCard';
 import ReadLaterButton from '../../../components/ReadLaterButton';
 import CollaborateButton from '../../../components/CollaborateButton';
-import AudioPlayer from '../../../components/AudioPlayer';
+import StoryAudioPlayer from '../../../components/StoryAudioPlayer';
 import LanguageToggle from '../../../components/LanguageToggle';
-import StoryQRCodeModal from '../../../components/StoryQRCodeModal'; // ⚡ NEW: QR Code import
+import StoryQRCodeModal from '../../../components/StoryQRCodeModal';
 import DOMPurify from 'dompurify';
 
 function wordCount(html) {
@@ -36,29 +36,35 @@ export default function StoryClientView() {
 
   const story = stories.find((s) => s.id === id);
 
-  const author = story ? users.find((u) => u.id === story.authorId) : null;
-  const isOwner = user?.id === story?.authorId;
-  const isNews = story?.authorId === 'u_newsdesk';
-  const liked = user && story ? story.likes.includes(user.id) : false;
-  const myRating = user && story ? story.ratings[user.id] || 0 : 0;
+  const authorId = story?.authorId || story?.author_id;
+  const author = story ? users.find((u) => u.id === authorId) : null;
+  const isOwner = user?.id === authorId;
+  const isNews = authorId === 'u_newsdesk';
+
+  const likesList = story?.likes || [];
+  const liked = user && story ? (Array.isArray(likesList) ? likesList.includes(user.id) : false) : false;
+  
+  const ratingsMap = story?.ratings || {};
+  const myRating = user && story ? ratingsMap[user.id] || 0 : 0;
+  
   const followerCount = author ? Object.values(follows).filter((list) => list.includes(author.id)).length : 0;
   const iFollowAuthor = user && author ? (follows[user.id] || []).includes(author.id) : false;
 
   const related = story
-    ? stories.filter((s) => s.authorId === story.authorId && s.id !== story.id && !s.deleted && s.privacy === 'public').slice(0, 3)
+    ? stories.filter((s) => (s.authorId === authorId || s.author_id === authorId) && s.id !== story.id && !s.deleted && s.privacy === 'public').slice(0, 3)
     : [];
 
   const feedOrder = useMemo(
-    () => stories.filter((s) => !s.deleted && s.privacy === 'public').sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    () => stories.filter((s) => !s.deleted && s.privacy === 'public').sort((a, b) => new Date(b.createdAt || b.created_at) - new Date(a.createdAt || a.created_at)),
     [stories]
   );
   const feedIndex = story ? feedOrder.findIndex((s) => s.id === story.id) : -1;
   const prevStory = feedIndex > 0 ? feedOrder[feedIndex - 1] : null;
   const nextStory = feedIndex >= 0 && feedIndex < feedOrder.length - 1 ? feedOrder[feedIndex + 1] : null;
 
-  const date = story ? new Date(story.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  const storyCreatedAt = story?.createdAt || story?.created_at;
+  const date = storyCreatedAt ? new Date(storyCreatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
 
-  // Active Title & Body (supports Swahili translation override)
   const activeTitle = translation?.title || story?.title;
   const rawBodyHtml = translation?.body || story?.body || '';
   const bodyHtml = rawBodyHtml.includes('<') ? rawBodyHtml : rawBodyHtml.split('\n').filter((p) => p.trim()).map((p) => `<p>${p}</p>`).join('');
@@ -70,6 +76,7 @@ export default function StoryClientView() {
 
   const sourceUrl = story?.sourceUrl || story?.source_url;
   const sourceName = story?.sourceName || story?.source_name;
+  const coverImage = story?.coverImage || story?.cover_image;
 
   useEffect(() => {
     if (!contentRef.current) return;
@@ -112,7 +119,7 @@ export default function StoryClientView() {
   const handleDelete = () => {
     if (confirm('Delete this post permanently? This cannot be undone.')) {
       deleteStory(story.id);
-      router.push(`/profile/${story.authorId}`);
+      router.push(`/profile/${authorId}`);
     }
   };
 
@@ -121,14 +128,15 @@ export default function StoryClientView() {
     setReported(true);
   };
 
+  const authorLogo = author?.logoUrl || author?.logo_url;
+  const authorName = author?.publisherName || author?.publisher_name;
+
   return (
     <div className="bg-paper min-h-screen pb-24">
-      {/* Reading Progress Bar */}
       <div className="fixed top-0 left-0 right-0 h-1 bg-wire/40 z-50 no-print" aria-hidden="true">
         <div className="h-full bg-signal transition-transform duration-150 origin-left" style={{ transform: `scaleX(${progress / 100})` }} />
       </div>
 
-      {/* Floating Table of Contents */}
       {toc.length > 0 && (
         <nav aria-label="Table of contents" className="no-print hidden xl:block fixed left-8 top-32 w-56 max-h-[50vh] overflow-y-auto text-xs bg-white p-4 border border-wire rounded-sm shadow-sm">
           <p className="font-bold uppercase tracking-wider text-ink mb-3 flex items-center gap-1.5"><List size={13} className="text-signal" /> In this story</p>
@@ -149,11 +157,10 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* Metadata Bar */}
         <div className="flex items-center gap-3 mb-6 flex-wrap text-xs font-bold uppercase tracking-wider text-ink-500">
           <span className="bg-ink text-white px-2.5 py-1 rounded-sm flex items-center gap-1.5">
             {story.type === 'documentary' ? <Film size={12} /> : <FileText size={12} />}
-            {story.type}
+            {story.type || 'Story'}
           </span>
           <span>•</span>
           <span>{date}</span>
@@ -179,19 +186,17 @@ export default function StoryClientView() {
           </div>
         </div>
 
-        {/* Title */}
         <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-ink leading-tight tracking-tight mb-8 break-words">
           {activeTitle}
         </h1>
 
-        {/* Author Masthead Box */}
         {author && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10 pb-8 border-b-2 border-wire">
             <div className="flex items-center gap-4">
               <Link href={`/profile/${author.id}`} className="group flex items-center gap-3">
-                <img src={author.logoUrl} alt={author.publisherName} className="w-14 h-14 rounded-full border-2 border-ink object-cover shadow-sm group-hover:scale-105 transition-transform" />
+                <img src={authorLogo} alt={authorName} className="w-14 h-14 rounded-full border-2 border-ink object-cover shadow-sm group-hover:scale-105 transition-transform" />
                 <div>
-                  <span className="block text-base font-bold text-ink group-hover:text-signal transition-colors">{author.publisherName}</span>
+                  <span className="block text-base font-bold text-ink group-hover:text-signal transition-colors">{authorName}</span>
                   <span className="block text-xs font-medium text-ink-400 mt-0.5">{followerCount} follower{followerCount === 1 ? '' : 's'}</span>
                   {author.suspended && <span className="text-[10px] font-bold text-signal uppercase">Account suspended</span>}
                 </div>
@@ -224,7 +229,6 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* Newsdesk Take Banner */}
         {isNews && isAuthenticated && (
           <div className="bg-ink text-white rounded-sm p-6 mb-10 flex items-center justify-between flex-wrap gap-4 shadow-md">
             <div>
@@ -237,10 +241,9 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* Cover Image */}
-        {story.coverImage && !story.mediaBlocked && (
+        {coverImage && !story.mediaBlocked && (
           <div className="mb-10 rounded-sm overflow-hidden border border-wire shadow-sm">
-            <img src={story.coverImage} alt="" className="w-full max-h-[500px] object-cover" />
+            <img src={coverImage} alt="" className="w-full max-h-[500px] object-cover" />
           </div>
         )}
         {story.mediaBlocked && (
@@ -249,10 +252,9 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* Audio Reader Narration Widget */}
-        <AudioPlayer title={activeTitle} bodyHtml={bodyHtml} />
+        {/* ⚡ Audio Narration Widget */}
+        <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
 
-        {/* Story Body Content */}
         <div
           ref={contentRef}
           className={`prose-story w-full max-w-[720px] mx-auto text-ink-800 text-lg leading-[1.85] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere]
@@ -273,7 +275,6 @@ export default function StoryClientView() {
           dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
         />
 
-        {/* Attachments */}
         {story.files?.length > 0 && (
           <div className="max-w-[720px] mx-auto mb-12 border-2 border-wire rounded-sm p-6 bg-ink-50/50">
             <p className="text-xs font-bold uppercase tracking-widest text-ink-500 mb-3">Associated Files & Attachments</p>
@@ -288,12 +289,10 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* Read Later Action */}
         <div className="max-w-[720px] mx-auto mb-10">
-          <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: author?.publisherName, coverImage: story.coverImage }} />
+          <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: authorName, coverImage: coverImage }} />
         </div>
 
-        {/* Reactions & Sharing Footer */}
         <div className="max-w-[720px] mx-auto rule pt-8 flex items-center justify-between flex-wrap gap-6 bg-white p-6 border border-wire rounded-sm shadow-sm">
           <div className="flex items-center gap-6 flex-wrap">
             <button 
@@ -302,7 +301,7 @@ export default function StoryClientView() {
                 liked ? 'bg-signal text-white border-signal' : 'border-wire text-ink hover:border-ink'
               }`}
             >
-              <Heart size={16} fill={liked ? 'currentColor' : 'none'} /> {story.likes.length} Likes
+              <Heart size={16} fill={liked ? 'currentColor' : 'none'} /> {likesList.length} Likes
             </button>
             <div className="flex items-center gap-2">
               <StarRating value={myRating} onRate={requireAuth((n) => rateStory(story.id, user.id, n))} readOnly={!isAuthenticated} />
@@ -314,14 +313,12 @@ export default function StoryClientView() {
             )}
           </div>
           
-          {/* ⚡ NEW: Integrated QR Code & Share Buttons */}
           <div className="no-print flex items-center gap-4">
             <StoryQRCodeModal story={story} />
             <ShareButtons url={`/story/${story.id}`} title={activeTitle} />
           </div>
         </div>
 
-        {/* Story Pagination Navigation */}
         {(prevStory || nextStory) && (
           <nav aria-label="Story navigation" className="max-w-[720px] mx-auto rule mt-10 pt-8 grid grid-cols-2 gap-6">
             {prevStory ? (
@@ -345,15 +342,13 @@ export default function StoryClientView() {
           </nav>
         )}
 
-        {/* Comments Section */}
         <div className="max-w-[720px] mx-auto mt-16">
-          <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={story.authorId} />
+          <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={authorId} />
         </div>
 
-        {/* More from Author */}
         {related.length > 0 && (
           <div className="max-w-4xl mx-auto mt-20 pt-10 border-t-2 border-wire">
-            <h3 className="text-lg font-bold uppercase tracking-wider text-ink mb-6">More from {author?.publisherName}</h3>
+            <h3 className="text-lg font-bold uppercase tracking-wider text-ink mb-6">More from {authorName}</h3>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((s) => (<StoryCard key={s.id} story={s} />))}
             </div>
@@ -361,7 +356,6 @@ export default function StoryClientView() {
         )}
       </article>
 
-      {/* Scroll to Top Button */}
       {showToTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
