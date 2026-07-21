@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Instagram, Linkedin, Twitter, Rss, ArrowRight, ArrowUp, Check, Loader2, Mail } from 'lucide-react';
+import { Instagram, Linkedin, Twitter, Rss, ArrowUp, Check, Loader2, Mail } from 'lucide-react';
 
 const SOCIAL_LINKS = [
   { label: 'X (Twitter)', href: 'https://twitter.com/opinionplus', Icon: Twitter },
@@ -13,7 +13,6 @@ const SOCIAL_LINKS = [
 
 const PREFERENCES = [
   { id: 'all', label: 'All' },
-  { id: 'news', label: 'News' },
   { id: 'stories', label: 'Stories' },
   { id: 'documentaries', label: 'Docs' },
 ];
@@ -62,7 +61,7 @@ export default function Footer() {
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   return (
-    <footer className="bg-ink text-white pt-16 pb-8 border-t-[6px] border-signal mt-16">
+    <footer className="bg-[#1C1917] text-white pt-16 pb-8 border-t-[6px] border-signal mt-16">
       <div className="max-w-6xl mx-auto px-5">
         
         {/* TOP ROW: 4-Column Grid */}
@@ -74,7 +73,7 @@ export default function Footer() {
               OPINION<span className="text-signal">PLUS</span>
             </Link>
             <p className="text-sm text-white/70 leading-relaxed max-w-sm mb-6 font-medium">
-              A platform where every person gets a masthead — their name, their logo, their truth, at the top of the page.
+              Every story and documentary deserves its own stage. Your name, your logo, your truth at the top.
             </p>
             <div className="flex items-center gap-3">
               {SOCIAL_LINKS.map(({ label, href, Icon }) => (
@@ -94,11 +93,11 @@ export default function Footer() {
 
           {/* QUICK LINKS (Spans 2 cols) */}
           <div className="lg:col-span-2">
-            <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-5 pb-2 border-b border-white/10">Read</h4>
+            <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-5 pb-2 border-b border-white/10">Explore</h4>
             <ul className="space-y-3 text-[13px] font-medium text-white/80">
               <li><Link href="/" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Feed</Link></li>
-              <li><Link href="/about" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">About OpinionPlus</Link></li>
-              <li><Link href="/publish" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Publish your story</Link></li>
+              <li><Link href="/leaderboard" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Leaderboard</Link></li>
+              <li><Link href="/publish" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Publish story</Link></li>
             </ul>
           </div>
 
@@ -106,8 +105,8 @@ export default function Footer() {
           <div className="lg:col-span-2">
             <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-5 pb-2 border-b border-white/10">Support</h4>
             <ul className="space-y-3 text-[13px] font-medium text-white/80">
+              <li><Link href="/about" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Guidelines</Link></li>
               <li><Link href="/privacy" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Privacy policy</Link></li>
-              <li><Link href="/contact" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Contact us</Link></li>
             </ul>
           </div>
 
@@ -118,7 +117,7 @@ export default function Footer() {
               <h4 className="text-sm font-bold uppercase tracking-wide text-white">Daily Digest</h4>
             </div>
             <p className="text-xs text-white/60 mb-5 leading-relaxed">
-              Get the best content delivered directly to your inbox. Pick your preference, unsubscribe anytime.
+              Get top independent stories and documentaries delivered directly to your inbox.
             </p>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
@@ -151,7 +150,7 @@ export default function Footer() {
                   placeholder="Your email address" 
                   aria-label="Email address" 
                   disabled={status === 'loading' || status === 'success'}
-                  className="w-full bg-ink border border-white/20 text-white placeholder-white/30 text-sm px-4 py-3 rounded-sm focus:outline-none focus:border-signal disabled:opacity-60 transition-colors" 
+                  className="w-full bg-[#1C1917] border border-white/20 text-white placeholder-white/30 text-sm px-4 py-3 rounded-sm focus:outline-none focus:border-signal disabled:opacity-60 transition-colors" 
                 />
                 <button 
                   type="submit" 

@@ -36,9 +36,6 @@ body {
   }
 }
 
-/* Masthead nameplate — the signature element. Every publisher's name renders
-   through this same stamped-seal + rule system, so a personal story and a
-   front-page banner share one visual grammar. */
 .nameplate {
   display: inline-flex;
   align-items: center;
@@ -119,11 +116,6 @@ textarea, input {
   line-height: 1.75;
 }
 
-/* ---------------------------------------------------------------------
-   Additions below. Nothing above this line was changed.
---------------------------------------------------------------------- */
-
-/* Skeleton / shimmer loading state, used by StoryCard + feed grid */
 @keyframes shimmer {
   0% { background-position: -400px 0; }
   100% { background-position: 400px 0; }
@@ -135,7 +127,6 @@ textarea, input {
   animation: shimmer 1.4s ease-in-out infinite;
 }
 
-/* Blur-up image fade-in, applied once an <img> finishes loading */
 @keyframes imgFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -145,7 +136,6 @@ textarea, input {
   animation: imgFadeIn 0.35s ease-out;
 }
 
-/* Pulse used for breaking-news / trending indicators */
 @keyframes softPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
@@ -155,12 +145,10 @@ textarea, input {
   animation: softPulse 1.6s ease-in-out infinite;
 }
 
-/* CSS containment for card-heavy grids — keeps layout/paint scoped per card */
 .contain-card {
   contain: layout style paint;
 }
 
-/* Reading-progress bar (story page) */
 .reading-progress-track {
   position: fixed;
   top: 0;
@@ -178,7 +166,6 @@ textarea, input {
   transition: transform 0.1s linear;
 }
 
-/* Slimmer, brand-colored scrollbar (WebKit) */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -198,7 +185,6 @@ textarea, input {
   background: #6B7180;
 }
 
-/* Print styles — used by the story page */
 @media print {
   header, footer, .no-print {
     display: none !important;

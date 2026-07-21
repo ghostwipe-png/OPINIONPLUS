@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { Film, FileText, Heart, Clock } from 'lucide-react';
 
-export default function StoryCard({ story, imagePosition = 'right' }) {
+export default function StoryCard({ story }) {
   const [imgError, setImgError] = useState(false);
 
   // Safety check: Return null if story is invalid
@@ -49,10 +49,22 @@ export default function StoryCard({ story, imagePosition = 'right' }) {
       href={`/story/${id}`}
       className="group block bg-white border border-wire rounded-sm p-5 hover:border-ink transition-all shadow-sm hover:shadow-md"
     >
-      <div className={`flex flex-col sm:flex-row gap-5 items-start ${imagePosition === 'left' ? 'sm:flex-row-reverse' : ''}`}>
+      <div className="flex flex-col gap-4 items-start">
         
-        {/* Text Content */}
-        <div className="flex-1 min-w-0 space-y-2">
+        {/* Thumbnail Image on Top */}
+        {coverImage && !story.mediaBlocked && !imgError && (
+          <div className="w-full h-48 sm:h-56 shrink-0 rounded-sm overflow-hidden border border-wire bg-ink-50 shadow-sm">
+            <img 
+              src={coverImage} 
+              alt={title} 
+              onError={() => setImgError(true)}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+            />
+          </div>
+        )}
+
+        {/* Text Content Below */}
+        <div className="w-full min-w-0 space-y-2">
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-ink-400 flex-wrap">
             <span className="flex items-center gap-1 text-ink-600 bg-ink-50 px-2 py-0.5 rounded-sm border border-wire">
               {isDoc ? <Film size={11} className="text-signal" /> : <FileText size={11} />}
@@ -82,27 +94,15 @@ export default function StoryCard({ story, imagePosition = 'right' }) {
             </p>
           )}
 
-          <div className="flex items-center gap-4 pt-1 text-[11px] font-bold uppercase tracking-wider text-ink-400">
+          <div className="flex items-center gap-4 pt-2 text-[11px] font-bold uppercase tracking-wider text-ink-400 border-t border-wire/40 mt-3">
             <span className="flex items-center gap-1">
               <Heart size={12} className="text-signal" /> {likesCount} Likes
             </span>
-            <span className="flex items-center gap-1 group-hover:text-ink transition-colors">
+            <span className="flex items-center gap-1 group-hover:text-ink transition-colors ml-auto">
               <Clock size={12} /> Read Story →
             </span>
           </div>
         </div>
-
-        {/* Thumbnail Image Side-by-Side with error fallback */}
-        {coverImage && !story.mediaBlocked && !imgError && (
-          <div className="w-full sm:w-48 h-40 sm:h-32 shrink-0 rounded-sm overflow-hidden border border-wire bg-ink-50 shadow-sm">
-            <img 
-              src={coverImage} 
-              alt={title} 
-              onError={() => setImgError(true)}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-            />
-          </div>
-        )}
 
       </div>
     </Link>

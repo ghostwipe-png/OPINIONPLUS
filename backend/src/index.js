@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { XMLParser } from 'fast-xml-parser';
 import { attachUser, csrfProtection } from './middleware/auth.js';
 import { apiKeyAuth } from './middleware/apiKey.js';
 import { apiLimit } from './middleware/apiLimit.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
 import { createDB } from './utils/db.js';
+import { AudioRoomDO } from './durableObjects/AudioRoomDO.js';
+
 import auth from './routes/auth.js';
 import stories from './routes/stories.js';
 import users from './routes/users.js';
@@ -19,6 +20,9 @@ import notifications from './routes/notifications.js';
 import subscriptions from './routes/subscriptions.js';
 import archive from './routes/archive.js';
 import polls from './routes/polls.js';
+import rooms from './routes/rooms.js';
+import jobs from './routes/jobs.js';
+import campuses from './routes/campuses.js';
 
 const app = new Hono();
 
@@ -68,7 +72,7 @@ app.use('*', async (c, next) => {
       "img-src 'self' data: https:",
       "media-src 'self' https:",
       "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com",
-      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss:",
       "frame-ancestors 'none'",
     ].join('; ')
   );
@@ -238,6 +242,13 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   return c.json({ publisher: user.publisher_name, stories: results });
 });
 
+// WebSocket endpoint for real-time live audio room chat via Durable Objects
+app.get('/rooms/:id/ws', async (c) => {
+  const roomId = c.req.param('id');
+  const id = c.env.AUDIO_ROOM_DO.idFromName(roomId);
+  const stub = c.env.AUDIO_ROOM_DO.get(id);
+  return stub.fetch(c.req.raw);
+});
 
 app.route('/auth', auth);
 app.route('/stories', stories);
@@ -252,216 +263,9 @@ app.route('/notifications', notifications);
 app.route('/subscriptions', subscriptions);
 app.route('/archive', archive);
 app.route('/polls', polls);
-
-// ⚡ ADVANCED RSS CONFIGURATION & PARSING
-const NEWS_SOURCES = [
-  { url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml', name: 'BBC Africa' },
-  { url: 'https://www.aljazeera.com/xml/rss/all.xml', name: 'Al Jazeera' },
-  { url: 'https://nation.africa/service/rss/kenya/1954666', name: 'Nation Africa' },
-  { url: 'https://www.capitalfm.co.ke/news/feed/', name: 'Capital FM' },
-  { url: 'https://www.tuko.co.ke/feed/', name: 'Tuko' },
-];
-
-const MAX_ARCHIVE_PER_DAY = 350;
-const MAX_ITEMS_PER_SOURCE = 20;
-
-const AFFILIATE_PROGRAMS = {
-  jumia: 'https://www.jumia.co.ke/?utm_source=opinionplus&utm_medium=referral',
-  kilimall: 'https://www.kilimall.co.ke/?utm_source=opinionplus&utm_medium=referral',
-};
-
-const COVER_IMAGES = {
-  'BBC Africa': 'https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?w=800&h=400&fit=crop',
-  'Al Jazeera': 'https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800&h=400&fit=crop',
-  'Nation Africa': 'https://images.unsplash.com/photo-1547471080-7cc2caa01a7e?w=800&h=400&fit=crop',
-  'Capital FM': 'https://images.unsplash.com/photo-1504711434969-e33886168d6c?w=800&h=400&fit=crop',
-  'Tuko': 'https://images.unsplash.com/photo-1503694978374-8a2fa686963a?w=800&h=400&fit=crop',
-};
-
-const xmlParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: '@_',
-  textNodeName: '#text',
-  isArray: (name) => ['item', 'entry'].includes(name),
-});
-
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
-}
-
-function parseRSSWithFastXml(text) {
-  const items = [];
-  try {
-    const parsed = xmlParser.parse(text);
-    const channel = parsed?.rss?.channel || parsed?.feed || {};
-    const rawItems = channel.item || channel.entry || [];
-    for (const raw of rawItems) {
-      const title = extractText(raw.title);
-      const link = extractLink(raw.link);
-      const description = extractText(raw.description || raw.summary || raw.content || '');
-      const contentEncoded = extractText(raw['content:encoded']) || '';
-      const fullContent = contentEncoded || description;
-      const image = extractImage(raw, fullContent);
-      const pubDate = extractText(raw.pubDate || raw.published || raw.updated || '');
-
-      if (title && link) {
-        items.push({ 
-          title: cleanText(title), 
-          link: link, 
-          description: cleanText(fullContent).slice(0, 500), 
-          image,
-          pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString()
-        });
-      }
-    }
-  } catch (e) { console.error('XML parse error:', e.message); }
-  return items;
-}
-
-function extractText(field) {
-  if (!field) return '';
-  if (typeof field === 'string') return field;
-  if (field['#text']) return field['#text'];
-  if (Array.isArray(field) && field[0]?.['#text']) return field[0]['#text'];
-  return '';
-}
-
-function extractLink(field) {
-  if (!field) return '';
-  if (typeof field === 'string') return field.trim();
-  if (field['@_href']) return field['@_href'].trim();
-  if (Array.isArray(field) && field[0]?.['@_href']) return field[0]['@_href'].trim();
-  return '';
-}
-
-function extractImage(raw, fullContent = '') {
-  const mediaContent = raw['media:content'];
-  if (mediaContent) {
-    if (Array.isArray(mediaContent)) { for (const m of mediaContent) { if (m['@_url'] && (!m['@_medium'] || m['@_medium'] === 'image')) return m['@_url']; } }
-    else if (mediaContent['@_url']) return mediaContent['@_url'];
-  }
-  const mediaThumb = raw['media:thumbnail'];
-  if (mediaThumb) { if (Array.isArray(mediaThumb) && mediaThumb[0]?.['@_url']) return mediaThumb[0]['@_url']; if (mediaThumb['@_url']) return mediaThumb['@_url']; }
-  const enclosure = raw.enclosure;
-  if (enclosure) { const enc = Array.isArray(enclosure) ? enclosure[0] : enclosure; if (enc['@_url'] && (!enc['@_type'] || enc['@_type'].startsWith('image/'))) return enc['@_url']; }
-  if (fullContent) { const imgMatch = fullContent.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i); if (imgMatch) return imgMatch[1]; }
-  const desc = raw.description;
-  if (desc) { const text = typeof desc === 'string' ? desc : (desc['#text'] || ''); const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i); if (imgMatch) return imgMatch[1]; }
-  return null;
-}
-
-function cleanText(str) {
-  return str.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').trim();
-}
-
-function injectAffiliateLinks(html) {
-  return html + `<div style="margin-top:16px;padding:12px;background:#f9f7f3;border:1px solid #e5e0d5;border-radius:4px;font-size:13px;"><p style="margin:0 0 8px;color:#6b7180;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Sponsored</p><p style="margin:0 0 8px;"><a href="${AFFILIATE_PROGRAMS.jumia}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">🛍️ Shop on Jumia Kenya</a> — best deals online</p><p style="margin:0;"><a href="${AFFILIATE_PROGRAMS.kilimall}" target="_blank" rel="nofollow sponsored" style="color:#E0492B;font-weight:600;">📱 Kilimall</a> — affordable electronics & more</p></div>`;
-}
-
-async function summarizeWithAI(title, description, sourceName, apiKey) {
-  if (!apiKey) return null;
-  try {
-    const prompt = `Write a 2-3 sentence news summary for this headline. Make it original, journalistic, and engaging. Do NOT copy the original text. Write in your own words as a news reporter for OPINIONPLUS.\n\nHeadline: ${title}\nSource: ${sourceName}\n\nSummary:`;
-    const response = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 150, temperature: 0.7 },
-        }),
-      },
-      10000
-    );
-    const data = await response.json();
-    const summary = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return summary?.trim() || null;
-  } catch (e) {
-    console.error('AI summarization error:', e.message);
-    return null;
-  }
-}
-
-async function fetchNews(env) {
-  let totalInserted = 0;
-  for (const source of NEWS_SOURCES) {
-    let items = []; let insertedFromSource = 0;
-    try {
-      const response = await fetchWithTimeout(source.url, { 
-        headers: { 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
-          'Accept': 'application/rss+xml, application/xml, text/xml' 
-        }, 
-        cf: { cacheTtl: 300 } 
-      }, 15000);
-      
-      if (!response.ok) { console.error(`News fetch failed (${source.name}): HTTP ${response.status}`); continue; }
-      const text = await response.text();
-      if (!text || text.length < 100) { console.error(`News fetch failed (${source.name}): Empty response`); continue; }
-      items = parseRSSWithFastXml(text);
-      console.log(`${source.name}: ${items.length} items parsed`);
-    } catch (e) { console.error(`News fetch error (${source.name}): ${e.message}`); continue; }
-
-    for (const item of items.slice(0, MAX_ITEMS_PER_SOURCE)) {
-      try {
-        const existing = await env.DB.prepare(
-          'SELECT id FROM archive WHERE source_url = ? OR (title = ? AND source_name = ?)'
-        ).bind(item.link, item.title, source.name).first();
-        if (existing) continue;
-
-        const today = new Date().toISOString().slice(0, 10);
-        const row = await env.DB.prepare("SELECT COUNT(*) as count FROM archive WHERE date(created_at) = ?").bind(today).first();
-        if (parseInt(row?.count || 0) >= MAX_ARCHIVE_PER_DAY) break;
-        
-        const id = crypto.randomUUID();
-        const aiSummary = await summarizeWithAI(item.title, item.description, source.name, env.GEMINI_API_KEY);
-        const excerpt = aiSummary ? aiSummary.slice(0, 250) + '...' : (item.description ? cleanText(item.description).slice(0, 250) + '...' : `Read the full article on ${source.name}.`);
-        
-        const coverImage = item.image || COVER_IMAGES[source.name] || 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&h=400&fit=crop';
-        
-        let body = '';
-        if (coverImage) {
-          body += `<img src="${coverImage}" alt="${item.title}" style="width:100%;max-height:400px;object-fit:cover;border-radius:4px;margin-bottom:16px;" />`;
-        }
-        
-        body += `<p style="font-size:16px;line-height:1.6;margin-bottom:20px;">${aiSummary || cleanText(item.description) || 'Read the full coverage below.'}</p>`;
-        body += `<div style="margin:24px 0;padding:16px;background:#f9f7f3;border-left:4px solid #E0492B;border-radius:2px;">`;
-        body += `<p style="margin:0 0 8px;font-size:12px;font-weight:bold;text-transform:uppercase;color:#6b7180;">External Publication</p>`;
-        body += `<a href="${item.link}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#1C1917;color:#fff;padding:12px 20px;border-radius:2px;font-size:13px;font-weight:bold;text-decoration:none;box-shadow:0 1px 3px rgba(0,0,0,0.1);">Read Full Article on ${source.name} →</a>`;
-        body += `</div>`;
-
-        body += injectAffiliateLinks(body);
-
-        await env.DB.prepare("INSERT INTO archive (id, source_name, source_url, title, excerpt, body, cover_image, type, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'news', 'pending', ?)")
-          .bind(id, source.name, item.link, item.title, excerpt, body, coverImage, item.pubDate)
-          .run();
-          
-        insertedFromSource++; 
-        totalInserted++;
-      } catch (e) { console.error(`News insert error (${source.name}): ${e.message}`); }
-    }
-    console.log(`${source.name}: ${insertedFromSource} inserted out of ${items.length} parsed`);
-  }
-  console.log(`News fetch complete: ${totalInserted} total inserted into archive`);
-  return totalInserted;
-}
-
-app.get('/news-fetch', async (c) => {
-  const token = c.req.query('token');
-  if (token !== c.env.CRON_SECRET) return c.json({ error: 'Unauthorized' }, 401);
-  try { const count = await fetchNews(c.env); return c.json({ ok: true, inserted: count }); }
-  catch (e) { return c.json({ ok: false, error: 'News fetch failed' }, 500); }
-});
+app.route('/rooms', rooms);
+app.route('/jobs', jobs);
+app.route('/campuses', campuses);
 
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
@@ -526,21 +330,6 @@ const worker = {
   async scheduled(event, env, ctx) {
     const jobs = [];
 
-    if (event.cron === '*/30 * * * *') {
-      jobs.push(runCronJob('news-aggregation', async () => {
-        try {
-          const row = await env.DB.prepare(
-            "SELECT value FROM platform_settings WHERE key = 'news_enabled'"
-          ).first();
-          if (row && row.value === 'false') {
-            log('info', 'news aggregation skipped', { reason: 'disabled by admin toggle' });
-            return { skipped: true };
-          }
-        } catch (e) {}
-        return fetchNews(env);
-      }));
-    }
-
     if (event.cron === '*/5 * * * *') {
       jobs.push(runCronJob('publish-scheduled-stories', async () => {
         const storiesModule = await import('./routes/stories.js');
@@ -559,4 +348,5 @@ const worker = {
   },
 };
 
+export { AudioRoomDO };
 export default worker;

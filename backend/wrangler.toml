@@ -16,6 +16,16 @@ database_id = "368652e7-aedf-4f53-a8c7-d928e59e2182"
 binding = "FILES"
 bucket_name = "opinionplus-files"
 
+# --- Durable Objects for Live Rooms & Chat ---
+[durable_objects]
+bindings = [
+  { name = "AUDIO_ROOM_DO", class_name = "AudioRoomDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AudioRoomDO"]
+
 # --- Environment variables ---
 [vars]
 GOOGLE_CLIENT_ID = "231253521775-5ma9bv410cd283svmfd37pd9v0hfjovu.apps.googleusercontent.com"

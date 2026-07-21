@@ -40,9 +40,15 @@ admin.post('/users/:id/unsuspend', requirePin, async (c) => {
 });
 
 admin.get('/stories', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    'SELECT * FROM stories WHERE deleted = 0 ORDER BY created_at DESC LIMIT 200'
-  ).all();
+  const type = c.req.query('type');
+  let query = 'SELECT * FROM stories WHERE deleted = 0';
+  const params = [];
+  if (type && type !== 'all') {
+    query += ' AND type = ?';
+    params.push(type);
+  }
+  query += ' ORDER BY created_at DESC LIMIT 200';
+  const { results } = await c.env.DB.prepare(query).bind(...params).all();
   return c.json({ stories: results });
 });
 
@@ -67,12 +73,12 @@ admin.delete('/stories/:id', requirePin, async (c) => {
   return c.json({ ok: true });
 });
 
-admin.get('/reports', async (c) => {
+admin.get('/reports', requirePin, async (c) => {
   const { results } = await c.env.DB.prepare('SELECT * FROM reports ORDER BY created_at DESC').all();
   return c.json({ reports: results });
 });
 
-admin.post('/reports/:id/resolve', async (c) => {
+admin.post('/reports/:id/resolve', requirePin, async (c) => {
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE reports SET resolved = 1 WHERE id = ?').bind(id).run();
   await log(c, 'resolve_report', id);
@@ -114,44 +120,6 @@ admin.delete('/admins/:email', requireRoot, requirePin, async (c) => {
     .run();
   await log(c, 'remove_admin', email);
   return c.json({ ok: true });
-});
-
-// --- News Management ---
-admin.get('/news/toggle', async (c) => {
-  const row = await c.env.DB.prepare(
-    "SELECT value FROM platform_settings WHERE key = 'news_enabled'"
-  ).first();
-  const enabled = row ? row.value !== 'false' : true;
-  return c.json({ enabled });
-});
-
-admin.post('/news/toggle', async (c) => {
-  const { enabled } = await c.req.json();
-  await c.env.DB.prepare(
-    "INSERT INTO platform_settings (key, value) VALUES ('news_enabled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')"
-  ).bind(enabled ? 'true' : 'false').run();
-  await log(c, enabled ? 'news_enabled' : 'news_disabled', 'platform');
-  return c.json({ ok: true, enabled: !!enabled });
-});
-
-admin.get('/news/list', async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM stories WHERE author_id = 'u_newsdesk' AND deleted = 0 ORDER BY created_at DESC LIMIT 500"
-  ).all();
-  return c.json({ news: results });
-});
-
-admin.post('/news/bulk-delete', requirePin, async (c) => {
-  const { ids } = await c.req.json();
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return c.json({ error: 'ids must be a non-empty array' }, 400);
-  }
-  const placeholders = ids.map(() => '?').join(',');
-  await c.env.DB.prepare(
-    `UPDATE stories SET deleted = 1 WHERE id IN (${placeholders}) AND author_id = 'u_newsdesk'`
-  ).bind(...ids).run();
-  await log(c, 'bulk_delete_news', `${ids.length} articles`);
-  return c.json({ ok: true, deleted: ids.length });
 });
 
 export default admin;

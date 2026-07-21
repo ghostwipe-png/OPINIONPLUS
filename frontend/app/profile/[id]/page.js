@@ -2,7 +2,8 @@
 
 import { useParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity } from 'lucide-react';
+import Link from 'next/link';
+import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity, Film, Radio, Play, Lock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
@@ -51,6 +52,9 @@ export default function ProfilePage() {
   const isOwner = user?.id === id;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(profile || {});
+
+  const [profileTab, setProfileTab] = useState('stories'); // 'stories' | 'documentaries' | 'rooms'
+  const [publisherRooms, setPublisherRooms] = useState([]);
 
   const [apiKeys, setApiKeys] = useState([]);
   const [newKeyName, setNewKeyName] = useState('');
@@ -154,7 +158,16 @@ export default function ProfilePage() {
       fetchKeys();
       fetchApiUsage();
     }
-  }, [isOwner]);
+    if (id) {
+      fetch(`${API_BASE}/rooms`)
+        .then((r) => r.json())
+        .then((data) => {
+          const rooms = data.rooms || [];
+          setPublisherRooms(rooms.filter((r) => r.host_id === id));
+        })
+        .catch(() => {});
+    }
+  }, [isOwner, id]);
 
   if (!profile) {
     return (
@@ -167,10 +180,15 @@ export default function ProfilePage() {
     );
   }
 
-  // ⚡ Normalized filtering and sorting
-  const theirStories = stories
+  // Normalized filtering and sorting
+  const userStories = stories
     .filter((s) => (s.authorId === id || s.author_id === id) && !s.deleted)
-    .filter((s) => s.privacy === 'public' || isOwner)
+    .filter((s) => (s.type === 'story' || !s.type) && (s.privacy === 'public' || isOwner))
+    .sort((a, b) => new Date(b.createdAt || b.created_at) - new Date(a.createdAt || a.created_at));
+
+  const userDocumentaries = stories
+    .filter((s) => (s.authorId === id || s.author_id === id) && !s.deleted)
+    .filter((s) => s.type === 'documentary' && (s.privacy === 'public' || isOwner))
     .sort((a, b) => new Date(b.createdAt || b.created_at) - new Date(a.createdAt || a.created_at));
 
   const followerCount = Object.values(follows).filter((list) => list.includes(id)).length;
@@ -186,7 +204,6 @@ export default function ProfilePage() {
     openCloudinaryWidget({ onSuccess: (r) => setForm((f) => ({ ...f, logoUrl: r.url })) });
   };
 
-  // Sleek Reusable Header for grid sections
   const SectionHeader = ({ title, icon: Icon, rightAction, description }) => (
     <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-wire pb-4 mb-6">
       <div>
@@ -206,7 +223,7 @@ export default function ProfilePage() {
     <div className="bg-paper min-h-screen pb-24 relative selection:bg-signal selection:text-white">
       {showApiGuide && <ApiGuideModal onClose={() => setShowApiGuide(false)} />}
 
-      {/* QR Code Modal - Glassmorphism UI */}
+      {/* QR Code Modal */}
       {qrStory && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="bg-white border-2 border-ink rounded-md max-w-sm w-full p-8 relative shadow-2xl animate-in zoom-in-95 duration-300">
@@ -293,9 +310,11 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-[11px] font-black uppercase tracking-widest text-white/60 mb-5 bg-white/5 inline-flex px-4 py-2 rounded-sm border border-white/10 backdrop-blur-sm w-fit mx-auto md:mx-0">
-                <span className="flex items-center gap-1.5"><Newspaper size={14} className="text-signal" /> {theirStories.length} Published</span>
+                <span className="flex items-center gap-1.5"><Newspaper size={14} className="text-signal" /> {userStories.length + userDocumentaries.length} Published</span>
                 <span className="opacity-30">•</span>
                 <span className="flex items-center gap-1.5"><UserPlus size={14} className="text-signal" /> {followerCount} Followers</span>
+                <span className="opacity-30">•</span>
+                <span className="flex items-center gap-1.5"><Radio size={14} className="text-signal" /> {publisherRooms.length} Live Rooms</span>
               </div>
 
               {editing ? (
@@ -466,39 +485,153 @@ export default function ProfilePage() {
           <MastheadNewsletter publisherId={id} publisherName={publisherName} />
         </section>
 
-        {/* 🌟 4. PUBLISHED STORIES GRID */}
+        {/* 🌟 4. PORTFOLIO TABS (Stories, Documentaries, Live Audio Rooms) */}
         <section className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="flex items-center gap-2 text-ink mb-6 pb-4 border-b-2 border-wire">
-            <Newspaper size={24} className="text-signal" />
-            <h2 className="text-2xl font-black uppercase tracking-tight">Portfolio</h2>
+          <div className="flex items-center gap-3 border-b-2 border-wire pb-4 mb-8 flex-wrap">
+            <button
+              onClick={() => setProfileTab('stories')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'stories' ? 'bg-ink text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <Newspaper size={14} /> Stories ({userStories.length})
+            </button>
+            <button
+              onClick={() => setProfileTab('documentaries')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'documentaries' ? 'bg-ink text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <Film size={14} /> Documentaries ({userDocumentaries.length})
+            </button>
+            <button
+              onClick={() => setProfileTab('rooms')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'rooms' ? 'bg-signal text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <Radio size={14} className={publisherRooms.length > 0 ? 'animate-pulse text-signal' : ''} /> Live Audio Rooms ({publisherRooms.length})
+            </button>
           </div>
-          
-          {theirStories.length === 0 ? (
-            <div className="border-2 border-dashed border-wire bg-white rounded-md p-16 text-center shadow-sm">
-              <div className="w-16 h-16 bg-ink-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Newspaper size={24} className="text-ink-300" />
-              </div>
-              <p className="text-xl font-black uppercase tracking-tight text-ink mb-2">Blank Canvas</p>
-              <p className="text-sm font-medium text-ink-500">This publisher hasn&apos;t released any public stories yet.</p>
-            </div>
-          ) : (
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {theirStories.map((s) => (
-                <div key={s.id} className="bg-white border border-wire rounded-md flex flex-col justify-between shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
-                  <StoryCard story={s} />
-                  
-                  {isOwner && (
-                    <div className="px-4 py-3 border-t border-wire bg-ink-50/50 flex justify-end">
-                      <button 
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQrStory(s); }}
-                        className="bg-white border border-wire text-ink text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-sm hover:bg-ink hover:text-white hover:border-ink transition-colors flex items-center gap-1.5 shadow-sm"
-                      >
-                        <QrCode size={13} /> Get QR
-                      </button>
-                    </div>
-                  )}
+
+          {/* Tab 1: Stories */}
+          {profileTab === 'stories' && (
+            <div>
+              {userStories.length === 0 ? (
+                <div className="border-2 border-dashed border-wire bg-white rounded-md p-16 text-center shadow-sm">
+                  <div className="w-16 h-16 bg-ink-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Newspaper size={24} className="text-ink-300" />
+                  </div>
+                  <p className="text-xl font-black uppercase tracking-tight text-ink mb-2">Blank Canvas</p>
+                  <p className="text-sm font-medium text-ink-500">This publisher hasn&apos;t released any stories yet.</p>
                 </div>
-              ))}
+              ) : (
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {userStories.map((s) => (
+                    <div key={s.id} className="bg-white border border-wire rounded-md flex flex-col justify-between shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
+                      <StoryCard story={s} />
+                      
+                      {isOwner && (
+                        <div className="px-4 py-3 border-t border-wire bg-ink-50/50 flex justify-end">
+                          <button 
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setQrStory(s); }}
+                            className="bg-white border border-wire text-ink text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-sm hover:bg-ink hover:text-white hover:border-ink transition-colors flex items-center gap-1.5 shadow-sm"
+                          >
+                            <QrCode size={13} /> Get QR
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 2: Documentaries */}
+          {profileTab === 'documentaries' && (
+            <div>
+              {userDocumentaries.length === 0 ? (
+                <div className="border-2 border-dashed border-wire bg-white rounded-md p-16 text-center shadow-sm">
+                  <div className="w-16 h-16 bg-ink-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Film size={24} className="text-ink-300" />
+                  </div>
+                  <p className="text-xl font-black uppercase tracking-tight text-ink mb-2">No Documentaries</p>
+                  <p className="text-sm font-medium text-ink-500">This publisher hasn&apos;t released any documentaries yet.</p>
+                </div>
+              ) : (
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {userDocumentaries.map((s) => (
+                    <div key={s.id} className="bg-white border border-wire rounded-md flex flex-col justify-between shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
+                      <StoryCard story={s} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Live Audio Rooms */}
+          {profileTab === 'rooms' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Live & Scheduled Audio Discussions hosted by {publisherName}
+                </p>
+                {isOwner && (
+                  <Link
+                    href="/rooms"
+                    className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Host New Room
+                  </Link>
+                )}
+              </div>
+
+              {publisherRooms.length === 0 ? (
+                <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
+                  <Radio size={32} className="mx-auto text-ink-300 mb-3" />
+                  <p className="text-lg font-bold text-ink mb-1">No active audio rooms.</p>
+                  <p className="text-xs text-ink-500">This publisher is not currently hosting any live discussions.</p>
+                </div>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {publisherRooms.map((room) => (
+                    <div key={room.id} className="border-2 border-ink bg-white p-6 rounded-sm shadow-sm flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-signal text-white">
+                            {room.category}
+                          </span>
+                          {room.is_premium ? (
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-amber-100 text-amber-800 flex items-center gap-1">
+                              <Lock size={10} /> KES {(room.price_cents / 100).toLocaleString()}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-800">
+                              Free
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-lg font-black text-ink leading-snug">{room.title}</h3>
+                        <p className="text-xs text-ink-600 line-clamp-2 font-medium">{room.description || 'Live audio briefing.'}</p>
+                      </div>
+
+                      <div className="pt-4 border-t border-wire flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Now
+                        </span>
+                        <Link
+                          href={`/rooms/${room.id}`}
+                          className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm flex items-center gap-1.5"
+                        >
+                          <Play size={13} fill="currentColor" /> Join
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </section>

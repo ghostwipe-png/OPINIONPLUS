@@ -2,62 +2,21 @@
 
 import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
-import { TrendingUp, MessageCircle, Loader2 } from 'lucide-react';
+import { Loader2, Search, ArrowRight, Tag, Newspaper, X, Sparkles } from 'lucide-react';
 import { useStore } from '../lib/store';
 import BreakingTicker from '../components/BreakingTicker';
-import HeroGrid from '../components/HeroGrid';
 import FilterBar from '../components/FilterBar';
-import MagazineRow, { MagazineRowSkeleton } from '../components/MagazineRow';
-import SocialBar from '../components/SocialBar';
-import { getCategoryStyle } from '../components/categoryStyle';
+import StoryCard from '../components/StoryCard';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 16;
 
-const FILTERS = ['all', 'story', 'documentary', 'news'];
+const FILTERS = ['all', 'story', 'documentary'];
 const FILTER_LABELS = {
-  all: 'All',
-  story: 'Style hunter',
-  documentary: 'Vogue',
-  news: 'Health & Fitness',
+  all: 'All Stories & Documentaries',
+  story: 'Stories',
+  documentary: 'Documentaries',
 };
-
-// Helper component for the large featured post in the main feed
-function FeaturedFeedCard({ story }) {
-  const { users } = useStore();
-  if (!story) return null;
-  const author = users?.find((u) => u.id === story.authorId);
-  const { bg, text, label } = getCategoryStyle(story);
-
-  return (
-    <Link href={`/story/${story.id}`} className="block group focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none">
-      <div className="relative w-full aspect-[4/3] rounded-sm overflow-hidden mb-4 bg-ink-100">
-        {story.coverImage ? (
-          <img src={story.coverImage} alt={story.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-        ) : (
-          <div className="w-full h-full transition-transform duration-500 group-hover:scale-105" style={{ backgroundColor: bg, opacity: 0.2 }} />
-        )}
-        <span className="absolute bottom-0 left-0 text-[10px] font-bold uppercase px-2 py-1 z-10" style={{ backgroundColor: '#1C1917', color: '#FFFFFF' }}>
-          {label}
-        </span>
-      </div>
-      <h3 className="text-xl sm:text-2xl font-bold text-ink leading-tight mb-2 group-hover:text-signal transition-colors">
-        {story.title}
-      </h3>
-      <div className="flex items-center gap-2 text-xs font-medium text-ink-500 mb-3">
-        <span className="text-ink font-bold">{author?.publisherName || author?.name || 'OPINIONPLUS'}</span>
-        <span>-</span>
-        <span>{new Date(story.createdAt || story.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-        <div className="ml-auto bg-ink text-white text-[10px] px-1.5 py-0.5 rounded-sm flex items-center gap-1">
-           <MessageCircle size={10} fill="currentColor" /> {story.comments?.length || 0}
-        </div>
-      </div>
-      <p className="text-sm text-ink-600 line-clamp-3 leading-relaxed">
-        {story.excerpt || story.body?.replace(/<[^>]*>?/gm, '').substring(0, 150) + '...'}
-      </p>
-    </Link>
-  );
-}
 
 export default function HomePage() {
   const [filter, setFilter] = useState('all');
@@ -66,18 +25,13 @@ export default function HomePage() {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [trending, setTrending] = useState([]);
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTopic, setSearchTopic] = useState('');
+  const [activeSearchTerm, setActiveSearchTerm] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE}/stories/trending`)
-      .then((r) => (r.ok ? r.json() : { stories: [] }))
-      .then((data) => { if (!cancelled) setTrending(data.stories || []); })
-      .catch(() => { if (!cancelled) setTrending([]); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const fetchStories = useCallback(async (currentCursor = null, isReset = false) => {
+  const fetchStories = useCallback(async (currentCursor = null, isReset = false, queryTerm = '') => {
     if (isReset) {
       setLoading(true);
     } else {
@@ -86,10 +40,11 @@ export default function HomePage() {
 
     try {
       let url = `${API_BASE}/stories?limit=${PAGE_SIZE}`;
-      if (filter === 'news') {
-        url += `&authorId=u_newsdesk`;
-      } else if (filter !== 'all') {
+      if (filter !== 'all') {
         url += `&type=${filter}`;
+      }
+      if (queryTerm.trim()) {
+        url += `&search=${encodeURIComponent(queryTerm.trim())}`;
       }
 
       if (currentCursor) {
@@ -115,110 +70,169 @@ export default function HomePage() {
   useEffect(() => {
     setCursor(null);
     setHasMore(true);
-    fetchStories(null, true);
-  }, [filter, fetchStories]);
+    fetchStories(null, true, activeSearchTerm);
+  }, [filter, activeSearchTerm, fetchStories]);
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    const combined = [searchQuery, searchTopic].filter(Boolean).join(' ');
+    setActiveSearchTerm(combined);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setSearchTopic('');
+    setActiveSearchTerm('');
+  };
 
   return (
-    <div className="bg-paper min-h-screen pb-16">
+    <div className="bg-paper min-h-screen pb-16 flex flex-col">
       <BreakingTicker />
-      <HeroGrid />
 
-      {/* TRENDING SECTION */}
-      {trending.length > 0 && (
-        <section className="max-w-6xl mx-auto px-5 pt-10 pb-4">
-          <div className="flex items-center gap-2 mb-6 border-b-2 border-ink pb-2">
-            <TrendingUp size={20} className="text-signal" />
-            <h2 className="text-lg font-bold uppercase tracking-wide">Trending this week</h2>
-          </div>
-          <div className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
-            {trending.slice(0, 3).map((s) => (
-              <MagazineRow key={`trending-${s.id}`} story={s} />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* 1. CORPORATE HERO SECTION */}
+      <section className="relative bg-[#1C1917] text-white pt-16 pb-40 px-5 overflow-hidden">
+        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1600&auto=format&fit=crop&q=80')] bg-cover bg-center opacity-25 mix-blend-luminosity pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#1C1917] via-[#1C1917]/90 to-transparent pointer-events-none" />
 
-      {/* FILTER BAR - "DON'T MISS" */}
-      <FilterBar filter={filter} onFilterChange={setFilter} filters={FILTERS} filterLabels={FILTER_LABELS} />
-
-      {/* 2-COLUMN MAIN LAYOUT */}
-      <section className="max-w-6xl mx-auto px-5" aria-label="Main Feed">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mt-2">
-          
-          {/* LEFT COLUMN: 70% MAIN FEED */}
-          <div className="lg:col-span-8">
-            {loading ? (
-              <div className="flex flex-col gap-4">{Array.from({ length: 4 }).map((_, i) => <MagazineRowSkeleton key={i} />)}</div>
-            ) : stories.length === 0 ? (
-              <div className="border border-dashed border-wire rounded-sm p-16 flex flex-col items-center text-center">
-                <p className="text-2xl font-bold mb-3">Nothing published yet.</p>
-                <Link href="/publish" className="bg-signal text-white font-semibold px-6 py-2.5 rounded-sm hover:bg-signal/90 inline-block">Publish your story</Link>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {/* First item is large featured card */}
-                  {stories.length > 0 && (
-                    <div className="md:col-span-1">
-                      <FeaturedFeedCard story={stories[0]} />
-                    </div>
-                  )}
-                  {/* Remaining items stack as a list next to it */}
-                  <div className="md:col-span-1 flex flex-col pt-0 sm:-mt-5">
-                    {stories.slice(1, 5).map((s) => (
-                      <MagazineRow key={s.id} story={s} />
-                    ))}
-                  </div>
-                </div>
-
-                {/* If there are more than 5 items, stack them beneath in a grid */}
-                {stories.length > 5 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8 border-t border-wire pt-8">
-                    {stories.slice(5).map((s) => (
-                      <div key={s.id} className="md:col-span-1 border-b border-wire/40 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
-                         <FeaturedFeedCard story={s} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {hasMore && (
-                  <div className="mt-8 border-t border-wire pt-8 text-center">
-                    <button 
-                      onClick={() => fetchStories(cursor, false)} 
-                      disabled={loadingMore}
-                      className="border-2 border-ink text-ink font-bold uppercase tracking-wider text-xs px-8 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
-                    >
-                      {loadingMore && <Loader2 size={14} className="animate-spin text-signal" />}
-                      {loadingMore ? 'Loading...' : 'Load more'}
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
+        <div className="max-w-6xl mx-auto relative z-10">
+          <div className="max-w-3xl mb-12">
+            <h1 className="editorial-h text-4xl sm:text-6xl font-black tracking-tight text-white mb-6 leading-tight">
+              Anything’s possible when you have the narrative.
+            </h1>
+            <p className="text-white/80 text-base sm:text-lg font-medium leading-relaxed max-w-2xl">
+              Find compelling independent stories, in-depth documentaries, and the masthead solutions you need to share your truth with the world.
+            </p>
           </div>
 
-          {/* RIGHT COLUMN: 30% SIDEBAR */}
-          <aside className="lg:col-span-4 lg:pl-4">
-            <SocialBar />
-            
-            {/* Ad Placeholder */}
-            <div className="mt-10 mb-8">
-              <p className="text-center text-[10px] text-ink-400 mb-2 uppercase tracking-widest">- Advertisement -</p>
-              <div className="bg-ink-800 w-full aspect-[6/5] flex flex-col items-center justify-center text-white p-6 text-center relative overflow-hidden group cursor-pointer rounded-sm">
-                 <div className="absolute inset-0 bg-gradient-to-br from-[#1a237e] to-[#c2185b] opacity-80 group-hover:scale-105 transition-transform duration-700" />
-                 <div className="relative z-10 flex flex-col items-center">
-                   <p className="text-lg font-medium mb-1 leading-tight">Best Selling <span className="font-bold text-white">BLOG</span> and <br/><span className="font-bold text-white">MAGAZINE</span></p>
-                   <p className="text-sm text-white/90 mb-6 font-medium tracking-wide">Theme of All Time</p>
-                   <button className="border border-white/50 text-xs uppercase tracking-wider px-6 py-2 hover:bg-white hover:text-ink transition-colors font-bold rounded-sm">BUY NOW </button>
-                 </div>
-                 <p className="absolute bottom-3 left-3 text-[10px] text-white/60 relative z-10 font-medium">300 x 250 Ad</p>
+          {/* DUAL-COLUMN CTA SECTION */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 border-t border-white/20 max-w-4xl relative">
+            <div className="space-y-3">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 block">For Readers & Viewers</span>
+              <div>
+                <Link href="#feed-section" className="inline-flex items-center gap-2 bg-white text-ink font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-full hover:bg-signal hover:text-white transition-colors shadow-lg">
+                  Explore main story <ArrowRight size={16} />
+                </Link>
               </div>
             </div>
-          </aside>
 
+            <div className="space-y-3 sm:pl-8 sm:border-l sm:border-white/20">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 block">For Creators & Publishers</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link href="/publish" className="inline-block border border-white/40 text-white font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-full hover:bg-white hover:text-ink transition-colors">
+                  Find your next publish
+                </Link>
+                <Link href="/pricing" className="inline-block border border-white/40 text-white font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-full hover:bg-white hover:text-ink transition-colors">
+                  Explore partner solutions
+                </Link>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
+
+      {/* 2. REDESIGNED ELEGANT FLOATING SEARCH MODULE */}
+      <div className="max-w-5xl mx-auto px-5 -mt-16 relative z-30 mb-12">
+        <form onSubmit={handleSearchSubmit} className="bg-white rounded-xl shadow-2xl border border-wire p-4 sm:p-5 flex flex-col md:flex-row items-center gap-3 backdrop-blur-md bg-white/95">
+          
+          {/* Keyword Search Input */}
+          <div className="flex items-center gap-3 flex-1 w-full bg-[#F4F4F6] px-5 py-3.5 rounded-full border border-wire/60 focus-within:border-signal transition-colors">
+            <Search size={18} className="text-signal shrink-0" />
+            <input 
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title, keyword, or author..."
+              className="w-full text-sm font-medium text-ink bg-transparent outline-none placeholder:text-ink-400"
+            />
+          </div>
+
+          {/* Topic / Category Input */}
+          <div className="flex items-center gap-3 flex-1 w-full bg-[#F4F4F6] px-5 py-3.5 rounded-full border border-wire/60 focus-within:border-signal transition-colors">
+            <Tag size={18} className="text-signal shrink-0" />
+            <input 
+              type="text"
+              value={searchTopic}
+              onChange={(e) => setSearchTopic(e.target.value)}
+              placeholder="Filter by topic or category..."
+              className="w-full text-sm font-medium text-ink bg-transparent outline-none placeholder:text-ink-400"
+            />
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <button 
+              type="submit"
+              className="flex-1 md:flex-none bg-[#E0492B] hover:bg-ink text-white font-bold uppercase tracking-wider text-xs px-8 py-4 rounded-full transition-colors shrink-0 shadow-md flex items-center justify-center gap-2"
+            >
+              <Sparkles size={14} /> Search
+            </button>
+            {activeSearchTerm && (
+              <button 
+                type="button"
+                onClick={handleClearSearch}
+                className="bg-ink-100 hover:bg-ink hover:text-white text-ink p-4 rounded-full transition-colors shrink-0"
+                title="Clear Search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </form>
+
+        {activeSearchTerm && (
+          <div className="mt-3 flex items-center justify-between text-xs font-bold text-white px-4">
+            <span>Showing live results for: &ldquo;{activeSearchTerm}&rdquo;</span>
+            <button onClick={handleClearSearch} className="text-signal hover:underline underline-offset-2">Reset search</button>
+          </div>
+        )}
+      </div>
+
+      {/* 3. MAIN CONTENT SECTION */}
+      <div id="feed-section" className="scroll-mt-24 flex-1 max-w-6xl mx-auto px-5 w-full">
+        <FilterBar filter={filter} onFilterChange={setFilter} filters={FILTERS} filterLabels={FILTER_LABELS} />
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 py-12">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="skeleton h-80 rounded-sm" />
+            ))}
+          </div>
+        ) : stories.length === 0 ? (
+          <div className="border border-dashed border-wire rounded-sm p-20 flex flex-col items-center text-center my-10 bg-white">
+            <Newspaper size={40} className="text-ink-300 mb-4" />
+            <p className="text-2xl font-bold mb-2 text-ink">No matching stories found.</p>
+            <p className="text-sm text-ink-500 mb-6 font-medium">Try adjusting your keywords or clearing the search filter.</p>
+            {activeSearchTerm && (
+              <button onClick={handleClearSearch} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm hover:bg-signal/90 transition-colors shadow-md">
+                View all stories
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="py-6 space-y-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+              {stories.map((story) => (
+                <div key={story.id} className="bg-white border border-wire rounded-sm p-4 shadow-sm hover:shadow-md transition-shadow">
+                  <StoryCard story={story} />
+                </div>
+              ))}
+            </div>
+
+            {hasMore && (
+              <div className="pt-8 text-center border-t border-wire">
+                <button 
+                  onClick={() => fetchStories(cursor, false, activeSearchTerm)} 
+                  disabled={loadingMore}
+                  className="border-2 border-ink text-ink font-bold uppercase tracking-wider text-xs px-10 py-3.5 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50 shadow-sm"
+                >
+                  {loadingMore && <Loader2 size={14} className="animate-spin text-signal" />}
+                  {loadingMore ? 'Loading more...' : 'Load more stories'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

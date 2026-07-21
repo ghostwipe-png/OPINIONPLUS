@@ -15,6 +15,10 @@ import {
   Gift,
   Bell,
   Search,
+  Briefcase,
+  GraduationCap,
+  Radio,
+  Wrench,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useStore } from '../lib/store';
@@ -28,8 +32,8 @@ function NavLink({ href, children, className = '', onClick }) {
     <Link
       href={href}
       onClick={onClick}
-      className={`transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm pb-0.5 border-b-2 ${
-        active ? 'text-signal border-signal' : 'text-white/80 border-transparent hover:text-signal'
+      className={`tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm pb-0.5 border-b-2 whitespace-nowrap ${
+        active ? 'text-signal border-signal' : 'text-white/75 border-transparent hover:text-signal'
       } ${className}`}
     >
       {children}
@@ -38,12 +42,14 @@ function NavLink({ href, children, className = '', onClick }) {
 }
 
 export default function Navbar() {
-  const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const { stories } = useStore();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const isMasterAdmin = user?.email === 'adipotech@gmail.com';
 
   useEffect(() => {
     try {
@@ -55,8 +61,6 @@ export default function Navbar() {
     }
   }, []);
 
-  // Keep the badge loosely in sync with how many stories the store knows about,
-  // as a stand-in until a real notifications feed exists.
   useEffect(() => {
     if (!stories || stories.length === 0) return;
     try {
@@ -83,94 +87,92 @@ export default function Navbar() {
 
   return (
     <header className="border-b border-ink-700 bg-ink sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-5">
-        <div className="flex items-center justify-between h-16">
-          <Link
-            href="/"
-            className="flex items-baseline gap-2 group focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-          >
-            <span className="editorial-h text-2xl font-extrabold tracking-tight text-white">
-              OPINION<span className="text-signal">PLUS</span>
-            </span>
-            <span className="hidden min-[400px]:inline wire-tag text-white/50">
-              every voice, a masthead
-            </span>
-          </Link>
-
-          <nav className="hidden md:flex items-center gap-5 text-sm font-medium" aria-label="Primary">
-            <SearchBar />
-
-            <button
-              onClick={clearUnread}
-              className="relative text-white/80 hover:text-signal transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-              aria-label="Notifications"
-              title="Notifications"
-            >
-              <Bell size={16} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-2 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-signal text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-
+      <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
+        <div className="flex items-center justify-between h-20">
+          
+          {/* LEFT: Primary Navigation Links */}
+          <nav className="hidden lg:flex items-center gap-2.5 xl:gap-5" aria-label="Primary">
             <NavLink href="/">Feed</NavLink>
-            <NavLink href="/pricing" className="flex items-center gap-1">
-              <Gift size={14} /> Partner
-            </NavLink>
-
-            <PushNotificationToggle />
-            {isAuthenticated && (
-              <NavLink href="/publish" className="flex items-center gap-1.5">
-                <PenSquare size={15} /> Publish
-              </NavLink>
-            )}
-            <Link
-              href="/read-later"
-              className="text-white/50 hover:text-white transition-colors flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-              title="Read Later"
-            >
-              <Bookmark size={14} />
-            </Link>
-            {isAdmin && (
-              <NavLink href="/admin" className="flex items-center gap-1.5">
-                <ShieldCheck size={15} /> Admin
-              </NavLink>
-            )}
-            {isAuthenticated ? (
-              <div className="flex items-center gap-3 pl-3 border-l border-ink-700">
-                <Link
-                  href={`/profile/${user.id}`}
-                  className="nameplate focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-                >
-                  {user.logoUrl ? (
-                    <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal" />
-                  ) : (
-                    <span className="nameplate-seal grid place-items-center text-white">
-                      <UserIcon size={14} />
-                    </span>
-                  )}
-                  <span className="text-sm font-semibold text-white">{user.publisherName}</span>
-                </Link>
-                <button
-                  onClick={logout}
-                  className="text-white/50 hover:text-signal transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
-                  aria-label="Sign out"
-                  title="Sign out"
-                >
-                  <LogOut size={16} />
-                </button>
-              </div>
-            ) : (
-              <Link href="/login" className="btn-primary px-4 py-2 text-sm rounded-sm">
-                Sign in
-              </Link>
-            )}
+            <NavLink href="/?type=story">Stories</NavLink>
+            <NavLink href="/?type=documentary">Docs</NavLink>
+            <NavLink href="/rooms">Spaces</NavLink>
+            <NavLink href="/services">Services</NavLink>
+            <NavLink href="/campuses">Campus</NavLink>
+            <NavLink href="/jobs">Jobs</NavLink>
+            <NavLink href="/pricing">Partner</NavLink>
           </nav>
 
-          <div className="flex items-center gap-3 md:hidden">
+          {/* CENTER: Centered Brand Logo / Title */}
+          <div className="absolute left-1/2 -translate-x-1/2 text-center pointer-events-none">
+            <Link
+              href="/"
+              className="inline-block group pointer-events-auto focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
+            >
+              <span className="editorial-h text-lg xl:text-xl font-black tracking-[0.22em] text-white block">
+                OPINION<span className="text-signal">PLUS</span>
+              </span>
+              <span className="text-[8px] xl:text-[9px] tracking-[0.28em] uppercase text-white/50 block mt-0.5 whitespace-nowrap">
+                every voice, a masthead
+              </span>
+            </Link>
+          </div>
+
+          {/* RIGHT: Action & Utility Links */}
+          <nav className="hidden lg:flex items-center gap-3 xl:gap-5" aria-label="Utility">
             <button
-              className="text-white focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
+              onClick={() => setMobileSearchOpen((o) => !o)}
+              className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none whitespace-nowrap"
+            >
+              Search
+            </button>
+            <Link
+              href="/read-later"
+              className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none whitespace-nowrap"
+            >
+              Saved
+            </Link>
+            {isMasterAdmin && (
+              <Link
+                href="/admin"
+                className={`tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold transition-colors focus-visible:outline-none flex items-center gap-1 whitespace-nowrap ${
+                  pathname === '/admin' ? 'text-signal' : 'text-white/75 hover:text-signal'
+                }`}
+              >
+                <ShieldCheck size={13} /> Admin
+              </Link>
+            )}
+            {isAuthenticated ? (
+              <Link
+                href={`/profile/${user.id}`}
+                className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none flex items-center gap-1.5 whitespace-nowrap"
+              >
+                {user.logoUrl ? (
+                  <img src={user.logoUrl} alt={user.publisherName} className="w-4 h-4 xl:w-5 xl:h-5 rounded-full object-cover border border-white/20" />
+                ) : (
+                  <UserIcon size={13} />
+                )}
+                <span>Account</span>
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none whitespace-nowrap"
+              >
+                Sign In
+              </Link>
+            )}
+            <Link
+              href="/publish"
+              className="bg-signal text-white px-3 py-1.5 xl:px-3.5 xl:py-2 rounded-sm tracking-[0.12em] uppercase text-[9px] xl:text-[10px] font-bold hover:bg-white hover:text-ink transition-colors shadow-sm whitespace-nowrap"
+            >
+              Publish
+            </Link>
+          </nav>
+
+          {/* MOBILE TOGGLES */}
+          <div className="flex items-center gap-3 lg:hidden ml-auto z-10">
+            <button
+              className="text-white p-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
               onClick={() => setMobileSearchOpen((o) => !o)}
               aria-label="Toggle search"
               aria-expanded={mobileSearchOpen}
@@ -178,19 +180,19 @@ export default function Navbar() {
               <Search size={20} />
             </button>
             <button
-              className="relative text-white focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
+              className="relative text-white p-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
               onClick={clearUnread}
               aria-label="Notifications"
             >
               <Bell size={20} />
               {unreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-signal text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-signal text-white text-[9px] font-bold flex items-center justify-center leading-none">
                   {unreadCount}
                 </span>
               )}
             </button>
             <button
-              className="text-white focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
+              className="text-white p-1 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm"
               onClick={() => setOpen(true)}
               aria-label="Open menu"
               aria-expanded={open}
@@ -201,33 +203,33 @@ export default function Navbar() {
         </div>
 
         {mobileSearchOpen && (
-          <div className="md:hidden pb-4">
+          <div className="lg:hidden pb-4 pt-2 animate-in fade-in duration-200">
             <SearchBar />
           </div>
         )}
       </div>
 
-      {/* Mobile drawer */}
+      {/* Mobile Drawer with Smooth Slide & Backdrop Fade */}
       <div
-        className={`md:hidden fixed inset-0 z-50 transition-opacity duration-300 ${
+        className={`lg:hidden fixed inset-0 z-50 transition-opacity duration-300 ease-out ${
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         aria-hidden={!open}
       >
         <div
-          className="absolute inset-0 bg-black/60"
+          className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity"
           onClick={closeDrawer}
         />
         <div
-          className={`absolute top-0 right-0 h-full w-[85%] max-w-sm bg-ink shadow-xl transition-transform duration-300 ease-out flex flex-col ${
+          className={`absolute top-0 right-0 h-full w-[85%] max-w-sm bg-ink shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col ${
             open ? 'translate-x-0' : 'translate-x-full'
           }`}
           role="dialog"
           aria-modal="true"
           aria-label="Mobile navigation"
         >
-          <div className="flex items-center justify-between px-5 h-16 border-b border-ink-700">
-            <span className="editorial-h text-lg font-extrabold text-white">
+          <div className="flex items-center justify-between px-5 h-20 border-b border-ink-700">
+            <span className="editorial-h text-lg font-extrabold text-white tracking-[0.2em]">
               OPINION<span className="text-signal">PLUS</span>
             </span>
             <button
@@ -246,9 +248,9 @@ export default function Navbar() {
               className="flex items-center gap-3 px-5 py-4 border-b border-ink-700 focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none"
             >
               {user.logoUrl ? (
-                <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal w-10 h-10" />
+                <img src={user.logoUrl} alt={user.publisherName} className="nameplate-seal w-10 h-10 object-cover rounded-full" />
               ) : (
-                <span className="nameplate-seal w-10 h-10 grid place-items-center text-white">
+                <span className="nameplate-seal w-10 h-10 grid place-items-center text-white bg-ink-800 rounded-full">
                   <UserIcon size={18} />
                 </span>
               )}
@@ -259,101 +261,127 @@ export default function Navbar() {
             </Link>
           )}
 
-          <nav className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-1 text-sm font-medium">
+          <nav className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-1 text-xs font-semibold tracking-[0.12em] uppercase">
             <Link
               href="/"
               onClick={closeDrawer}
-              className={`flex items-center min-h-[44px] ${pathname === '/' ? 'text-signal' : 'text-white'}`}
+              className={`flex items-center min-h-[40px] px-2 rounded-sm ${pathname === '/' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
             >
               Feed
             </Link>
             <Link
+              href="/?type=story"
+              onClick={closeDrawer}
+              className={`flex items-center min-h-[40px] px-2 rounded-sm text-white/90 hover:bg-white/5`}
+            >
+              Stories
+            </Link>
+            <Link
+              href="/?type=documentary"
+              onClick={closeDrawer}
+              className={`flex items-center min-h-[40px] px-2 rounded-sm text-white/90 hover:bg-white/5`}
+            >
+              Documentaries
+            </Link>
+            <Link
+              href="/rooms"
+              onClick={closeDrawer}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/rooms' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
+            >
+              <Radio size={15} /> Live Audio Spaces
+            </Link>
+            <Link
+              href="/services"
+              onClick={closeDrawer}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/services' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
+            >
+              <Wrench size={15} /> Services
+            </Link>
+            <Link
+              href="/campuses"
+              onClick={closeDrawer}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/campuses' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
+            >
+              <GraduationCap size={15} /> Campus Editions
+            </Link>
+            <Link
+              href="/jobs"
+              onClick={closeDrawer}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/jobs' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
+            >
+              <Briefcase size={15} /> Jobs Board
+            </Link>
+            <Link
               href="/pricing"
               onClick={closeDrawer}
-              className={`flex items-center gap-2 min-h-[44px] ${pathname === '/pricing' ? 'text-signal' : 'text-white'}`}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/pricing' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
             >
-              <Gift size={16} /> Partner Program
+              <Gift size={15} /> Partner Program
             </Link>
 
-            <button
-              onClick={() => {
-                clearUnread();
-              }}
-              className="flex items-center justify-between min-h-[44px] text-white text-left"
-            >
-              <span className="flex items-center gap-2">
-                <Bell size={16} /> Notifications
-              </span>
-              {unreadCount > 0 && (
-                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-signal text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-
-            <div className="border-t border-ink-700 my-2" />
+            <div className="border-t border-ink-700 my-3" />
 
             {isAuthenticated && (
               <Link
                 href="/publish"
                 onClick={closeDrawer}
-                className={`flex items-center gap-2 min-h-[44px] ${pathname === '/publish' ? 'text-signal' : 'text-white'}`}
+                className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/publish' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
               >
-                <PenSquare size={16} /> Publish
+                <PenSquare size={15} /> Publish Story
               </Link>
             )}
             <Link
               href="/read-later"
               onClick={closeDrawer}
-              className={`flex items-center gap-2 min-h-[44px] ${pathname === '/read-later' ? 'text-signal' : 'text-white'}`}
+              className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/read-later' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
             >
-              <Bookmark size={16} /> Read Later
+              <Bookmark size={15} /> Saved Articles
             </Link>
-            <div className="py-1">
+            <div className="py-2 px-2">
               <PushNotificationToggle />
             </div>
 
-            {isAdmin && (
+            {isMasterAdmin && (
               <>
-                <div className="border-t border-ink-700 my-2" />
+                <div className="border-t border-ink-700 my-3" />
                 <Link
                   href="/admin"
                   onClick={closeDrawer}
-                  className={`flex items-center gap-2 min-h-[44px] ${pathname === '/admin' ? 'text-signal' : 'text-white'}`}
+                  className={`flex items-center gap-2.5 min-h-[40px] px-2 rounded-sm ${pathname === '/admin' ? 'text-signal bg-white/5' : 'text-white/90 hover:bg-white/5'}`}
                 >
-                  <ShieldCheck size={16} /> Admin
+                  <ShieldCheck size={15} /> Admin Dashboard
                 </Link>
               </>
             )}
           </nav>
 
-          <div className="px-5 py-4 border-t border-ink-700">
+          <div className="px-5 py-4 border-t border-ink-700 bg-ink-900/50">
             {isAuthenticated ? (
-              <>
+              <div className="flex flex-col gap-2">
                 <Link
                   href={`/profile/${user.id}`}
                   onClick={closeDrawer}
-                  className="flex items-center gap-2 min-h-[44px] text-white"
+                  className="flex items-center gap-2.5 min-h-[38px] text-white uppercase text-[11px] font-bold tracking-[0.12em] hover:text-signal transition-colors"
                 >
-                  <LayoutGrid size={16} /> My profile
+                  <LayoutGrid size={15} /> Account Settings
                 </Link>
                 <button
                   onClick={() => {
                     closeDrawer();
                     logout();
                   }}
-                  className="flex items-center gap-2 min-h-[44px] text-left text-signal"
+                  className="flex items-center gap-2.5 min-h-[38px] text-left text-signal uppercase text-[11px] font-bold tracking-[0.12em] hover:opacity-80 transition-opacity"
                 >
-                  <LogOut size={16} /> Sign out
+                  <LogOut size={15} /> Sign out
                 </button>
-              </>
+              </div>
             ) : (
               <Link
                 href="/login"
                 onClick={closeDrawer}
-                className="btn-primary px-4 py-2 text-center rounded-sm block"
+                className="bg-signal text-white px-4 py-3 text-center rounded-sm block uppercase text-[11px] font-bold tracking-[0.12em] hover:bg-white hover:text-ink transition-colors shadow-sm"
               >
-                Sign in
+                Sign In
               </Link>
             )}
           </div>

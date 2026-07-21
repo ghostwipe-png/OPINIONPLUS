@@ -241,9 +241,10 @@ export default function StoryClientView() {
           </div>
         )}
 
+        {/* ⚡ Dynamic Medium Cover Image Floating on the Right with Text Wrapping */}
         {coverImage && !story.mediaBlocked && (
-          <div className="mb-10 rounded-sm overflow-hidden border border-wire shadow-sm">
-            <img src={coverImage} alt="" className="w-full max-h-[500px] object-cover" />
+          <div className="mb-6 sm:float-right sm:ml-8 sm:mb-6 sm:w-80 w-full rounded-sm overflow-hidden border border-wire shadow-sm shrink-0">
+            <img src={coverImage} alt="" className="w-full h-auto max-h-[320px] object-cover" />
           </div>
         )}
         {story.mediaBlocked && (
@@ -257,7 +258,7 @@ export default function StoryClientView() {
 
         <div
           ref={contentRef}
-          className={`prose-story w-full max-w-[720px] mx-auto text-ink-800 text-lg leading-[1.85] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere]
+          className={`prose-story w-full max-w-[720px] mx-auto text-ink-800 text-lg leading-[1.85] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere] clear-none
             [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-black [&_h1]:mt-8 [&_h1]:mb-4
             [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:border-b [&_h2]:border-wire [&_h2]:pb-2
             [&_h3]:font-display [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mt-6 [&_h3]:mb-3 [&_h3]:scroll-mt-24
@@ -274,6 +275,8 @@ export default function StoryClientView() {
             ${firstBlockHasText ? ' [&>*:first-child]:first-letter:font-display [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-signal [&>*:first-child]:first-letter:text-[4.5rem] [&>*:first-child]:first-letter:leading-[0.75] [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-4 [&>*:first-child]:first-letter:pt-2' : ''}`}
           dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
         />
+
+        <div className="clear-both" />
 
         {story.files?.length > 0 && (
           <div className="max-w-[720px] mx-auto mb-12 border-2 border-wire rounded-sm p-6 bg-ink-50/50">

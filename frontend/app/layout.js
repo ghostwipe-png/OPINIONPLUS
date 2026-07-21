@@ -122,7 +122,6 @@ export default function RootLayout({ children }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify([websiteSchema, orgSchema]) }}
         />
-        {/* Service Worker Auto-Registration Script for Android/PWA */}
         <script
           dangerouslySetInnerHTML={{
             __html: `

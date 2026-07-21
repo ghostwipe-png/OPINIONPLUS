@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Users as UsersIcon, FileText, Flag, ShieldPlus, Activity, ScrollText, Lock, CreditCard,
-  MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Archive, Eye, Trash2, CheckCheck,
+  MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
   KeyRound, Server, FileDown, UserCog, Clock,
@@ -107,7 +107,7 @@ function PinGate({ onConfirm, onCancel, label }) {
         <p className="text-[11px] font-mono text-ink-400">Demo PIN is {DEMO_PIN}</p>
         <div className="flex gap-3 pt-2">
           <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
-          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Confirm</button>
+          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -125,7 +125,7 @@ function ConfirmDialog({ label, detail, onConfirm, onCancel }) {
         {detail && <p className="text-xs font-medium text-ink-500">{detail}</p>}
         <div className="flex gap-3 pt-2">
           <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
-          <button onClick={onConfirm} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Confirm</button>
+          <button onClick={onConfirm} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -203,19 +203,6 @@ export default function AdminPage() {
   const searchInputRef = useRef(null);
   const lastPinRef = useRef(DEMO_PIN);
 
-  // Archive
-  const [archiveItems, setArchiveItems] = useState([]);
-  const [archivePage, setArchivePage] = useState(1);
-  const [archiveTotal, setArchiveTotal] = useState(0);
-  const [archiveTotalPages, setArchiveTotalPages] = useState(1);
-  const [archiveStatus, setArchiveStatus] = useState('pending');
-  const [archiveSource, setArchiveSource] = useState('');
-  const [archiveSearch, setArchiveSearch] = useState('');
-  const [selectedItems, setSelectedItems] = useState([]);
-  const [archiveStats, setArchiveStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0, bySource: [] });
-  const [approveType, setApproveType] = useState('news');
-  const [approvePrivacy, setApprovePrivacy] = useState('public');
-  const [previewItem, setPreviewItem] = useState(null);
   const [searchAnalytics, setSearchAnalytics] = useState({ top: [], recent: [], total: 0 });
 
   // UI / God-mode state
@@ -233,7 +220,7 @@ export default function AdminPage() {
 
   // Content enhancements
   const [contentSort, setContentSort] = useState('newest');
-  const [contentSourceFilter, setContentSourceFilter] = useState('');
+  const [contentFormatFilter, setContentFormatFilter] = useState('all');
   const [featuredIds, setFeaturedIds] = useState([]);
 
   // Financial enhancements
@@ -254,12 +241,6 @@ export default function AdminPage() {
   const [activeSessions, setActiveSessions] = useState([]);
   const [securityEvents, setSecurityEvents] = useState([]);
   const [apiKeys, setApiKeys] = useState([]);
-
-  // News management
-  const [newsEnabled, setNewsEnabled] = useState(true);
-  const [newsArticles, setNewsArticles] = useState([]);
-  const [selectedNewsIds, setSelectedNewsIds] = useState([]);
-  const [newsLoading, setNewsLoading] = useState(false);
 
   const showToast = useCallback((message, type = 'ok') => {
     const id = Math.random().toString(36).slice(2);
@@ -312,75 +293,6 @@ export default function AdminPage() {
   const exportCSV = () => {
     window.open(`${API_BASE}/subscriptions/admin/export`, '_blank');
   };
-
-  const loadArchive = async () => {
-    setLoading('archive', true);
-    try {
-      const params = new URLSearchParams({ status: archiveStatus, page: archivePage, limit: 50 });
-      if (archiveSource) params.append('source', archiveSource);
-      if (archiveSearch) params.append('q', archiveSearch);
-      const res = await fetch(`${API_BASE}/archive?${params}`, { credentials: 'include' });
-      const data = await res.json();
-      setArchiveItems(data.items || []); setArchiveTotal(data.total || 0); setArchiveTotalPages(data.totalPages || 1);
-    } catch (e) {} finally { setLoading('archive', false); }
-  };
-
-  const loadArchiveStats = async () => {
-    try { const res = await fetch(`${API_BASE}/archive/stats`, { credentials: 'include' }); const data = await res.json(); setArchiveStats(data); } catch (e) {}
-  };
-
-  const approveItem = async (id) => {
-    try {
-      await fetch(`${API_BASE}/archive/${id}/approve`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ type: approveType, privacy: approvePrivacy }) });
-      showToast('Archive item approved');
-      loadArchive(); loadArchiveStats();
-    } catch (e) { showToast('Failed to approve item', 'error'); }
-  };
-
-  const rejectItem = async (id) => {
-    try {
-      await fetch(`${API_BASE}/archive/${id}`, { method: 'DELETE', credentials: 'include', headers: { 'X-CSRF-Token': getCsrfToken() } });
-      showToast('Archive item rejected');
-      loadArchive(); loadArchiveStats();
-    } catch (e) { showToast('Failed to reject item', 'error'); }
-  };
-
-  const bulkApprove = async () => {
-    if (selectedItems.length === 0) return;
-    try {
-      await fetch(`${API_BASE}/archive/bulk-approve`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ ids: selectedItems, type: approveType, privacy: approvePrivacy }) });
-      showToast(`${selectedItems.length} items approved`);
-      setSelectedItems([]); loadArchive(); loadArchiveStats();
-    } catch (e) { showToast('Bulk approve failed', 'error'); }
-  };
-
-  const bulkReject = async () => {
-    if (selectedItems.length === 0) return;
-    try {
-      await fetch(`${API_BASE}/archive/bulk-delete`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ ids: selectedItems }) });
-      showToast(`${selectedItems.length} items rejected`);
-      setSelectedItems([]); loadArchive(); loadArchiveStats();
-    } catch (e) { showToast('Bulk reject failed', 'error'); }
-  };
-
-  const approveAllPending = async () => {
-    try {
-      setLoading('archive', true);
-      const params = new URLSearchParams({ status: 'pending', page: 1, limit: 500 });
-      const res = await fetch(`${API_BASE}/archive?${params}`, { credentials: 'include' });
-      const data = await res.json();
-      const ids = (data.items || []).map((i) => i.id);
-      if (!ids.length) { showToast('No pending items'); return; }
-      await fetch(`${API_BASE}/archive/bulk-approve`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ ids, type: 'news', privacy: 'public' }) });
-      showToast(`Approved ${ids.length} pending items`);
-      loadArchiveStats();
-      if (tab === 'archive') loadArchive();
-    } catch (e) { showToast('Approve all failed', 'error'); } finally { setLoading('archive', false); }
-  };
-
-  const toggleSelect = (id) => setSelectedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-
-  useEffect(() => { if (tab === 'archive') { loadArchive(); loadArchiveStats(); } }, [tab, archivePage, archiveStatus, archiveSource]);
 
   const markWithdrawalComplete = async (id) => {
     try {
@@ -470,54 +382,10 @@ export default function AdminPage() {
     showToast('Exporting all datasets…');
   };
 
-  // News management functions
-  const loadNewsToggle = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/admin/news/toggle`, { credentials: 'include' });
-      const data = await res.json();
-      setNewsEnabled(data.enabled !== false);
-    } catch (e) {}
-  };
-
-  const loadNewsArticles = async () => {
-    setNewsLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/admin/news/list`, { credentials: 'include' });
-      const data = await res.json();
-      setNewsArticles(data.news || []);
-    } catch (e) { setNewsArticles([]); }
-    setNewsLoading(false);
-  };
-
-  const toggleNewsEnabled = async () => {
-    const newValue = !newsEnabled;
-    setNewsEnabled(newValue);
-    try {
-      await adminFetch('/admin/news/toggle', { method: 'POST', pin: true, pinValue: lastPinRef.current, body: { enabled: newValue } });
-      showToast(`News aggregation ${newValue ? 'enabled' : 'disabled'}`);
-    } catch (e) {
-      setNewsEnabled(!newValue);
-      showToast('Failed to toggle news', 'error');
-    }
-  };
-
-  const bulkDeleteNews = async () => {
-    if (selectedNewsIds.length === 0) return;
-    try {
-      await adminFetch('/admin/news/bulk-delete', { method: 'POST', pin: true, pinValue: lastPinRef.current, body: { ids: selectedNewsIds } });
-      showToast(`${selectedNewsIds.length} news articles deleted`);
-      setSelectedNewsIds([]);
-      loadNewsArticles();
-    } catch (e) { showToast('Failed to delete news articles', 'error'); }
-  };
-
   useEffect(() => { if (tab === 'settings' && isRoot) loadSettings(); }, [tab, isRoot]);
   useEffect(() => { if (tab === 'security' && isRoot) loadSecurity(); }, [tab, isRoot]);
-  useEffect(() => { if (tab === 'news') { loadNewsToggle(); loadNewsArticles(); } }, [tab]);
 
   const TABS = useMemo(() => [
-    { id: 'archive', label: 'Archive', icon: Archive },
-    { id: 'news', label: 'News Management', icon: Zap },
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'users', label: `Users (${users.length})`, icon: UsersIcon },
     { id: 'content', label: `Content (${stories.filter(s => !s.deleted).length})`, icon: FileText },
@@ -587,7 +455,11 @@ export default function AdminPage() {
     filterStatus === 'public' ? activeStories.filter(s => s.privacy === 'public') :
     filterStatus === 'private' ? activeStories.filter(s => s.privacy === 'private') :
     filterStatus === 'blocked' ? activeStories.filter(s => s.mediaBlocked) : activeStories;
-  if (contentSourceFilter) filteredStories = filteredStories.filter(s => s.source === contentSourceFilter);
+  
+  if (contentFormatFilter !== 'all') {
+    filteredStories = filteredStories.filter(s => (s.type || 'story') === contentFormatFilter);
+  }
+
   filteredStories = [...filteredStories].sort((a, b) => {
     if (contentSort === 'liked') return (b.likes?.length || 0) - (a.likes?.length || 0);
     if (contentSort === 'commented') return (b.comments?.length || 0) - (a.comments?.length || 0);
@@ -626,8 +498,6 @@ export default function AdminPage() {
     return { label: d.toLocaleDateString(undefined, { weekday: 'short' }), value };
   });
 
-  const CONTENT_SOURCES = ['BBC', 'Al Jazeera', 'Nation', 'Capital FM', 'Tuko'];
-
   const darkWrap = darkMode ? 'bg-ink text-paper' : 'bg-paper text-ink';
   const darkCard = darkMode ? 'border-ink-600 bg-ink-900/60 text-white' : 'border-wire bg-white text-ink';
 
@@ -648,7 +518,7 @@ export default function AdminPage() {
             </div>
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Platform Control Suite</h1>
             <p className="text-xs font-semibold text-ink-500 uppercase tracking-wider mt-1">
-              {users.length} registered users · {activeStories.length} published stories · {proUsers.length} pro partners · {activeSubscribers.length} active subscribers
+              {users.length} registered users · {activeStories.length} published stories & documentaries · {proUsers.length} pro partners · {activeSubscribers.length} active subscribers
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -671,7 +541,7 @@ export default function AdminPage() {
               {TABS.map((t, i) => (
                 <button 
                   key={t.id} 
-                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
+                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } }}
                   title={`Ctrl+${i + 1}`}
                   className={`px-4 py-2.5 rounded-sm border flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-left transition-colors ${
                     tab === t.id ? 'bg-ink text-white border-ink shadow-sm' : `${darkCard} hover:border-ink`
@@ -689,7 +559,7 @@ export default function AdminPage() {
             {TABS.map(t => (
               <button 
                 key={t.id} 
-                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'archive', 'search', 'news'].includes(t.id)) { if (t.id === 'news') { loadNewsToggle(); loadNewsArticles(); } else loadAllData(); } }}
+                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } }}
                 className={`px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
                   tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire bg-white text-ink-600'
                 }`}
@@ -701,174 +571,6 @@ export default function AdminPage() {
 
           {/* Main Content Area */}
           <main className="flex-1 min-w-0 bg-white border border-wire rounded-sm p-6 sm:p-8 shadow-sm">
-
-            {/* Archive */}
-            {tab === 'archive' && (
-              <div className="space-y-6">
-                <div className="flex gap-3 mb-4 flex-wrap text-xs font-bold uppercase tracking-wider items-center bg-ink-50 p-4 rounded-sm border border-wire">
-                  <span className="px-3 py-1 rounded-sm bg-white border border-wire">📦 {archiveStats.total || 0} Total</span>
-                  <span className="px-3 py-1 rounded-sm bg-amber-100 text-amber-800">⏳ {archiveStats.pending || 0} Pending</span>
-                  <span className="px-3 py-1 rounded-sm bg-emerald-100 text-emerald-800">✅ {archiveStats.approved || 0} Approved</span>
-                  <span className="px-3 py-1 rounded-sm bg-red-100 text-signal">🗑️ {archiveStats.rejected || 0} Rejected</span>
-                  {loadingTabs.archive && <Spinner />}
-                  <button onClick={() => runConfirm('Approve all pending archive items?', 'This will publish every pending item as News / Public.', approveAllPending)} className="ml-auto bg-ink text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5 shadow-sm">
-                    <CheckCheck size={14} /> Approve All Pending
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <select value={archiveStatus} onChange={(e) => { setArchiveStatus(e.target.value); setArchivePage(1); }} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2.5 bg-paper">
-                    <option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="all">All Statuses</option>
-                  </select>
-                  <select value={archiveSource} onChange={(e) => { setArchiveSource(e.target.value); setArchivePage(1); }} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2.5 bg-paper">
-                    <option value="">All Sources</option>{(archiveStats.bySource || []).map(s => <option key={s.source_name} value={s.source_name}>{s.source_name} ({s.count})</option>)}
-                  </select>
-                  <input value={archiveSearch} onChange={(e) => setArchiveSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setArchivePage(1), loadArchive())} placeholder="Search archive..." className="text-xs font-medium border border-wire rounded-sm px-3 py-2.5 flex-1 max-w-sm bg-paper focus:outline-none focus:border-ink" />
-                  <button onClick={() => { setArchivePage(1); loadArchive(); }} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors">Search</button>
-                </div>
-
-                {archiveStatus === 'pending' && (
-                  <div className="flex gap-3 items-center text-xs font-bold uppercase tracking-wider flex-wrap bg-ink-50/50 p-4 rounded-sm border border-wire">
-                    <span className="text-ink-500">Approve as format:</span>
-                    <select value={approveType} onChange={(e) => setApproveType(e.target.value)} className="border border-wire rounded-sm px-3 py-2 bg-paper"><option value="news">News</option><option value="story">Story</option><option value="documentary">Documentary</option></select>
-                    <select value={approvePrivacy} onChange={(e) => setApprovePrivacy(e.target.value)} className="border border-wire rounded-sm px-3 py-2 bg-paper"><option value="public">Public</option><option value="private">Private</option></select>
-                    {selectedItems.length > 0 && (
-                      <div className="flex gap-2 ml-auto">
-                        <button onClick={bulkApprove} className="bg-ink text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"><CheckCheck size={13} /> Approve ({selectedItems.length})</button>
-                        <button onClick={bulkReject} className="bg-signal text-white font-bold uppercase text-xs px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5"><Trash2 size={13} /> Reject ({selectedItems.length})</button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
-                  {!loadingTabs.archive && archiveItems.length === 0 && <EmptyState icon={Archive} label="No archive items found matching criteria." />}
-                  {archiveItems.map(item => (
-                    <div key={item.id} className={`p-4 flex items-start gap-4 transition-colors ${selectedItems.includes(item.id) ? 'bg-ink-50' : 'hover:bg-ink-50/30'}`}>
-                      <input type="checkbox" checked={selectedItems.includes(item.id)} onChange={() => toggleSelect(item.id)} className="mt-1.5 h-4 w-4 rounded border-wire text-ink focus:ring-0 cursor-pointer" />
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-ink text-white">{item.source_name}</span>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${item.status === 'pending' ? 'bg-amber-100 text-amber-800' : item.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-signal'}`}>{item.status}</span>
-                        </div>
-                        <p className="text-sm font-bold text-ink">{item.title}</p>
-                        <p className="text-xs text-ink-600 line-clamp-2 font-medium">{item.excerpt}</p>
-                        <p className="text-[11px] text-ink-400">{safeDate(item.created_at)}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setPreviewItem(item)} className="border border-wire bg-white hover:border-ink p-2 rounded-sm text-ink transition-colors" title="Preview"><Eye size={14} /></button>
-                        {item.status === 'pending' && (
-                          <>
-                            <button onClick={() => approveItem(item.id)} className="bg-emerald-600 text-white p-2 rounded-sm hover:bg-emerald-700 transition-colors shadow-sm" title="Approve"><CheckCircle size={14} /></button>
-                            <button onClick={() => rejectItem(item.id)} className="bg-signal text-white p-2 rounded-sm hover:bg-signal/90 transition-colors shadow-sm" title="Reject"><XCircle size={14} /></button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {archiveTotalPages > 1 && (
-                  <div className="flex items-center justify-between pt-4 border-t border-wire text-xs font-bold uppercase tracking-wider">
-                    <button onClick={() => setArchivePage(p => Math.max(1, p - 1))} disabled={archivePage === 1} className="border border-wire px-4 py-2 rounded-sm hover:border-ink disabled:opacity-30 flex items-center gap-1.5"><ChevronLeft size={14} /> Previous</button>
-                    <span className="text-ink-500">Page {archivePage} of {archiveTotalPages} ({archiveTotal} total items)</span>
-                    <button onClick={() => setArchivePage(p => Math.min(archiveTotalPages, p + 1))} disabled={archivePage === archiveTotalPages} className="border border-wire px-4 py-2 rounded-sm hover:border-ink disabled:opacity-30 flex items-center gap-1.5">Next <ChevronRight size={14} /></button>
-                  </div>
-                )}
-
-                {previewItem && (
-                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm z-50 grid place-items-center p-4" onClick={() => setPreviewItem(null)}>
-                    <div className="bg-paper rounded-sm border-2 border-ink w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
-                      <div className="p-6 bg-ink text-white flex items-center justify-between border-b border-white/10">
-                        <h3 className="text-base font-bold uppercase tracking-wide">{previewItem.title}</h3>
-                        <button onClick={() => setPreviewItem(null)} className="text-white/70 hover:text-white"><XCircle size={20} /></button>
-                      </div>
-                      <div className="p-6 space-y-4">
-                        <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Source: {previewItem.source_name} · {safeDate(previewItem.created_at)}</p>
-                        {previewItem.cover_image && <img src={previewItem.cover_image} alt="" className="w-full max-h-80 object-cover rounded-sm border border-wire" />}
-                        <div className="prose-story text-sm text-ink-800 leading-relaxed" dangerouslySetInnerHTML={{ __html: previewItem.body }} />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* News Management */}
-            {tab === 'news' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between p-6 bg-ink-50 border border-wire rounded-sm">
-                  <div>
-                    <h2 className="text-sm font-bold uppercase tracking-wider text-ink flex items-center gap-2"><Zap size={16} className="text-signal" /> RSS News Aggregation Engine</h2>
-                    <p className="text-xs text-ink-500 mt-1">Control automated news fetching and indexing across connected public wire sources.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-ink-600">{newsArticles.length} active feeds</span>
-                    <button
-                      onClick={toggleNewsEnabled}
-                      className={`relative w-14 h-7 rounded-full transition-colors ${newsEnabled ? 'bg-ink' : 'bg-ink-300'}`}
-                    >
-                      <span className={`absolute top-1 left-1 w-5 h-5 rounded-full bg-white transition-transform shadow-sm ${newsEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
-                    </button>
-                    <span className="text-xs font-bold uppercase">{newsEnabled ? 'Active' : 'Paused'}</span>
-                  </div>
-                </div>
-
-                {newsLoading ? (
-                  <p className="text-xs font-bold uppercase text-ink-400 flex items-center gap-2"><Spinner /> Loading news feeds...</p>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink-600 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedNewsIds.length === newsArticles.length && newsArticles.length > 0}
-                          onChange={() => {
-                            if (selectedNewsIds.length === newsArticles.length) {
-                              setSelectedNewsIds([]);
-                            } else {
-                              setSelectedNewsIds(newsArticles.map(n => n.id));
-                            }
-                          }}
-                          className="h-4 w-4 rounded border-wire text-ink focus:ring-0"
-                        />
-                        Select All Articles
-                      </label>
-                      {selectedNewsIds.length > 0 && (
-                        <button
-                          onClick={() => runGated(`Permanently delete ${selectedNewsIds.length} selected news articles? This cannot be undone.`, bulkDeleteNews)}
-                          className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5 shadow-sm"
-                        >
-                          <Trash2 size={13} /> Delete Selected ({selectedNewsIds.length})
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
-                      {newsArticles.length === 0 && <EmptyState icon={Zap} label="No news articles indexed in the system." />}
-                      {newsArticles.map(article => (
-                        <div key={article.id} className={`p-4 flex items-start gap-4 transition-colors ${selectedNewsIds.includes(article.id) ? 'bg-ink-50' : 'hover:bg-ink-50/30'}`}>
-                          <input
-                            type="checkbox"
-                            checked={selectedNewsIds.includes(article.id)}
-                            onChange={() => setSelectedNewsIds(prev => prev.includes(article.id) ? prev.filter(id => id !== article.id) : [...prev, article.id])}
-                            className="mt-1.5 h-4 w-4 rounded border-wire text-ink focus:ring-0 cursor-pointer"
-                          />
-                          <div className="flex-1 min-w-0 space-y-1">
-                            <p className="text-sm font-bold text-ink">{article.title}</p>
-                            <p className="text-xs text-ink-600 line-clamp-1 font-medium">{article.excerpt}</p>
-                            <p className="text-[11px] text-ink-400">{safeDateShort(article.created_at)}</p>
-                          </div>
-                          <Link href={`/story/${article.id}`} className="border border-wire bg-white hover:border-ink p-2 rounded-sm text-ink transition-colors shrink-0" title="View story">
-                            <Eye size={14} />
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Overview */}
             {tab === 'overview' && (
@@ -902,7 +604,6 @@ export default function AdminPage() {
                 </div>
 
                 <div className="flex gap-3 flex-wrap pt-2">
-                  <button onClick={() => runConfirm('Approve all pending archive items?', null, approveAllPending)} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-sm"><CheckCheck size={14} /> Approve All Pending</button>
                   <button onClick={() => setTab('reports')} className="border border-ink bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2"><Flag size={14} /> View Reports ({openReports.length})</button>
                   <button onClick={exportAll} className="border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:border-ink transition-colors flex items-center gap-2"><Download size={14} /> Export All Data</button>
                   <button onClick={loadAllData} className="border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider px-5 py-3 rounded-sm hover:border-ink transition-colors flex items-center gap-2"><RefreshCw size={14} /> Refresh Telemetry</button>
@@ -975,7 +676,7 @@ export default function AdminPage() {
                                 {u.suspended && <span className="text-[10px] font-bold text-signal uppercase tracking-wider">Suspended</span>}
                               </div>
                               <p className="text-xs font-mono text-ink-500">{u.email}</p>
-                              <p className="text-[11px] text-ink-400 mt-0.5">Joined {safeDateShort(u.createdAt)} · {userStories.length} published stories</p>
+                              <p className="text-[11px] text-ink-400 mt-0.5">Joined {safeDateShort(u.createdAt)} · {userStories.length} published stories & documentaries</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -1010,7 +711,7 @@ export default function AdminPage() {
 
                         {expanded && (
                           <div className="mt-4 p-4 border border-wire rounded-sm bg-ink-50 grid sm:grid-cols-4 gap-4 text-center">
-                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userStories.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Stories</p></div>
+                            <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userStories.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Stories & Documentaries</p></div>
                             <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userStories.reduce((s, st) => s + (st.comments?.length || 0), 0)}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Comments</p></div>
                             <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userTxns.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">Payments</p></div>
                             <div className="bg-paper p-3 rounded-sm border border-wire"><p className="text-2xl font-black text-ink">{userSms.length}</p><p className="text-[10px] font-bold uppercase tracking-wider text-ink-400 mt-0.5">SMS Sent</p></div>
@@ -1023,18 +724,19 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Content */}
+            {/* Content (Stories & Documentaries) */}
             {tab === 'content' && (
               <div className="space-y-6">
                 <div className="flex gap-3 mb-4 flex-wrap items-center">
                   {['all', 'public', 'private', 'blocked'].map(f => (
                     <button key={f} onClick={() => setFilterStatus(f)} className={`text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm border transition-colors ${filterStatus === f ? 'bg-ink text-white border-ink' : 'border-wire text-ink-600 hover:border-ink'}`}>
-                      {f === 'all' ? 'All Stories' : f === 'blocked' ? 'Blocked Media' : f}
+                      {f === 'all' ? 'All Content' : f === 'blocked' ? 'Blocked Media' : f}
                     </button>
                   ))}
-                  <select value={contentSourceFilter} onChange={(e) => setContentSourceFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper ml-auto">
-                    <option value="">All Sources</option>
-                    {CONTENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  <select value={contentFormatFilter} onChange={(e) => setContentFormatFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper ml-auto">
+                    <option value="all">All Formats</option>
+                    <option value="story">Stories</option>
+                    <option value="documentary">Documentaries</option>
                   </select>
                   <select value={contentSort} onChange={(e) => setContentSort(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
                     <option value="newest">Newest First</option>
@@ -1045,7 +747,7 @@ export default function AdminPage() {
                 </div>
 
                 <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
-                  {filteredStories.length === 0 && <EmptyState icon={FileText} label="No stories match your filter criteria." />}
+                  {filteredStories.length === 0 && <EmptyState icon={FileText} label="No stories or documentaries match your filter criteria." />}
                   {filteredStories.map(s => {
                     const author = users.find(u => u.id === s.authorId);
                     const wordCount = s.body ? s.body.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length : 0;
@@ -1060,7 +762,7 @@ export default function AdminPage() {
                             {featured && <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-amber-100 text-amber-800 flex items-center gap-1"><Star size={10} fill="currentColor" /> Featured</span>}
                           </div>
                           <p className="text-xs font-medium text-ink-500">
-                            {author?.publisherName || 'Unknown'} · {s.type} · {s.privacy} · {s.likes?.length || 0} likes · {s.comments?.length || 0} comments
+                            {author?.publisherName || 'Unknown'} · {s.type || 'story'} · {s.privacy} · {s.likes?.length || 0} likes · {s.comments?.length || 0} comments
                             {reportCount > 0 && <span className="text-signal font-bold"> · {reportCount} reports</span>}
                             {s.mediaBlocked && <span className="text-signal font-bold"> · media blocked</span>}
                             {wordCount > 0 && <span> · {wordCount} words ({readingTime} min)</span>}
