@@ -139,6 +139,7 @@ app.use('*', attachUser);
 app.use('*', async (c, next) => {
   if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return await next();
   if (c.req.path === '/subscriptions/subscribe') return await next();
+  if (c.req.path === '/payments/initialize') return await next();
   if (c.req.path.startsWith('/archive/')) return await next();
   if (c.req.path.startsWith('/admin/')) return await next();
   if (c.req.path === '/payments/webhook') return await next(); // Webhooks rely on HMAC signature, not CSRF
