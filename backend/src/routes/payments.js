@@ -217,7 +217,10 @@ payments.post('/initialize', requireAuth, async (c) => {
   const pkg = PACKAGES.find((p) => p.id === packageId);
   if (!pkg) return c.json({ error: 'Invalid package.' }, 400);
   if (pkg.amount <= 0 || pkg.credits <= 0) return c.json({ error: 'Invalid package configuration.' }, 500);
-  if (!isValidEmail(user.email)) return c.json({ error: 'A valid account email is required to make a payment.' }, 400);
+  
+  // Safe email fallback so missing profile emails never block purchases
+  const customerEmail = isValidEmail(user?.email) ? user.email : 'support@opinionplus.online';
+
   if (!isPositiveInt(pkg.amount) || !isPositiveInt(pkg.credits)) return c.json({ error: 'Invalid package configuration.' }, 500);
 
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
@@ -227,8 +230,8 @@ payments.post('/initialize', requireAuth, async (c) => {
     try {
       const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
       if (existing) {
-        if (existing.status === 'completed') return c.json({ reference: existing.reference, email: user.email, status: 'completed', credits: existing.credits, idempotent: true });
-        if (existing.status === 'pending' && existing.authorization_url) return c.json({ reference: existing.reference, email: user.email, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
+        if (existing.status === 'completed') return c.json({ reference: existing.reference, email: customerEmail, status: 'completed', credits: existing.credits, idempotent: true });
+        if (existing.status === 'pending' && existing.authorization_url) return c.json({ reference: existing.reference, email: customerEmail, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
       }
     } catch (e) { logEvent('idempotency_lookup_failed', { message: e.message }); }
   }
@@ -247,7 +250,7 @@ payments.post('/initialize', requireAuth, async (c) => {
     const response = await loggedFetch('initialize', 'https://api.paystack.co/transaction/initialize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
-      body: JSON.stringify({ email: user.email, amount: pkg.amount, reference, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, transaction_id: txnId, credits: pkg.credits, package: pkg.name, type: 'sms_credits' } }),
+      body: JSON.stringify({ email: customerEmail, amount: pkg.amount, reference, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, transaction_id: txnId, credits: pkg.credits, package: pkg.name, type: 'sms_credits' } }),
     });
     const data = await response.json();
     if (!data.status) {
@@ -257,7 +260,7 @@ payments.post('/initialize', requireAuth, async (c) => {
     try {
       await c.env.DB.prepare('UPDATE payment_transactions SET authorization_url = ?, access_code = ? WHERE id = ?').bind(data.data.authorization_url, data.data.access_code, txnId).run();
     } catch (e) {}
-    return c.json({ reference, email: user.email, authorization_url: data.data.authorization_url, access_code: data.data.access_code });
+    return c.json({ reference, email: customerEmail, authorization_url: data.data.authorization_url, access_code: data.data.access_code });
   } catch (e) {
     await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE id = ?').bind('failed', txnId).run();
     return c.json({ error: 'Payment initialization failed.' }, 500);
@@ -268,7 +271,8 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   const user = c.get('user');
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
-  if (!isValidEmail(user.email)) return c.json({ error: 'A valid account email is required to make a payment.' }, 400);
+  
+  const customerEmail = isValidEmail(user?.email) ? user.email : 'support@opinionplus.online';
 
   let idempotencyKey;
   try {
@@ -287,7 +291,7 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   }
 
   try {
-    const requestBody = { email: user.email, amount: PRO_PLAN_AMOUNT, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, type: 'api_pro_subscription' } };
+    const requestBody = { email: customerEmail, amount: PRO_PLAN_AMOUNT, currency: 'KES', channels: ['card', 'mobile_money'], metadata: { user_id: user.id, type: 'api_pro_subscription' } };
 
     const response = await loggedFetch('subscribe_pro', 'https://api.paystack.co/transaction/initialize', {
       method: 'POST',
