@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { X, CreditCard, Check, Loader2, AlertCircle, RefreshCw, Download, Zap } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '';
 const QUICK_BUY_KEY = 'op_last_package_id';
 
 const FALLBACK_PACKAGES = [
@@ -114,34 +113,6 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
   const pkg = packages.find(p => p.id === selected) || packages[0];
   const bestValue = packages.reduce((best, p) => (!best || perSmsCost(p) < perSmsCost(best) ? p : best), null);
 
-  const loadPaystackScript = () => new Promise((resolve) => {
-    if (window.PaystackPop) return resolve(true);
-    const script = document.createElement('script');
-    script.src = 'https://js.paystack.co/v1/inline.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-
-  const verifyPayment = async (reference) => {
-    try {
-      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, { credentials: 'include' });
-      const verifyData = await verifyRes.json();
-      if (verifyRes.ok && verifyData.verified) {
-        setStep('success');
-        setLastReference(reference);
-        try { window.localStorage.setItem(QUICK_BUY_KEY, selected); } catch (e) {}
-        if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
-      } else {
-        setError('Payment verification pending. Contact support with reference: ' + reference);
-      }
-    } catch (e) {
-      setError('Could not confirm payment. Contact support with reference: ' + reference);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handlePayment = async () => {
     if (!pkg) return;
     setLoading(true);
@@ -163,34 +134,14 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         return;
       }
 
-      // Load Paystack script dynamically for seamless laptop popup support
-      const loaded = await loadPaystackScript();
-      if (!loaded || !window.PaystackPop) {
-        // Fallback to hosted redirect if inline SDK fails to load
-        if (data.authorization_url) {
-          window.location.href = data.authorization_url;
-        } else {
-          setError('Payment gateway failed to load.');
-          setLoading(false);
-        }
-        return;
+      // Universal Hosted Redirect (Bypasses all laptop ad-blockers and frame restrictions)
+      if (data.authorization_url) {
+        try { window.localStorage.setItem(QUICK_BUY_KEY, selected); } catch (e) {}
+        window.location.href = data.authorization_url;
+      } else {
+        setError('Payment gateway initialization error.');
+        setLoading(false);
       }
-
-      const handler = window.PaystackPop.setup({
-        key: PAYSTACK_PUBLIC_KEY,
-        email: data.email || 'support@opinionplus.online',
-        amount: pkg.amount,
-        currency: 'KES',
-        ref: data.reference,
-        callback: (response) => {
-          verifyPayment(response.reference);
-        },
-        onClose: () => {
-          setLoading(false);
-        }
-      });
-      handler.openIframe();
-
     } catch (err) {
       setError('Check your connection and try again.');
       setLoading(false);
@@ -302,7 +253,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
               disabled={loading}
               className="bg-signal text-white font-bold uppercase text-xs tracking-wider w-full py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-md cursor-pointer"
             >
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Opening Checkout...</> : <><CreditCard size={16} /> Pay {pkg && formatKes(pkg.amount)}</>}
+              {loading ? <><Loader2 size={16} className="animate-spin" /> Redirecting to Checkout...</> : <><CreditCard size={16} /> Pay {pkg && formatKes(pkg.amount)}</>}
             </button>
           </div>
         )}
