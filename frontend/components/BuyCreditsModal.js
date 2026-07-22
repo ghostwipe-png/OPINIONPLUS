@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { X, CreditCard, Check, Loader2, AlertCircle, RefreshCw, Zap } from 'lucide-react';
+import { X, CreditCard, Check, Loader2, AlertCircle, RefreshCw, Download, Zap } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '';
 const QUICK_BUY_KEY = 'op_last_package_id';
 
 const FALLBACK_PACKAGES = [
@@ -71,6 +72,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState('select');
   const [error, setError] = useState('');
+  const [lastReference, setLastReference] = useState('');
   const [quickBuyId, setQuickBuyId] = useState('');
   const modalRef = useRef(null);
   const firstButtonRef = useRef(null);
@@ -112,20 +114,41 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
   const pkg = packages.find(p => p.id === selected) || packages[0];
   const bestValue = packages.reduce((best, p) => (!best || perSmsCost(p) < perSmsCost(best) ? p : best), null);
 
-  const handlePayment = async () => {
-    console.log("PAYMENT INITIATED FOR PACKAGE:", selected);
-    if (!pkg) {
-      setError('Please select a valid package.');
-      return;
-    }
+  const loadPaystackScript = () => new Promise((resolve) => {
+    if (window.PaystackPop) return resolve(true);
+    const script = document.createElement('script');
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 
+  const verifyPayment = async (reference) => {
+    try {
+      const verifyRes = await fetch(`${API_BASE}/payments/verify/${encodeURIComponent(reference)}`, { credentials: 'include' });
+      const verifyData = await verifyRes.json();
+      if (verifyRes.ok && verifyData.verified) {
+        setStep('success');
+        setLastReference(reference);
+        try { window.localStorage.setItem(QUICK_BUY_KEY, selected); } catch (e) {}
+        if (onSuccess) onSuccess(verifyData.credits || pkg.credits);
+      } else {
+        setError('Payment verification pending. Contact support with reference: ' + reference);
+      }
+    } catch (e) {
+      setError('Could not confirm payment. Contact support with reference: ' + reference);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePayment = async () => {
+    if (!pkg) return;
     setLoading(true);
     setError('');
 
     try {
       const csrfToken = await fetchCsrfToken();
-      console.log("CSRF Token fetched:", csrfToken ? "Available" : "Missing");
-
       const res = await fetch(`${API_BASE}/payments/initialize`, {
         method: 'POST',
         credentials: 'include',
@@ -133,34 +156,42 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
         body: JSON.stringify({ packageId: selected }),
       });
 
-      console.log("Initialize Response Status:", res.status);
-      let data;
-      try { 
-        data = await res.json(); 
-        console.log("Initialize Response Data:", data);
-      } catch (err) {
-        console.error("Failed to parse JSON response:", err);
-        setError('Payment initialization failed.');
-        setLoading(false);
-        return;
-      }
-
+      const data = await res.json();
       if (!res.ok || data.error) {
         setError(friendlyError(data.error || data.details?.message));
         setLoading(false);
         return;
       }
 
-      if (data.authorization_url) {
-        try { window.localStorage.setItem(QUICK_BUY_KEY, selected); } catch (e) {}
-        console.log("Redirecting to Paystack URL:", data.authorization_url);
-        window.location.href = data.authorization_url;
-      } else {
-        setError('Payment gateway initialization error.');
-        setLoading(false);
+      // Load Paystack script dynamically for seamless laptop popup support
+      const loaded = await loadPaystackScript();
+      if (!loaded || !window.PaystackPop) {
+        // Fallback to hosted redirect if inline SDK fails to load
+        if (data.authorization_url) {
+          window.location.href = data.authorization_url;
+        } else {
+          setError('Payment gateway failed to load.');
+          setLoading(false);
+        }
+        return;
       }
+
+      const handler = window.PaystackPop.setup({
+        key: PAYSTACK_PUBLIC_KEY,
+        email: data.email || 'support@opinionplus.online',
+        amount: pkg.amount,
+        currency: 'KES',
+        ref: data.reference,
+        callback: (response) => {
+          verifyPayment(response.reference);
+        },
+        onClose: () => {
+          setLoading(false);
+        }
+      });
+      handler.openIframe();
+
     } catch (err) {
-      console.error("Network or Exception Error:", err);
       setError('Check your connection and try again.');
       setLoading(false);
     }
@@ -187,6 +218,12 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
             </div>
             <p className="text-xl font-bold text-ink">{pkg.credits} SMS Credits Added!</p>
             <p className="text-sm text-ink-500">Your account has been successfully credited.</p>
+            {lastReference && (
+              <a href={`${API_BASE}/payments/receipt/${encodeURIComponent(lastReference)}`} target="_blank" rel="noreferrer"
+                className="border border-ink text-ink font-bold uppercase text-xs tracking-wider w-full py-3 rounded-sm flex items-center justify-center gap-2 hover:bg-ink hover:text-white transition-colors">
+                <Download size={14} /> Download Receipt
+              </a>
+            )}
             <button onClick={onClose} className="bg-signal text-white font-bold uppercase text-xs tracking-wider w-full py-3 rounded-sm hover:bg-signal/90 transition-colors">
               Continue
             </button>
@@ -265,7 +302,7 @@ export default function BuyCreditsModal({ onClose, onSuccess }) {
               disabled={loading}
               className="bg-signal text-white font-bold uppercase text-xs tracking-wider w-full py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-md cursor-pointer"
             >
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Connecting to Paystack...</> : <><CreditCard size={16} /> Pay {pkg && formatKes(pkg.amount)}</>}
+              {loading ? <><Loader2 size={16} className="animate-spin" /> Opening Checkout...</> : <><CreditCard size={16} /> Pay {pkg && formatKes(pkg.amount)}</>}
             </button>
           </div>
         )}
