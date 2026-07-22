@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Search, ArrowRight, Tag, Newspaper, X, Sparkles } from 'lucide-react';
+import { Loader2, Search, ArrowRight, Tag, Newspaper, X, Sparkles, CheckCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
 import BreakingTicker from '../components/BreakingTicker';
 import FilterBar from '../components/FilterBar';
