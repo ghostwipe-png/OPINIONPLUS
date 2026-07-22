@@ -1,3 +1,4 @@
+// frontend/app/admin/page.js
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -7,7 +8,7 @@ import {
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
-  KeyRound, Server, FileDown, UserCog, Clock,
+  KeyRound, Server, FileDown, UserCog, Clock, UserX, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -107,7 +108,7 @@ function PinGate({ onConfirm, onCancel, label }) {
         <p className="text-[11px] font-mono text-ink-400">Demo PIN is {DEMO_PIN}</p>
         <div className="flex gap-3 pt-2">
           <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
-          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
+          <button onClick={() => { setAdminPin(pin); onConfirm(pin); }} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -205,6 +206,23 @@ export default function AdminPage() {
 
   const [searchAnalytics, setSearchAnalytics] = useState({ top: [], recent: [], total: 0 });
 
+  // Services state
+  const [serviceOrders, setServiceOrders] = useState([]);
+  const [serviceStats, setServiceStats] = useState(null);
+  const [serviceFilter, setServiceFilter] = useState('all');
+  const [serviceStatusFilter, setServiceStatusFilter] = useState('all');
+  const [servicePage, setServicePage] = useState(1);
+  const [serviceTotalPages, setServiceTotalPages] = useState(1);
+  const [grantEmail, setGrantEmail] = useState('');
+  const [grantServiceType, setGrantServiceType] = useState('sms');
+  const [grantPackageId, setGrantPackageId] = useState('');
+  const [grantCredits, setGrantCredits] = useState('');
+  const [adjustEmail, setAdjustEmail] = useState('');
+  const [adjustCreditsVal, setAdjustCreditsVal] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [serviceLoading, setServiceLoading] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+
   // UI / God-mode state
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -290,6 +308,122 @@ export default function AdminPage() {
     }
   };
 
+  const loadServiceOrders = async () => {
+    if (!isRoot) return;
+    setServiceLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (serviceFilter !== 'all') params.append('serviceType', serviceFilter);
+      if (serviceStatusFilter !== 'all') params.append('status', serviceStatusFilter);
+      params.append('page', servicePage);
+      params.append('limit', '50');
+      const data = await adminFetch(`/admin/services/orders?${params.toString()}`);
+      setServiceOrders(data.orders || []);
+      setServiceTotalPages(data.totalPages || 1);
+    } catch (e) {
+      showToast('Failed to load service orders', 'error');
+    } finally {
+      setServiceLoading(false);
+    }
+  };
+
+  const loadServiceStats = async () => {
+    if (!isRoot) return;
+    try {
+      const data = await adminFetch('/admin/services/analytics');
+      setServiceStats(data);
+    } catch (e) {}
+  };
+
+  const fulfillOrder = async (id) => {
+    try {
+      await adminFetch(`/admin/services/orders/${id}/fulfill`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
+      showToast('Order fulfilled successfully');
+      loadServiceOrders();
+      loadServiceStats();
+    } catch (e) { showToast(e.message || 'Failed to fulfill order', 'error'); }
+  };
+
+  const cancelOrder = async (id) => {
+    try {
+      await adminFetch(`/admin/services/orders/${id}/cancel`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
+      showToast('Order cancelled');
+      loadServiceOrders();
+      loadServiceStats();
+    } catch (e) { showToast(e.message || 'Failed to cancel order', 'error'); }
+  };
+
+  const refundOrder = async (id) => {
+    try {
+      await adminFetch(`/admin/services/orders/${id}/refund`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
+      showToast('Order marked as refunded');
+      loadServiceOrders();
+      loadServiceStats();
+    } catch (e) { showToast(e.message || 'Failed to update order', 'error'); }
+  };
+
+  const grantService = async () => {
+    if (!grantEmail || !grantServiceType || !grantPackageId) {
+      showToast('Fill in all required grant fields', 'error');
+      return;
+    }
+    try {
+      await adminFetch('/admin/services/grant', {
+        method: 'POST',
+        pin: true,
+        pinValue: lastPinRef.current,
+        body: { email: grantEmail, serviceType: grantServiceType, packageId: grantPackageId, credits: grantCredits ? Number(grantCredits) : undefined }
+      });
+      showToast(`Successfully granted ${grantServiceType} to ${grantEmail}`);
+      setGrantEmail(''); setGrantPackageId(''); setGrantCredits('');
+      loadServiceOrders();
+      loadServiceStats();
+    } catch (e) { showToast(e.message || 'Failed to grant service', 'error'); }
+  };
+
+  const revokeService = async (email, serviceType, orderId) => {
+    try {
+      await adminFetch('/admin/services/revoke', {
+        method: 'POST',
+        pin: true,
+        pinValue: lastPinRef.current,
+        body: { email, serviceType, orderId }
+      });
+      showToast(`Revoked ${serviceType} access for ${email}`);
+      loadServiceOrders();
+      loadServiceStats();
+    } catch (e) { showToast(e.message || 'Failed to revoke service', 'error'); }
+  };
+
+  const adjustSmsCredits = async () => {
+    if (!adjustEmail || !adjustCreditsVal || !adjustReason) {
+      showToast('Fill in all adjustment fields', 'error');
+      return;
+    }
+    try {
+      const res = await adminFetch('/admin/services/sms/adjust', {
+        method: 'POST',
+        pin: true,
+        pinValue: lastPinRef.current,
+        body: { email: adjustEmail, credits: Number(adjustCreditsVal), reason: adjustReason }
+      });
+      showToast(`Credits adjusted. New balance: ${res.newBalance}`);
+      setAdjustEmail(''); setAdjustCreditsVal(''); setAdjustReason('');
+      loadServiceOrders();
+    } catch (e) { showToast(e.message || 'Credit adjustment failed', 'error'); }
+  };
+
+  const exportServicesCSV = () => {
+    window.open(`${API_BASE}/admin/services/export?serviceType=${serviceFilter}&status=${serviceStatusFilter}`, '_blank');
+  };
+
+  useEffect(() => {
+    if (tab === 'services' && isRoot) {
+      loadServiceOrders();
+      loadServiceStats();
+    }
+  }, [tab, serviceFilter, serviceStatusFilter, servicePage, isRoot]);
+
   const exportCSV = () => {
     window.open(`${API_BASE}/subscriptions/admin/export`, '_blank');
   };
@@ -348,10 +482,15 @@ export default function AdminPage() {
     catch (e) { showToast('Failed to force logout user', 'error'); }
   };
 
+  const hardDeleteUser = async (id) => {
+    try { await adminFetch(`/admin/user/${id}`, { method: 'DELETE', pin: true, pinValue: lastPinRef.current }); showToast('User permanently deleted'); }
+    catch (e) { showToast('Failed to delete user', 'error'); }
+  };
+
   const saveUserEdit = async () => {
     if (!editingUser) return;
     try {
-      await adminFetch(`/admin/user/${editingUser.id}`, { method: 'PATCH', body: editingUser });
+      await adminFetch(`/admin/user/${editingUser.id}`, { method: 'PATCH', body: editingUser, pin: true, pinValue: lastPinRef.current });
       showToast('User updated');
       setEditingUser(null);
     } catch (e) { showToast('Failed to update user', 'error'); }
@@ -368,7 +507,7 @@ export default function AdminPage() {
 
   const toggleFeatured = async (storyId) => {
     setFeaturedIds((prev) => prev.includes(storyId) ? prev.filter((i) => i !== storyId) : [...prev, storyId]);
-    try { await adminFetch(`/admin/story/${storyId}/feature`, { method: 'POST', body: { featured: !featuredIds.includes(storyId) } }); }
+    try { await adminFetch(`/admin/story/${storyId}/feature`, { method: 'POST', body: { featured: !featuredIds.includes(storyId) }, pin: true, pinValue: lastPinRef.current }); }
     catch (e) {}
   };
 
@@ -396,6 +535,7 @@ export default function AdminPage() {
     { id: 'subscribers', label: `Subscribers (${subscribers.filter(s => s.status === 'active').length})`, icon: Mail },
     { id: 'search', label: 'Search Analytics', icon: TrendingUp },
     { id: 'export', label: 'Export Center', icon: FileDown },
+    ...(isRoot ? [{ id: 'services', label: 'Services', icon: Briefcase }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
@@ -690,6 +830,11 @@ export default function AdminPage() {
                                   className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm border transition-colors ${u.suspended ? 'border-wire text-ink hover:border-ink' : 'border-signal text-signal hover:bg-signal hover:text-white'}`}>
                                   {u.suspended ? 'Unsuspend' : 'Suspend'}
                                 </button>
+                                {isRoot && (
+                                  <button onClick={() => runGated(`HARD DELETE ${u.publisherName}? This is permanent!`, () => hardDeleteUser(u.id))} className="border border-red-200 bg-red-50 hover:bg-signal text-signal hover:text-white p-1.5 rounded-sm transition-colors" title="Delete User">
+                                    <UserX size={14} />
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -704,7 +849,7 @@ export default function AdminPage() {
                                 <option value="basic">Basic</option><option value="partner">Partner</option><option value="pro_partner">Pro Partner</option>
                               </select>
                             </div>
-                            <button onClick={saveUserEdit} className="bg-ink text-white font-bold uppercase text-xs px-5 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"><Check size={14} /> Save</button>
+                            <button onClick={() => runGated(`Save changes to ${u.publisherName}?`, saveUserEdit)} className="bg-ink text-white font-bold uppercase text-xs px-5 py-2 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5"><Check size={14} /> Save</button>
                             <button onClick={() => setEditingUser(null)} className="border border-wire bg-white font-bold uppercase text-xs px-4 py-2 rounded-sm">Cancel</button>
                           </div>
                         )}
@@ -975,6 +1120,187 @@ export default function AdminPage() {
               </div>
             )}
 
+            {/* Services (Root Only) */}
+            {tab === 'services' && isRoot && (
+              <div className="space-y-8">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-ink">Service Management & Support</h2>
+                    <p className="text-xs text-ink-500 mt-0.5">Manage platform paid services, grant access manually, adjust credits, and audit orders.</p>
+                  </div>
+                  <button onClick={exportServicesCSV} className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors flex items-center gap-2 shadow-sm">
+                    <Download size={14} /> Export Orders CSV
+                  </button>
+                </div>
+
+                {/* Section A: Analytics Bar */}
+                {serviceStats && (
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="border border-wire rounded-sm p-5 bg-paper">
+                      <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Service Revenue</p>
+                      <p className="text-2xl font-black text-ink">{fmtMoney(serviceStats.totalRevenue)}</p>
+                      <p className="text-[11px] text-ink-500 mt-1">Last 30 Days: {fmtMoney(serviceStats.revenueLast30Days)}</p>
+                    </div>
+                    <div className="border border-wire rounded-sm p-5 bg-paper">
+                      <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Active Orders</p>
+                      <p className="text-2xl font-black text-emerald-600">{serviceStats.ordersByStatus?.active || 0}</p>
+                      <p className="text-[11px] text-ink-500 mt-1">Last 30 Days: {serviceStats.ordersLast30Days} orders</p>
+                    </div>
+                    <div className="border border-wire rounded-sm p-5 bg-paper">
+                      <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Pending Orders</p>
+                      <p className="text-2xl font-black text-amber-600">{serviceStats.ordersByStatus?.pending || 0}</p>
+                    </div>
+                    <div className="border border-wire rounded-sm p-5 bg-paper">
+                      <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Revenue by Service</p>
+                      <div className="text-[11px] font-mono text-ink-600 mt-1 space-y-0.5">
+                        <div>SMS: {fmtMoney(serviceStats.revenueByService?.sms)}</div>
+                        <div>Press: {fmtMoney(serviceStats.revenueByService?.press_release)}</div>
+                        <div>Sponsored: {fmtMoney(serviceStats.revenueByService?.sponsored)}</div>
+                        <div>API: {fmtMoney(serviceStats.revenueByService?.api)}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section B: Grant Service Panel */}
+                <div className="border border-wire rounded-sm p-6 bg-paper space-y-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-ink flex items-center gap-2">
+                    <ShieldPlus size={15} className="text-signal" /> Grant Service Access
+                  </h3>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">User Email</label>
+                      <input value={grantEmail} onChange={(e) => setGrantEmail(e.target.value)} placeholder="user@example.com" className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-semibold" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Service Type</label>
+                      <select value={grantServiceType} onChange={(e) => setGrantServiceType(e.target.value)} className="w-full text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3.5 py-2.5 bg-paper">
+                        <option value="sms">SMS Broadcasting</option>
+                        <option value="press_release">Press Release</option>
+                        <option value="sponsored">Sponsored Content</option>
+                        <option value="api">API Access</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Package ID / Tier</label>
+                      <input value={grantPackageId} onChange={(e) => setGrantPackageId(e.target.value)} placeholder={grantServiceType === 'sms' ? 'sms_1000' : grantServiceType === 'api' ? 'api_pro' : 'press_basic'} className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-mono" />
+                    </div>
+                    {grantServiceType === 'sms' ? (
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Custom Credits (Optional)</label>
+                        <input type="number" value={grantCredits} onChange={(e) => setGrantCredits(e.target.value)} placeholder="e.g. 500" className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-semibold" />
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <p className="text-[11px] text-ink-400">Grants instant service access without requiring payment verification.</p>
+                    <button onClick={() => runGated(`Grant ${grantServiceType} to ${grantEmail || 'user'}?`, grantService)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">
+                      Grant Access
+                    </button>
+                  </div>
+                </div>
+
+                {/* Section C: All Orders Table */}
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-3 items-center justify-between bg-paper p-4 border border-wire rounded-sm">
+                    <div className="flex flex-wrap gap-3 items-center flex-1">
+                      <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
+                        <option value="all">All Services</option>
+                        <option value="sms">SMS</option>
+                        <option value="press_release">Press Release</option>
+                        <option value="sponsored">Sponsored</option>
+                        <option value="api">API</option>
+                      </select>
+                      <select value={serviceStatusFilter} onChange={(e) => setServiceStatusFilter(e.target.value)} className="text-xs font-bold uppercase tracking-wider border border-wire rounded-sm px-3 py-2 bg-paper">
+                        <option value="all">All Statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="active">Active</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                    {serviceLoading && <Spinner />}
+                  </div>
+
+                  <div className="border border-wire rounded-sm divide-y divide-wire bg-paper overflow-x-auto">
+                    {serviceOrders.length === 0 && <EmptyState icon={Briefcase} label="No service orders match your filter criteria." />}
+                    {serviceOrders.map(o => {
+                      const expanded = expandedOrderId === o.id;
+                      return (
+                        <div key={o.id} className="p-4 hover:bg-ink-50/30 transition-colors">
+                          <div className="flex items-center justify-between flex-wrap gap-4">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-ink text-white">{o.service_type}</span>
+                                <span className="text-sm font-bold text-ink">{o.package_id}</span>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${o.status === 'active' || o.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : o.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-signal'}`}>{o.status}</span>
+                              </div>
+                              <p className="text-xs font-mono text-ink-500">{o.user_email} · Ref: {o.paystack_reference} · {fmtMoney(o.amount_paid)}</p>
+                              <p className="text-[11px] text-ink-400">{safeDate(o.created_at)}</p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <button onClick={() => setExpandedOrderId(expanded ? null : o.id)} className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink flex items-center gap-1 transition-colors">
+                                {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Details
+                              </button>
+                              {o.status === 'pending' && (
+                                <>
+                                  <button onClick={() => runGated(`Fulfill order ${o.id}?`, () => fulfillOrder(o.id))} className="bg-emerald-600 text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-emerald-700 transition-colors shadow-sm">Fulfill</button>
+                                  <button onClick={() => runGated(`Cancel order ${o.id}?`, () => cancelOrder(o.id))} className="bg-signal text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Cancel</button>
+                                </>
+                              )}
+                              {o.status === 'active' && (
+                                <button onClick={() => runGated(`Revoke access for ${o.user_email}?`, () => revokeService(o.user_email, o.service_type, o.id))} className="border border-signal text-signal hover:bg-signal hover:text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors">Revoke</button>
+                              )}
+                              {o.paystack_status !== 'refunded' && (
+                                <button onClick={() => runGated(`Mark order ${o.id} as refunded?`, () => refundOrder(o.id))} className="border border-wire bg-white hover:border-ink text-ink font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors">Mark Refunded</button>
+                              )}
+                            </div>
+                          </div>
+
+                          {expanded && (
+                            <div className="mt-4 p-4 border border-wire rounded-sm bg-ink-50 space-y-2 text-xs font-mono">
+                              <div>Order UUID: {o.id}</div>
+                              <div>User ID: {o.user_id}</div>
+                              <div>Paystack Status: {o.paystack_status}</div>
+                              <div>Metadata: <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(o.metadata, null, 2)}</pre></div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Section D: SMS Credit Adjustment */}
+                <div className="border border-wire rounded-sm p-6 bg-paper space-y-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-ink flex items-center gap-2">
+                    <MessageSquare size={15} className="text-signal" /> Adjust SMS Credits
+                  </h3>
+                  <div className="grid sm:grid-cols-3 gap-4 items-end">
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">User Email</label>
+                      <input value={adjustEmail} onChange={(e) => setAdjustEmail(e.target.value)} placeholder="user@example.com" className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-semibold" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Credits (+/-)</label>
+                      <input type="number" value={adjustCreditsVal} onChange={(e) => setAdjustCreditsVal(e.target.value)} placeholder="e.g. 100 or -50" className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-semibold" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Audit Reason</label>
+                      <input value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} placeholder="Reason for adjustment" className="w-full text-xs border border-wire rounded-sm px-3.5 py-2.5 bg-paper font-semibold" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <button onClick={() => runGated(`Adjust SMS credits for ${adjustEmail || 'user'} by ${adjustCreditsVal || 0}?`, adjustSmsCredits)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">
+                      Apply Adjustment
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Admins */}
             {tab === 'admins' && isRoot && (
               <div className="space-y-6">
@@ -1109,7 +1435,8 @@ export default function AdminPage() {
                 {adminLogs.map(l => (
                   <div key={l.id} className="p-4 text-xs space-y-1 hover:bg-ink-50/30 transition-colors">
                     <span className="font-bold text-ink">{l.actorEmail}</span> executed <span className="font-bold uppercase tracking-wider text-signal">{l.action.replaceAll('_', ' ')}</span> on <span className="font-mono text-ink-600">{l.target}</span>
-                    <span className="text-[10px] text-ink-400 block">{safeDate(l.timestamp)}</span>
+                    {l.detail && <span className="font-mono text-ink-500 block pl-2 mt-1 border-l-2 border-wire">{l.detail}</span>}
+                    <span className="text-[10px] text-ink-400 block mt-1">{safeDate(l.timestamp)}</span>
                   </div>
                 ))}
               </div>

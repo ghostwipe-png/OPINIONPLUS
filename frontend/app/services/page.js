@@ -1,108 +1,97 @@
+// frontend/app/services/page.js
 'use client';
 
 import Link from 'next/link';
-import { Terminal, Smartphone, Code2, Server, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
+import { MessageSquare, FileText, TrendingUp, Terminal, ArrowRight } from 'lucide-react';
 
-const services = [
+const SERVICES = [
   {
-    id: 'fullstack',
-    title: 'Full-Stack Web Development',
-    description: 'Custom, high-performance web applications built from the ground up using modern frameworks like React, Next.js, and Cloudflare Workers for global scale.',
-    icon: Code2,
+    id: 'sms',
+    title: 'SMS Broadcasting',
+    description: 'Reach thousands instantly with bulk SMS. Upload contacts, compose messages, schedule campaigns, and track delivery.',
+    price: 'KES 50 for 100 SMS',
+    icon: MessageSquare,
+    color: 'text-signal',
+    bg: 'bg-red-50',
+    link: '/services/sms'
   },
   {
-    id: 'pwa',
-    title: 'Progressive Web Apps (PWA)',
-    description: 'Transform your platform into an installable, mobile-optimized experience. We build responsive PWAs that work seamlessly across all Android and iOS devices.',
-    icon: Smartphone,
+    id: 'press-release',
+    title: 'Press Release Distribution',
+    description: 'Publish your press releases on OpinionPlus. Get visibility, SMS blasts, and detailed analytics reports.',
+    price: 'KES 1,000 per release',
+    icon: FileText,
+    color: 'text-blue-600',
+    bg: 'bg-blue-50',
+    link: '/services/press-release'
   },
   {
-    id: 'ict-consulting',
-    title: 'ICT Team & Tech Consulting',
-    description: 'Empower your innovation company with expert technical guidance. We provide backend architecture consulting, API integrations, and system troubleshooting.',
-    icon: Server,
+    id: 'sponsored',
+    title: 'Sponsored Content',
+    description: 'Promote your story at the top of our feed. Guaranteed impressions, targeted visibility, and engagement analytics.',
+    price: 'KES 1,000 for 7 days',
+    icon: TrendingUp,
+    color: 'text-amber-600',
+    bg: 'bg-amber-50',
+    link: '/services/sponsored'
   },
   {
-    id: 'builder',
-    title: 'Builder Web Services',
-    description: 'End-to-end digital solutions including secure hosting configurations (InfinityFree, Cloudflare), domain management, and ongoing technical maintenance.',
+    id: 'api',
+    title: 'API Access',
+    description: 'Integrate OpinionPlus content into your app. REST API, JSON responses, and developer-friendly documentation.',
+    price: 'Free tier available',
     icon: Terminal,
+    color: 'text-purple-600',
+    bg: 'bg-purple-50',
+    link: '/services/api'
   }
 ];
 
 export default function ServicesPage() {
   return (
-    <div className="min-h-screen bg-paper pb-24">
-      
-      {/* Hero Section */}
-      <section className="bg-ink text-white py-24 relative overflow-hidden border-b-4 border-signal">
-        <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] mix-blend-overlay"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-ink via-transparent to-transparent"></div>
+    <div className="min-h-screen bg-paper text-ink py-16 px-4 sm:px-6">
+      <div className="max-w-6xl mx-auto space-y-16">
         
-        <div className="max-w-7xl mx-auto px-6 relative z-10 text-center sm:text-left">
-          <div className="bg-signal text-white font-bold uppercase text-xs px-3 py-1.5 inline-flex items-center gap-2 rounded-sm mb-6 shadow-sm">
-            <Zap size={14} className="fill-current" /> Professional Solutions
-          </div>
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tight uppercase leading-none mb-4">
-            Digital Engineering & <span className="text-transparent bg-clip-text bg-gradient-to-r from-signal to-white">Consulting</span>
-          </h1>
-          <p className="text-sm sm:text-base font-medium text-white/70 max-w-2xl leading-relaxed">
-            Elevate your digital presence with enterprise-grade web development, custom PWA integrations, and expert Information and Communications Technology strategy tailored for innovation.
+        {/* Hero */}
+        <div className="text-center space-y-4 max-w-3xl mx-auto">
+          <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-ink">Grow with OpinionPlus</h1>
+          <p className="text-lg text-ink-600 font-medium leading-relaxed">
+            Amplify your reach, distribute your press releases, target your audience, and build upon our infrastructure with powerful platform services.
           </p>
         </div>
-      </section>
 
-      {/* Services Grid */}
-      <section className="max-w-7xl mx-auto px-6 pt-16">
-        <div className="flex items-center gap-3 border-b-2 border-wire pb-4 mb-10">
-          <h2 className="text-2xl font-black uppercase tracking-tight text-ink flex items-center gap-2">
-            Our Core Services
-          </h2>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-8">
-          {services.map((service) => (
-            <div 
-              key={service.id} 
-              className="bg-white border-2 border-wire rounded-md p-8 hover:border-ink transition-colors shadow-sm group flex flex-col"
-            >
-              <div className="w-14 h-14 bg-ink-50 rounded-sm flex items-center justify-center text-ink mb-6 group-hover:bg-ink group-hover:text-white transition-colors shadow-inner border border-wire">
-                <service.icon size={24} />
+        {/* Services Grid */}
+        <div className="grid md:grid-cols-2 gap-6 lg:gap-8">
+          {SERVICES.map((srv) => (
+            <div key={srv.id} className="border border-wire rounded-sm p-8 bg-white hover:border-ink hover:shadow-lg transition-all flex flex-col group">
+              <div className="flex items-start gap-4 mb-6">
+                <div className={`w-14 h-14 shrink-0 rounded-sm grid place-items-center border border-wire ${srv.bg} ${srv.color} group-hover:scale-105 transition-transform`}>
+                  <srv.icon size={28} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-ink mb-1">{srv.title}</h2>
+                  <p className="text-xs font-bold uppercase tracking-wider text-ink-400">Starting from {srv.price}</p>
+                </div>
               </div>
-              <h3 className="text-xl font-black uppercase tracking-tight text-ink mb-3">
-                {service.title}
-              </h3>
               <p className="text-sm font-medium text-ink-600 leading-relaxed mb-8 flex-1">
-                {service.description}
+                {srv.description}
               </p>
-              
-              <Link 
-                href={`mailto:adipotech@gmail.com?subject=Inquiry regarding ${service.title}`}
-                className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-signal hover:text-ink transition-colors mt-auto w-fit"
-              >
-                Request Consultation <ArrowRight size={14} />
+              <Link href={srv.link} className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-ink group-hover:text-signal transition-colors w-max">
+                Learn More <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             </div>
           ))}
         </div>
-      </section>
 
-      {/* CTA Section */}
-      <section className="max-w-5xl mx-auto px-6 pt-24">
-        <div className="bg-ink-50 border-2 border-wire rounded-md p-10 sm:p-16 text-center shadow-inner">
-          <ShieldCheck size={40} className="mx-auto text-signal mb-6" />
-          <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-ink mb-4">Ready to launch your next project?</h2>
-          <p className="text-sm font-medium text-ink-600 max-w-xl mx-auto mb-8 leading-relaxed">
-            Whether you need a robust backend API routing system, seamless frontend components, or a fully installable mobile web app, we have the technical expertise to bring your vision to reality.
-          </p>
-          <Link 
-            href="mailto:adipotech@gmail.com"
-            className="bg-ink text-white font-bold uppercase text-xs tracking-widest px-8 py-4 rounded-sm hover:bg-signal transition-colors inline-block shadow-md hover:shadow-lg"
-          >
-            Contact Development Team
+        {/* Footer CTA */}
+        <div className="text-center pt-12 border-t border-wire">
+          <p className="text-sm font-bold text-ink mb-4">Looking for enterprise solutions?</p>
+          <Link href="/contact" className="border-2 border-ink text-ink hover:bg-ink hover:text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm transition-colors inline-block">
+            Contact Sales Team
           </Link>
         </div>
-      </section>
+
+      </div>
     </div>
   );
 }

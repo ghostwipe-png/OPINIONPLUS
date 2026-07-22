@@ -23,6 +23,7 @@ import polls from './routes/polls.js';
 import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
+import services from './routes/services.js'; // NEW: Services Router
 
 const app = new Hono();
 
@@ -143,6 +144,7 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/archive/')) return await next();
   if (c.req.path.startsWith('/admin/')) return await next();
   if (c.req.path === '/payments/webhook') return await next(); // Webhooks rely on HMAC signature, not CSRF
+  if (c.req.path === '/services/webhook') return await next(); // NEW: Bypass CSRF for Service Webhooks
   return csrfProtection(c, next);
 });
 
@@ -250,6 +252,7 @@ app.route('/polls', polls);
 app.route('/rooms', rooms);
 app.route('/jobs', jobs);
 app.route('/campuses', campuses);
+app.route('/services', services); // NEW: Mount Services route
 
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };

@@ -1,23 +1,30 @@
+// backend/src/routes/payments.js
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 
 const payments = new Hono();
 
-const PACKAGES = [
-  { id: 'sms_10', name: '10 SMS', amount: 1000, credits: 10 },
-  { id: 'sms_50', name: '50 SMS', amount: 5000, credits: 50 },
-  { id: 'sms_100', name: '100 SMS', amount: 10000, credits: 100 },
-  { id: 'sms_500', name: '500 SMS', amount: 50000, credits: 500 },
-  { id: 'sms_1000', name: '1000 SMS', amount: 100000, credits: 1000 },
-];
-
-const PRO_PLAN_AMOUNT = 40000; // KES 400 in kobo
+const PRO_PLAN_AMOUNT = 40000; // KES 400 in cents
 const REFERRAL_BONUS = 10000;
 const MAX_RETRIES = 3;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers & Cryptography
 // ---------------------------------------------------------------------------
+
+async function verifyAdminPin(env, pin) {
+  if (!pin || !env.ADMIN_PIN_HASH) return false;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+  const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  // Constant-time string comparison to prevent timing attacks
+  if (hex.length !== env.ADMIN_PIN_HASH.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hex.length; i++) {
+    diff |= hex.charCodeAt(i) ^ env.ADMIN_PIN_HASH.charCodeAt(i);
+  }
+  return diff === 0;
+}
 
 async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
   for (let i = 0; i < retries; i++) {
@@ -43,20 +50,16 @@ async function loggedFetch(kind, url, options, retries = MAX_RETRIES) {
   try {
     const response = await fetchWithRetry(url, options, retries);
     logEvent('paystack_api_call', {
-      request_id: requestId,
-      label: kind,
+      request_id: requestId, label: kind,
       endpoint: url.replace(/https:\/\/api\.paystack\.co/, ''),
-      status: response.status,
-      duration_ms: Date.now() - start,
+      status: response.status, duration_ms: Date.now() - start,
     });
     return response;
   } catch (e) {
     logEvent('paystack_api_call_error', {
-      request_id: requestId,
-      label: kind,
+      request_id: requestId, label: kind,
       endpoint: url.replace(/https:\/\/api\.paystack\.co/, ''),
-      duration_ms: Date.now() - start,
-      message: e.message,
+      duration_ms: Date.now() - start, message: e.message,
     });
     throw e;
   }
@@ -66,7 +69,6 @@ async function loggedFetch(kind, url, options, retries = MAX_RETRIES) {
 async function finalizeTransaction(db, reference, expectedUserId, credits) {
   if (!expectedUserId || !credits || credits <= 0) return { credited: false };
   
-  // The UPDATE condition "AND status = 'pending'" acts as a mutex.
   const update = await db
     .prepare('UPDATE payment_transactions SET status = ? WHERE reference = ? AND status = ?')
     .bind('completed', reference, 'pending')
@@ -108,6 +110,39 @@ async function handlePartnerSubscription(db, userId, tier, referralCode) {
   }
 }
 
+// SERVICE PROVISIONING HELPER (Optimistic Locking)
+async function provisionServiceFromWebhook(db, order) {
+  const { user_id, user_email, service_type, package_id } = order;
+  
+  if (service_type === 'sms') {
+    const pkg = await db.prepare(`SELECT sms_count FROM sms_packages WHERE id = ?`).bind(package_id).first();
+    const count = pkg ? pkg.sms_count : 100;
+    await db.prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?')
+      .bind(user_id, count, count).run();
+    logEvent('webhook_service_provisioned', { service: 'sms', credits: count, user: user_email });
+  } else if (service_type === 'press_release') {
+    logEvent('webhook_service_provisioned', { service: 'press_release', package: package_id, user: user_email });
+  } else if (service_type === 'sponsored') {
+    const pkg = await db.prepare(`SELECT duration_days, impressions_goal FROM sponsored_packages WHERE id = ?`).bind(package_id).first();
+    if (pkg) {
+      await db.prepare('UPDATE service_orders SET metadata = json_insert(metadata, "$.duration_days", ?, "$.impressions_goal", ?) WHERE id = ?')
+        .bind(pkg.duration_days, pkg.impressions_goal, order.id).run();
+      logEvent('webhook_service_provisioned', { service: 'sponsored', days: pkg.duration_days, user: user_email });
+    }
+  } else if (service_type === 'api') {
+    const tier = package_id || 'pro';
+    const existingKey = await db.prepare('SELECT id FROM api_keys WHERE user_id = ?').bind(user_id).first();
+    if (!existingKey) {
+      const newKey = `op_${crypto.randomUUID().replace(/-/g, '')}`;
+      await db.prepare('INSERT INTO api_keys (id, user_id, key, name, tier, requests_today) VALUES (?, ?, ?, ?, ?, 0)')
+        .bind(crypto.randomUUID(), user_id, newKey, 'Default Production Key', tier).run();
+    } else {
+      await db.prepare('UPDATE api_keys SET tier = ?, requests_today = 0 WHERE user_id = ?').bind(tier, user_id).run();
+    }
+    logEvent('webhook_service_provisioned', { service: 'api', package: tier, user: user_email });
+  }
+}
+
 // MAXIMUM SECURITY: Constant-Time HMAC Signature Verification
 async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
   if (!signatureHeader || !secretKey) return false;
@@ -119,7 +154,6 @@ async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
     
     if (computedHex.length !== signatureHeader.length) return false;
     
-    // Bitwise XOR comparison defends against Timing Attacks
     let diff = 0;
     for (let i = 0; i < computedHex.length; i++) {
       diff |= computedHex.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
@@ -199,7 +233,14 @@ function generateReceiptHtml(transaction) {
 // Routes
 // ---------------------------------------------------------------------------
 
-payments.get('/packages', (c) => c.json({ packages: PACKAGES }));
+payments.get('/packages', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare('SELECT id, name, price_kes_cents as amount, sms_count as credits FROM sms_packages WHERE is_active = 1').all();
+    return c.json({ packages: results });
+  } catch (e) {
+    return c.json({ error: 'Failed to load packages.' }, 500);
+  }
+});
 
 payments.get('/history', requireAuth, async (c) => {
   const user = c.get('user');
@@ -214,11 +255,12 @@ payments.post('/initialize', requireAuth, async (c) => {
   const { packageId, idempotency_key: idempotencyKey } = body || {};
   
   if (typeof packageId !== 'string') return c.json({ error: 'Invalid package.' }, 400);
-  const pkg = PACKAGES.find((p) => p.id === packageId);
-  if (!pkg) return c.json({ error: 'Invalid package.' }, 400);
+  
+  // DYNAMIC PACKAGE VALIDATION: Fetch from DB securely
+  const pkg = await c.env.DB.prepare('SELECT id, name, price_kes_cents as amount, sms_count as credits FROM sms_packages WHERE id = ? AND is_active = 1').bind(packageId).first();
+  if (!pkg) return c.json({ error: 'Invalid or inactive package.' }, 400);
   if (pkg.amount <= 0 || pkg.credits <= 0) return c.json({ error: 'Invalid package configuration.' }, 500);
   
-  // Safe email fallback so missing profile emails never block purchases
   const customerEmail = isValidEmail(user?.email) ? user.email : 'support@opinionplus.online';
 
   if (!isPositiveInt(pkg.amount) || !isPositiveInt(pkg.credits)) return c.json({ error: 'Invalid package configuration.' }, 500);
@@ -226,6 +268,7 @@ payments.post('/initialize', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
 
+  // STRICT IDEMPOTENCY
   if (idempotencyKey && typeof idempotencyKey === 'string') {
     try {
       const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
@@ -340,8 +383,16 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
     
     const txn = data.data;
     if (txn.status === 'success') {
+      // Validate Integrity before finalizing
       const type = txn.metadata?.type;
       const userId = txn.metadata?.user_id;
+      
+      const localTxn = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE reference = ?').bind(reference).first();
+      if (localTxn && localTxn.amount !== txn.amount) {
+         logEvent('security_alert_amount_mismatch', { reference, local: localTxn.amount, remote: txn.amount });
+         return c.json({ error: 'Transaction integrity failure.' }, 400);
+      }
+
       if (type === 'api_pro_subscription') {
         await activateProSubscription(c.env.DB, userId);
       } else if (type === 'partner_subscription') {
@@ -356,22 +407,21 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
   }
 });
 
-// -----------------------------------------------------------------------
-// Refund a completed transaction (admin only, PIN-gated)
-// -----------------------------------------------------------------------
 payments.post('/refund', requireAuth, async (c) => {
   const user = c.get('user');
   if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Unauthorized.' }, 403);
 
+  // SECURE PIN VALIDATION (SHA-256)
   const pin = c.req.header('X-Admin-Pin');
-  if (!pin) return c.json({ error: 'Admin PIN required.' }, 401);
+  const isValidPin = await verifyAdminPin(c.env, pin);
+  if (!isValidPin) return c.json({ error: 'Incorrect or missing PIN.' }, 401);
 
   let body;
   try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid request body.' }, 400); }
   const { reference, amount } = body || {};
   
   if (typeof reference !== 'string' || !reference) return c.json({ error: 'A transaction reference is required.' }, 400);
-  if (amount !== undefined && !isPositiveInt(amount)) return c.json({ error: 'Refund amount must be a positive integer (in kobo).' }, 400);
+  if (amount !== undefined && !isPositiveInt(amount)) return c.json({ error: 'Refund amount must be a positive integer.' }, 400);
 
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
@@ -393,8 +443,15 @@ payments.post('/refund', requireAuth, async (c) => {
       logEvent('refund_failed', { reference, message: data.message });
       return c.json({ error: data.message || 'Refund failed.', details: data }, 502);
     }
-    await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE reference = ?').bind('refunded', reference).run();
-    logEvent('refund_succeeded', { reference, actor: user.email, amount: amount || txn.amount });
+    
+    // ATOMIC REFUND DEDUCTION
+    await c.env.DB.batch([
+      c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE reference = ?').bind('refunded', reference),
+      // Deduct credits to prevent free SMS exploitation on refund
+      c.env.DB.prepare('UPDATE sms_credits SET balance = MAX(0, balance - ?) WHERE user_id = ?').bind(txn.credits || 0, txn.user_id)
+    ]);
+    
+    logEvent('refund_succeeded', { reference, actor: user.email, amount: amount || txn.amount, credits_deducted: txn.credits });
     return c.json({ ok: true, refund_id: data.data?.id, amount_refunded: amount || txn.amount });
   } catch (e) {
     logEvent('refund_error', { reference, message: e.message });
@@ -402,9 +459,6 @@ payments.post('/refund', requireAuth, async (c) => {
   }
 });
 
-// -----------------------------------------------------------------------
-// Public, printable HTML receipt for a transaction
-// -----------------------------------------------------------------------
 payments.get('/receipt/:reference', async (c) => {
   const reference = c.req.param('reference');
   const txn = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE reference = ?').bind(reference).first();
@@ -412,9 +466,6 @@ payments.get('/receipt/:reference', async (c) => {
   return c.html(generateReceiptHtml(txn));
 });
 
-// -----------------------------------------------------------------------
-// Revenue statistics for the admin dashboard
-// -----------------------------------------------------------------------
 payments.get('/stats', requireAuth, async (c) => {
   const user = c.get('user');
   if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Unauthorized.' }, 403);
@@ -450,6 +501,7 @@ payments.get('/stats', requireAuth, async (c) => {
   }
 });
 
+// UNIFIED PAYSTACK WEBHOOK HANDLER (Strict Validation & Anti-Double-Provision)
 payments.post('/webhook', async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   const signature = c.req.header('x-paystack-signature');
@@ -458,7 +510,10 @@ payments.post('/webhook', async (c) => {
   if (!secretKey) return c.json({ error: 'Not configured.' }, 500);
 
   const validSignature = await verifyPaystackSignature(secretKey, rawBody, signature);
-  if (!validSignature) return c.json({ error: 'SECURITY ALERT: Invalid Signature.' }, 401);
+  if (!validSignature) {
+    logEvent('security_alert_invalid_webhook_signature', { ip: c.req.header('CF-Connecting-IP') });
+    return c.json({ error: 'SECURITY ALERT: Invalid Signature.' }, 401);
+  }
 
   let body;
   try { body = JSON.parse(rawBody); } catch (e) { return c.json({ error: 'Invalid payload.' }, 400); }
@@ -467,21 +522,43 @@ payments.post('/webhook', async (c) => {
 
   if (body.event === 'charge.success') {
     const txn = body.data;
-    const type = txn.metadata?.type;
-    const userId = txn.metadata?.user_id;
+    const metadata = txn.metadata || {};
+    const reference = txn.reference;
+    const type = metadata.type;
+    const userId = metadata.user_id || metadata.userId;
+
     try {
-      if (type === 'api_pro_subscription') {
-        await activateProSubscription(c.env.DB, userId);
-      } else if (type === 'partner_subscription') {
-        await handlePartnerSubscription(c.env.DB, userId, txn.metadata?.tier, txn.metadata?.referral_code);
+      if (metadata.serviceType || reference.startsWith('srv_') || reference.startsWith('admin_grant_')) {
+        const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE paystack_reference = ?').bind(reference).first();
+        // OPTIMISTIC LOCKING: Check if status is pending AND update where pending
+        if (order && (order.paystack_status === 'pending' || order.status === 'pending')) {
+          const update = await c.env.DB.prepare(
+            'UPDATE service_orders SET paystack_status = ?, status = ? WHERE paystack_reference = ? AND (paystack_status = ? OR status = ?)'
+          ).bind('success', 'active', reference, 'pending', 'pending').run();
+
+          const changed = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
+          if (changed) {
+            await provisionServiceFromWebhook(c.env.DB, order);
+          } else {
+             logEvent('webhook_double_process_prevented', { reference });
+          }
+        }
+        logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: metadata.serviceType || 'service_order' });
       } else {
-        await finalizeTransaction(c.env.DB, txn.reference, userId, txn.metadata?.credits || 0);
+        if (type === 'api_pro_subscription') {
+          await activateProSubscription(c.env.DB, userId);
+        } else if (type === 'partner_subscription') {
+          await handlePartnerSubscription(c.env.DB, userId, metadata.tier, metadata.referral_code);
+        } else {
+          await finalizeTransaction(c.env.DB, reference, userId, metadata.credits || 0);
+        }
+        logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: type || 'sms_credits' });
       }
-      logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: type || 'sms_credits' });
     } catch (e) {
       logEvent('webhook_error', { event: body.event, reference: txn.reference, message: e.message });
     }
   }
+  
   return c.json({ received: true });
 });
 
