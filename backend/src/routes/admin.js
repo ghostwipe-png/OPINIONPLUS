@@ -161,7 +161,7 @@ admin.post('/reports/:id/resolve', requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Financial Controls
+// Financial Controls & Telemetry
 // ---------------------------------------------------------------------------
 
 admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
@@ -176,6 +176,33 @@ admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
   
   await log(c, 'manual_credit_adjust', user.id, `Adjusted by ${amount}. Reason: ${reason}`);
   return c.json({ ok: true, amount });
+});
+
+admin.get('/sms/history', requirePin, async (c) => {
+  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
+  const { results } = await c.env.DB.prepare('SELECT * FROM sms_history ORDER BY created_at DESC LIMIT 200').all();
+  return c.json({ history: results });
+});
+
+admin.get('/subscriptions/admin/list', requirePin, async (c) => {
+  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
+  const { results } = await c.env.DB.prepare('SELECT * FROM subscribers ORDER BY created_at DESC LIMIT 500').all();
+  const activeCount = results.filter(s => s.status === 'active').length;
+  return c.json({ subscribers: results, total: results.length, active: activeCount });
+});
+
+admin.get('/subscriptions/admin/export', requirePin, async (c) => {
+  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
+  const { results } = await c.env.DB.prepare('SELECT email, preferences, status, created_at FROM subscribers').all();
+  if (!results.length) return c.text('No subscribers available', 404);
+  
+  const headers = Object.keys(results[0]).join(',');
+  const rows = results.map(row => Object.values(row).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csv = `${headers}\n${rows}`;
+  
+  c.header('Content-Type', 'text/csv');
+  c.header('Content-Disposition', `attachment; filename="subscribers_${Date.now()}.csv"`);
+  return c.text(csv);
 });
 
 // ---------------------------------------------------------------------------
@@ -573,6 +600,31 @@ admin.post('/services/sms/adjust', requireRoot, requirePin, async (c) => {
     await log(c, 'adjust_sms_credits', email, `Adjusted SMS credits by ${credits}. Reason: ${reason}. New balance: ${newBalance}`);
     return c.json({ ok: true, newBalance });
   } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+});
+
+// ---------------------------------------------------------------------------
+// Campus Management
+// ---------------------------------------------------------------------------
+
+admin.get('/campuses', requireRoot, async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT * FROM campus_editions ORDER BY created_at DESC').all();
+  return c.json({ campuses: results });
+});
+
+admin.post('/campuses/:id/suspend', requireRoot, requirePin, async (c) => {
+  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
+  const id = c.req.param('id');
+  await c.env.DB.prepare("UPDATE campus_editions SET status = 'suspended' WHERE id = ?").bind(id).run();
+  await log(c, 'suspend_campus', id);
+  return c.json({ ok: true });
+});
+
+admin.post('/campuses/:id/activate', requireRoot, requirePin, async (c) => {
+  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
+  const id = c.req.param('id');
+  await c.env.DB.prepare("UPDATE campus_editions SET status = 'active' WHERE id = ?").bind(id).run();
+  await log(c, 'activate_campus', id);
+  return c.json({ ok: true });
 });
 
 export default admin;

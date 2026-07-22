@@ -1,115 +1,131 @@
-// frontend/app/services/sponsored/page.js
 'use client';
 
 import { useEffect, useState } from 'react';
-import { TrendingUp, Target, Eye, BarChart2, Calendar, Layout } from 'lucide-react';
+import { useAuth } from '../../../lib/auth';
 import ServicePaymentButton from '../../../components/ServicePaymentButton';
 import ServicePaymentVerify from '../../../components/ServicePaymentVerify';
+import { MonitorPlay, LayoutTemplate, Link as LinkIcon, CheckCircle, Loader2 } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
-export default function SponsoredPage() {
-  const [packages, setPackages] = useState([]);
+export default function SponsoredServicePage() {
+  const { user, ready } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+  const [activeOrder, setActiveOrder] = useState(null);
+  const [packages, setPackages] = useState([]);
+  
+  // Dashboard State
+  const [headline, setHeadline] = useState('');
+  const [body, setBody] = useState('');
+  const [ctaUrl, setCtaUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/services/packages/sponsored`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.packages) setPackages(data.packages);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+    if (!ready || !user) {
+      if (ready) setLoading(false);
+      return;
+    }
 
-  const formatKes = (cents) => `KES ${(cents / 100).toLocaleString()}`;
+    Promise.all([
+      fetch(`${API_BASE}/services/check/sponsored`, { credentials: 'include' }).then(r => r.json()),
+      fetch(`${API_BASE}/services/packages/sponsored`).then(r => r.json())
+    ])
+    .then(([checkRes, pkgRes]) => {
+      if (checkRes.active) {
+        setHasAccess(true);
+        setActiveOrder(checkRes); // Contains date info to calculate remaining days
+      }
+      if (pkgRes.packages) setPackages(pkgRes.packages);
+    })
+    .catch(() => {})
+    .finally(() => setLoading(false));
+  }, [ready, user]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/content/sponsored`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ headline, body, ctaUrl, orderId: activeOrder?.id })
+      });
+      if (res.ok) setSuccess(true);
+    } catch (e) {
+      alert('Failed to submit campaign materials.');
+    }
+    setSubmitting(false);
+  };
+
+  if (!ready || loading) return <div className="min-h-screen grid place-items-center"><Loader2 className="animate-spin text-ink" /></div>;
 
   return (
-    <div className="min-h-screen bg-paper text-ink pb-24">
-      <ServicePaymentVerify serviceType="sponsored" />
+    <div className="min-h-screen bg-paper py-12 px-4 sm:px-6">
+      <div className="max-w-4xl mx-auto">
+        <ServicePaymentVerify serviceType="sponsored" onVerified={() => setHasAccess(true)} />
 
-      {/* Hero */}
-      <div className="bg-amber-100 border-b border-wire py-20 px-4 sm:px-6">
-        <div className="max-w-4xl mx-auto text-center space-y-6">
-          <div className="w-16 h-16 bg-white rounded-sm border border-wire grid place-items-center mx-auto mb-6 shadow-sm">
-            <TrendingUp size={32} className="text-amber-600" />
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-ink">Sponsored Content Promotion</h1>
-          <p className="text-lg text-ink-700 font-medium max-w-2xl mx-auto">
-            Put your story where everyone sees it. Guaranteed top-feed placement with hard impression metrics.
-          </p>
+        <div className="mb-8 border-b-2 border-wire pb-6">
+          <h1 className="text-3xl font-black text-ink flex items-center gap-3 uppercase tracking-tight">
+            <MonitorPlay className="text-signal" size={28} /> Sponsored Content Placement
+          </h1>
+          <p className="text-sm text-ink-500 font-medium mt-2">Feature your content prominently across the feed and sidebars of the platform.</p>
         </div>
-      </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-16 space-y-24">
-        
-        {/* Features */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {[
-            { icon: Layout, title: 'Top Placement', desc: 'Your content is pinned securely at the top of the main feed.' },
-            { icon: Eye, title: 'Guaranteed Impressions', desc: 'We deliver exact visibility metrics matching your tier goals.' },
-            { icon: Target, title: 'Category Targeting', desc: 'Align your content with relevant industry categories.' },
-            { icon: BarChart2, title: 'Real-time Analytics', desc: 'Monitor views, clicks, and interaction depth live.' },
-            { icon: Layout, title: 'Transparent Badging', desc: 'Properly labeled to maintain platform trust and compliance.' },
-            { icon: Calendar, title: 'Flexible Durations', desc: 'Run agile 7-day sprints or sustained 30-day campaigns.' }
-          ].map((f, i) => (
-            <div key={i} className="border border-wire p-6 rounded-sm bg-white hover:border-ink transition-colors flex flex-col gap-4">
-              <div className="w-10 h-10 bg-amber-50 rounded-sm border border-amber-200 grid place-items-center text-amber-600"><f.icon size={18} /></div>
-              <div>
-                <h3 className="text-sm font-bold text-ink mb-1">{f.title}</h3>
-                <p className="text-xs font-medium text-ink-600 leading-relaxed">{f.desc}</p>
-              </div>
+        {hasAccess ? (
+          success ? (
+            <div className="border border-wire bg-emerald-50 p-12 text-center rounded-sm">
+              <CheckCircle size={48} className="text-emerald-600 mx-auto mb-4" />
+              <h2 className="text-xl font-black text-ink uppercase tracking-wider">Campaign Material Uploaded</h2>
+              <p className="text-sm font-medium text-ink-600 mt-2">Your sponsored article is ready. It will rotate in the prime slots for the duration of your package.</p>
             </div>
-          ))}
-        </div>
-
-        {/* Pricing */}
-        <div>
-          <h2 className="text-2xl font-black text-ink text-center mb-10">Select Campaign Duration</h2>
-          {loading ? (
-            <div className="text-center text-ink-400 font-bold uppercase text-xs tracking-wider">Loading packages...</div>
           ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              {packages.map((pkg) => (
-                <div key={pkg.id} className="border border-wire rounded-sm p-8 bg-white hover:border-ink transition-all flex flex-col">
-                  <h3 className="text-xl font-bold text-ink mb-2">{pkg.name}</h3>
-                  <p className="text-4xl font-black text-ink mb-8">{formatKes(pkg.price_kes_cents)}</p>
-                  
-                  <div className="flex-1 space-y-4 mb-10">
-                    <div className="flex justify-between items-center border-b border-wire pb-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-ink-500">Duration</span>
-                      <span className="text-sm font-black text-ink">{pkg.duration_days} Days</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-wire pb-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-ink-500">Impressions Goal</span>
-                      <span className="text-sm font-black text-signal">{pkg.impressions_goal.toLocaleString()}+</span>
-                    </div>
-                  </div>
-                  
-                  <ServicePaymentButton serviceType="sponsored" packageId={pkg.id} packageName={pkg.name} amount={pkg.price_kes_cents} className="bg-ink hover:bg-ink/90 text-white w-full py-3.5" />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            <div className="border border-wire bg-white p-6 sm:p-8 rounded-sm shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div className="bg-ink text-white text-[10px] font-bold uppercase tracking-wider inline-block px-3 py-1 rounded-sm">Slot Reserved & Active</div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 font-mono">Package ID: {activeOrder?.packageId}</div>
+              </div>
 
-        {/* FAQ */}
-        <div className="max-w-3xl mx-auto border-t border-wire pt-16">
-          <h2 className="text-2xl font-black text-ink text-center mb-8">Frequently Asked Questions</h2>
-          <div className="space-y-6">
-            {[
-              { q: 'Where exactly will my content appear?', a: 'Sponsored content is pinned into dedicated slots at the absolute top of the main feed and selected category feeds.' },
-              { q: 'Is it marked as sponsored?', a: 'Yes, to comply with editorial standards, all promoted stories carry a clear "Sponsored" badge.' },
-              { q: 'What happens if I don\'t reach the impressions goal?', a: 'If platform traffic fluctuates, we automatically extend your campaign duration for free until the impression guarantee is fully met.' }
-            ].map((faq, i) => (
-              <div key={i} className="bg-white border border-wire rounded-sm p-6">
-                <h4 className="text-sm font-bold text-ink mb-2">{faq.q}</h4>
-                <p className="text-sm font-medium text-ink-600">{faq.a}</p>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1"><LayoutTemplate size={14} /> Campaign Headline</label>
+                  <input required value={headline} onChange={e => setHeadline(e.target.value)} className="w-full border border-wire rounded-sm px-4 py-3 text-sm font-bold bg-paper focus:outline-none focus:border-ink transition-colors" placeholder="e.g. The Future of African FinTech..." />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">Article Teaser / Body</label>
+                  <textarea required value={body} onChange={e => setBody(e.target.value)} rows={6} className="w-full border border-wire rounded-sm px-4 py-3 text-sm font-medium bg-paper focus:outline-none focus:border-ink transition-colors resize-y" placeholder="Enter the promotional copy..." />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-ink-400 mb-1"><LinkIcon size={14} /> Call-To-Action (CTA) URL</label>
+                  <input required type="url" value={ctaUrl} onChange={e => setCtaUrl(e.target.value)} className="w-full border border-wire rounded-sm px-4 py-3 text-sm font-mono bg-paper focus:outline-none focus:border-ink transition-colors" placeholder="https://your-landing-page.com" />
+                </div>
+                
+                <button disabled={submitting} type="submit" className="w-full bg-signal text-white font-bold uppercase tracking-wider py-4 rounded-sm hover:bg-signal/90 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50">
+                  {submitting ? <Loader2 size={18} className="animate-spin" /> : 'Launch Campaign'}
+                </button>
+              </form>
+            </div>
+          )
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {packages.map(pkg => (
+              <div key={pkg.id} className="border border-wire bg-white p-6 sm:p-8 rounded-sm flex flex-col hover:border-ink transition-all shadow-sm">
+                <h3 className="text-xl font-black text-ink uppercase">{pkg.name}</h3>
+                <p className="text-3xl font-black text-ink mt-2">KES {(pkg.price_kes_cents / 100).toLocaleString()}</p>
+                <div className="my-6 flex-1 space-y-3">
+                  <p className="text-xs font-bold text-ink flex items-center gap-2 uppercase tracking-wider"><CheckCircle size={14} className="text-signal" /> {pkg.duration_days} Days Rotation</p>
+                  <p className="text-xs font-bold text-ink flex items-center gap-2 uppercase tracking-wider"><CheckCircle size={14} className="text-signal" /> ~{pkg.impressions_goal?.toLocaleString()} Impressions</p>
+                  {(pkg.features || ['Home Feed Placement', 'Sidebar Sticky Widget']).map((feat, i) => (
+                    <p key={i} className="text-[10px] font-bold text-ink-500 flex items-center gap-2 uppercase tracking-wider"><CheckCircle size={12} className="text-ink-300" /> {feat}</p>
+                  ))}
+                </div>
+                <ServicePaymentButton serviceType="sponsored" packageId={pkg.id} packageName={pkg.name} className="bg-ink text-white py-4" />
               </div>
             ))}
           </div>
-        </div>
-
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,6 @@ async function verifyAdminPin(env, pin) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
   const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
   
-  // Constant-time string comparison to prevent timing attacks
   if (hex.length !== env.ADMIN_PIN_HASH.length) return false;
   let diff = 0;
   for (let i = 0; i < hex.length; i++) {
@@ -65,7 +64,6 @@ async function loggedFetch(kind, url, options, retries = MAX_RETRIES) {
   }
 }
 
-// MAXIMUM SECURITY: Optimistic Locking to Prevent Double-Spend
 async function finalizeTransaction(db, reference, expectedUserId, credits) {
   if (!expectedUserId || !credits || credits <= 0) return { credited: false };
   
@@ -110,7 +108,6 @@ async function handlePartnerSubscription(db, userId, tier, referralCode) {
   }
 }
 
-// SERVICE PROVISIONING HELPER (Optimistic Locking)
 async function provisionServiceFromWebhook(db, order) {
   const { user_id, user_email, service_type, package_id } = order;
   
@@ -143,7 +140,6 @@ async function provisionServiceFromWebhook(db, order) {
   }
 }
 
-// MAXIMUM SECURITY: Constant-Time HMAC Signature Verification
 async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
   if (!signatureHeader || !secretKey) return false;
   try {
@@ -256,7 +252,6 @@ payments.post('/initialize', requireAuth, async (c) => {
   
   if (typeof packageId !== 'string') return c.json({ error: 'Invalid package.' }, 400);
   
-  // DYNAMIC PACKAGE VALIDATION: Fetch from DB securely
   const pkg = await c.env.DB.prepare('SELECT id, name, price_kes_cents as amount, sms_count as credits FROM sms_packages WHERE id = ? AND is_active = 1').bind(packageId).first();
   if (!pkg) return c.json({ error: 'Invalid or inactive package.' }, 400);
   if (pkg.amount <= 0 || pkg.credits <= 0) return c.json({ error: 'Invalid package configuration.' }, 500);
@@ -268,7 +263,6 @@ payments.post('/initialize', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
 
-  // STRICT IDEMPOTENCY
   if (idempotencyKey && typeof idempotencyKey === 'string') {
     try {
       const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
@@ -276,7 +270,7 @@ payments.post('/initialize', requireAuth, async (c) => {
         if (existing.status === 'completed') return c.json({ reference: existing.reference, email: customerEmail, status: 'completed', credits: existing.credits, idempotent: true });
         if (existing.status === 'pending' && existing.authorization_url) return c.json({ reference: existing.reference, email: customerEmail, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
       }
-    } catch (e) { logEvent('idempotency_lookup_failed', { message: e.message }); }
+    } catch (e) {}
   }
 
   const reference = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -330,7 +324,7 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
         if (existing.status === 'completed') return c.json({ reference: existing.reference, status: 'completed', idempotent: true });
         if (existing.status === 'pending' && existing.authorization_url) return c.json({ authorization_url: existing.authorization_url, reference: existing.reference, access_code: existing.access_code, idempotent: true });
       }
-    } catch (e) { logEvent('idempotency_lookup_failed', { message: e.message }); }
+    } catch (e) {}
   }
 
   try {
@@ -383,7 +377,6 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
     
     const txn = data.data;
     if (txn.status === 'success') {
-      // Validate Integrity before finalizing
       const type = txn.metadata?.type;
       const userId = txn.metadata?.user_id;
       
@@ -411,7 +404,6 @@ payments.post('/refund', requireAuth, async (c) => {
   const user = c.get('user');
   if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Unauthorized.' }, 403);
 
-  // SECURE PIN VALIDATION (SHA-256)
   const pin = c.req.header('X-Admin-Pin');
   const isValidPin = await verifyAdminPin(c.env, pin);
   if (!isValidPin) return c.json({ error: 'Incorrect or missing PIN.' }, 401);
@@ -444,10 +436,8 @@ payments.post('/refund', requireAuth, async (c) => {
       return c.json({ error: data.message || 'Refund failed.', details: data }, 502);
     }
     
-    // ATOMIC REFUND DEDUCTION
     await c.env.DB.batch([
       c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE reference = ?').bind('refunded', reference),
-      // Deduct credits to prevent free SMS exploitation on refund
       c.env.DB.prepare('UPDATE sms_credits SET balance = MAX(0, balance - ?) WHERE user_id = ?').bind(txn.credits || 0, txn.user_id)
     ]);
     
@@ -501,7 +491,7 @@ payments.get('/stats', requireAuth, async (c) => {
   }
 });
 
-// UNIFIED PAYSTACK WEBHOOK HANDLER (Strict Validation & Anti-Double-Provision)
+// UNIFIED PAYSTACK WEBHOOK HANDLER
 payments.post('/webhook', async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   const signature = c.req.header('x-paystack-signature');
@@ -530,28 +520,29 @@ payments.post('/webhook', async (c) => {
     try {
       if (metadata.serviceType || reference.startsWith('srv_') || reference.startsWith('admin_grant_')) {
         const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE paystack_reference = ?').bind(reference).first();
-        // OPTIMISTIC LOCKING: Check if status is pending AND update where pending
         if (order && (order.paystack_status === 'pending' || order.status === 'pending')) {
           const update = await c.env.DB.prepare(
             'UPDATE service_orders SET paystack_status = ?, status = ? WHERE paystack_reference = ? AND (paystack_status = ? OR status = ?)'
           ).bind('success', 'active', reference, 'pending', 'pending').run();
 
-          const changed = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
-          if (changed) {
+          if ((update?.meta?.changes ?? update?.changes ?? 0) > 0) {
             await provisionServiceFromWebhook(c.env.DB, order);
-          } else {
-             logEvent('webhook_double_process_prevented', { reference });
           }
         }
         logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: metadata.serviceType || 'service_order' });
-      } else {
-        if (type === 'api_pro_subscription') {
-          await activateProSubscription(c.env.DB, userId);
-        } else if (type === 'partner_subscription') {
-          await handlePartnerSubscription(c.env.DB, userId, metadata.tier, metadata.referral_code);
-        } else {
-          await finalizeTransaction(c.env.DB, reference, userId, metadata.credits || 0);
+      } else if (type === 'campus_license' || metadata.type === 'campus_license') {
+        const update = await c.env.DB.prepare("UPDATE campus_editions SET status = 'active' WHERE id = ? AND status = 'pending'").bind(reference).run();
+        if ((update?.meta?.changes ?? update?.changes ?? 0) > 0) {
+           logEvent('webhook_campus_activated', { reference });
         }
+      } else if (type === 'api_pro_subscription') {
+        await activateProSubscription(c.env.DB, userId);
+        logEvent('webhook_processed', { event: body.event, reference: txn.reference, type });
+      } else if (type === 'partner_subscription') {
+        await handlePartnerSubscription(c.env.DB, userId, metadata.tier, metadata.referral_code);
+        logEvent('webhook_processed', { event: body.event, reference: txn.reference, type });
+      } else {
+        await finalizeTransaction(c.env.DB, reference, userId, metadata.credits || 0);
         logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: type || 'sms_credits' });
       }
     } catch (e) {

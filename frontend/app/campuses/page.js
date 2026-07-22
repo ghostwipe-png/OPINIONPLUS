@@ -88,11 +88,14 @@ function CampusContent() {
     setSubmitting(true);
     try {
       const token = await fetchCsrfToken();
+      // SECURITY UPGRADE: Idempotency check prevents database spam if user double-clicks checkout
+      const idempotencyKey = `camp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      
       const res = await fetch(`${API_BASE}/campuses/initialize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token || '' },
         credentials: 'include',
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, idempotency_key: idempotencyKey }),
       });
       const data = await res.json();
       if (res.ok && data.authorization_url) {

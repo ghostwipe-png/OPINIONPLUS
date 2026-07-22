@@ -12,6 +12,10 @@ const SERVICE_TABLES = {
   api: 'api_packages'
 };
 
+// ---------------------------------------------------------------------------
+// Helpers & Provisioning
+// ---------------------------------------------------------------------------
+
 async function logEvent(c, action, payload = {}) {
   try {
     console.log(JSON.stringify({ kind: 'service_log', action, timestamp: new Date().toISOString(), ...payload }));
@@ -23,9 +27,10 @@ async function provisionService(db, order) {
   
   if (service_type === 'sms') {
     const pkg = await db.prepare(`SELECT sms_count FROM sms_packages WHERE id = ?`).bind(package_id).first();
-    const count = pkg ? pkg.sms_count : 100; // fallback if package record missing but granted
-    await db.prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?')
-      .bind(user_id, count, count).run();
+    const count = pkg ? pkg.sms_count : 100;
+    await db.prepare(
+      'INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?'
+    ).bind(user_id, count, count).run();
     console.log(`SMS credits added: ${count} for user ${user_email}`);
   } else if (service_type === 'press_release') {
     console.log(`Press release package activated: ${package_id} for user ${user_email}`);
@@ -51,7 +56,10 @@ async function provisionService(db, order) {
   }
 }
 
-// Get available packages
+// ---------------------------------------------------------------------------
+// Packages & Payments
+// ---------------------------------------------------------------------------
+
 services.get('/packages/:serviceType', async (c) => {
   const serviceType = c.req.param('serviceType');
   const table = SERVICE_TABLES[serviceType];
@@ -69,7 +77,6 @@ services.get('/packages/:serviceType', async (c) => {
   }
 });
 
-// Initialize payment (Strict Server-Side Price Calculation)
 services.post('/pay', requireAuth, async (c) => {
   const user = c.get('user');
   let body;
@@ -79,7 +86,6 @@ services.post('/pay', requireAuth, async (c) => {
   const table = SERVICE_TABLES[serviceType];
   if (!table) return c.json({ error: 'Invalid service type.' }, 400);
 
-  // SERVER-SIDE DATA FETCH (Never trust client prices)
   const pkg = await c.env.DB.prepare(`SELECT * FROM ${table} WHERE id = ? AND is_active = 1`).bind(packageId).first();
   if (!pkg) return c.json({ error: 'Invalid or inactive package.' }, 400);
 
@@ -88,12 +94,12 @@ services.post('/pay', requireAuth, async (c) => {
 
   const customerEmail = user.email || 'support@opinionplus.online';
 
-  // IDEMPOTENCY CHECK
   if (idempotencyKey) {
-    const existing = await c.env.DB.prepare('SELECT * FROM service_orders WHERE metadata LIKE ? AND user_id = ?').bind(`%"idempotency_key":"${idempotencyKey}"%`, user.id).first();
+    const existing = await c.env.DB.prepare('SELECT * FROM service_orders WHERE metadata LIKE ? AND user_id = ?')
+      .bind(`%"idempotency_key":"${idempotencyKey}"%`, user.id).first();
     if (existing) {
        if (existing.paystack_status === 'success') return c.json({ reference: existing.paystack_reference, status: 'completed', idempotent: true });
-       if (existing.paystack_status === 'pending') return c.json({ reference: existing.paystack_reference, idempotent: true }); // Cannot return direct auth URL without caching, but stops double-init
+       if (existing.paystack_status === 'pending') return c.json({ reference: existing.paystack_reference, idempotent: true });
     }
   }
 
@@ -133,7 +139,6 @@ services.post('/pay', requireAuth, async (c) => {
   }
 });
 
-// Verify payment synchronously (Updated to support admin grants & active statuses)
 services.get('/verify/:reference', requireAuth, async (c) => {
   const reference = c.req.param('reference');
   const user = c.get('user');
@@ -144,7 +149,6 @@ services.get('/verify/:reference', requireAuth, async (c) => {
     return c.json({ error: 'Unauthorized access to order.' }, 403);
   }
 
-  // If already verified or admin granted/active
   if (order.paystack_status === 'success' || order.paystack_status === 'admin_grant' || order.status === 'active') {
     return c.json({ status: order.status, serviceType: order.service_type, packageId: order.package_id });
   }
@@ -159,13 +163,11 @@ services.get('/verify/:reference', requireAuth, async (c) => {
     const data = await response.json();
 
     if (data.status && data.data.status === 'success') {
-      // Transaction Integrity check
       if (data.data.amount !== order.amount_paid) {
-        logEvent(c, 'security_alert_amount_mismatch', { reference, expected: order.amount_paid, got: data.data.amount });
+        await logEvent(c, 'security_alert_amount_mismatch', { reference, expected: order.amount_paid, got: data.data.amount });
         return c.json({ error: 'Transaction integrity compromised.' }, 400);
       }
 
-      // Optimistic lock check
       const update = await c.env.DB.prepare('UPDATE service_orders SET paystack_status = ?, status = ? WHERE paystack_reference = ? AND paystack_status = ?')
         .bind('success', 'active', reference, 'pending').run();
       
@@ -182,7 +184,6 @@ services.get('/verify/:reference', requireAuth, async (c) => {
   }
 });
 
-// Check active status by service type directly for the logged-in user
 services.get('/check/:serviceType', requireAuth, async (c) => {
   const user = c.get('user');
   const serviceType = c.req.param('serviceType');
@@ -198,6 +199,7 @@ services.get('/check/:serviceType', requireAuth, async (c) => {
 
     return c.json({
       active: true,
+      id: activeOrder.id,
       serviceType: activeOrder.service_type,
       packageId: activeOrder.package_id,
       createdAt: activeOrder.created_at
@@ -207,7 +209,6 @@ services.get('/check/:serviceType', requireAuth, async (c) => {
   }
 });
 
-// Paystack Webhook (No Auth - Secured by HMAC)
 services.post('/webhook', async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Not configured.' }, 500);
@@ -217,15 +218,23 @@ services.post('/webhook', async (c) => {
 
   if (body && body.event === 'charge.success') {
     const reference = body.data?.reference;
+    const metadata = body.data?.metadata || {};
+    
     try {
-      const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE paystack_reference = ?').bind(reference).first();
-      // Optimistic Locking to prevent double provisions
-      if (order && order.paystack_status === 'pending') {
-        const update = await c.env.DB.prepare('UPDATE service_orders SET paystack_status = ?, status = ? WHERE paystack_reference = ? AND paystack_status = ?')
-          .bind('success', 'active', reference, 'pending').run();
-        
+      if (metadata.type === 'campus_license') {
+        const update = await c.env.DB.prepare("UPDATE campus_editions SET status = 'active' WHERE id = ? AND status = 'pending'").bind(reference).run();
         if ((update?.meta?.changes ?? update?.changes ?? 0) > 0) {
-          await provisionService(c.env.DB, order);
+          await logEvent(c, 'webhook_campus_activated', { reference });
+        }
+      } else {
+        const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE paystack_reference = ?').bind(reference).first();
+        if (order && order.paystack_status === 'pending') {
+          const update = await c.env.DB.prepare('UPDATE service_orders SET paystack_status = ?, status = ? WHERE paystack_reference = ? AND paystack_status = ?')
+            .bind('success', 'active', reference, 'pending').run();
+          
+          if ((update?.meta?.changes ?? update?.changes ?? 0) > 0) {
+            await provisionService(c.env.DB, order);
+          }
         }
       }
     } catch (e) {
@@ -253,6 +262,126 @@ services.get('/orders/:id', requireAuth, async (c) => {
   }
   
   return c.json({ order: { ...order, metadata: JSON.parse(order.metadata || '{}') } });
+});
+
+// ---------------------------------------------------------------------------
+// Execution & Content Dispatch Endpoints
+// ---------------------------------------------------------------------------
+
+services.get('/user/sms-credits', requireAuth, async (c) => {
+  const user = c.get('user');
+  try {
+    const creditRecord = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
+    return c.json({ balance: creditRecord?.balance || 0 });
+  } catch (e) {
+    return c.json({ balance: 0, error: 'Failed to fetch credit balance.' }, 500);
+  }
+});
+
+services.post('/sms/send', requireAuth, async (c) => {
+  const user = c.get('user');
+  let body;
+  try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid JSON body.' }, 400); }
+
+  const { recipients, message } = body || {};
+  if (!recipients || !message) return c.json({ error: 'Recipients and message content are required.' }, 400);
+
+  const recipientList = String(recipients).split(',').map(r => r.trim()).filter(Boolean);
+  const cost = recipientList.length;
+
+  if (cost === 0) return c.json({ error: 'No valid phone numbers supplied.' }, 400);
+
+  const creditRecord = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
+  if (!creditRecord || creditRecord.balance < cost) {
+    return c.json({ error: `Insufficient SMS credits. Required: ${cost}, Balance: ${creditRecord?.balance || 0}` }, 403);
+  }
+
+  try {
+    const update = await c.env.DB.prepare('UPDATE sms_credits SET balance = balance - ?, total_sent = total_sent + ? WHERE user_id = ? AND balance >= ?')
+      .bind(cost, cost, user.id, cost).run();
+
+    const deducted = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
+    if (!deducted) return c.json({ error: 'Transaction collision or insufficient balance.' }, 409);
+
+    const smsId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      'INSERT INTO sms_history (id, user_id, message, recipients, recipient_count, cost, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).bind(smsId, user.id, message, recipientList.join(','), cost, cost, 'delivered').run();
+
+    await logEvent(c, 'sms_dispatched', { user: user.email, recipients: cost, cost });
+    return c.json({ success: true, dispatched: cost, messageId: smsId });
+  } catch (e) {
+    await logEvent(c, 'sms_dispatch_failed', { message: e.message });
+    return c.json({ error: 'Failed to process SMS dispatch.' }, 500);
+  }
+});
+
+services.post('/content/press-release', requireAuth, async (c) => {
+  const user = c.get('user');
+  let body;
+  try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid JSON body.' }, 400); }
+
+  const { title, content, company } = body || {};
+  if (!title || !content || !company) return c.json({ error: 'Title, content, and company name are required.' }, 400);
+
+  const order = await c.env.DB.prepare(
+    "SELECT id FROM service_orders WHERE user_id = ? AND service_type = 'press_release' AND (status = 'active' OR paystack_status = 'admin_grant') LIMIT 1"
+  ).bind(user.id).first();
+
+  if (!order) return c.json({ error: 'No active press release order found. Please purchase or renew a package.' }, 403);
+
+  try {
+    const storyId = crypto.randomUUID();
+    const fullTitle = `${company}: ${title}`;
+
+    await c.env.DB.prepare(
+      'INSERT INTO stories (id, author_id, title, body, type, privacy, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))'
+    ).bind(storyId, user.id, fullTitle, content, 'press_release', 'public').run();
+
+    await c.env.DB.prepare("UPDATE service_orders SET status = 'completed' WHERE id = ?").bind(order.id).run();
+    await logEvent(c, 'press_release_published', { storyId, company, user: user.email });
+
+    return c.json({ success: true, storyId });
+  } catch (e) {
+    await logEvent(c, 'press_release_error', { message: e.message });
+    return c.json({ error: 'Failed to submit press release.' }, 500);
+  }
+});
+
+services.post('/content/sponsored', requireAuth, async (c) => {
+  const user = c.get('user');
+  let body;
+  try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid JSON body.' }, 400); }
+
+  const { headline, body: content, ctaUrl, orderId } = body || {};
+  if (!headline || !content || !ctaUrl) return c.json({ error: 'Headline, content body, and CTA URL are required.' }, 400);
+
+  try {
+    let order;
+    if (orderId) {
+      order = await c.env.DB.prepare(
+        "SELECT * FROM service_orders WHERE id = ? AND user_id = ? AND service_type = 'sponsored' AND (status = 'active' OR paystack_status = 'admin_grant')"
+      ).bind(orderId, user.id).first();
+    } else {
+      order = await c.env.DB.prepare(
+        "SELECT * FROM service_orders WHERE user_id = ? AND service_type = 'sponsored' AND (status = 'active' OR paystack_status = 'admin_grant') ORDER BY created_at DESC LIMIT 1"
+      ).bind(user.id).first();
+    }
+
+    if (!order) return c.json({ error: 'No active sponsored placement order found.' }, 403);
+
+    const metadata = JSON.parse(order.metadata || '{}');
+    metadata.campaign = { headline, body: content, ctaUrl, updatedAt: new Date().toISOString() };
+
+    await c.env.DB.prepare('UPDATE service_orders SET metadata = ? WHERE id = ?')
+      .bind(JSON.stringify(metadata), order.id).run();
+
+    await logEvent(c, 'sponsored_campaign_updated', { orderId: order.id, user: user.email });
+    return c.json({ success: true, orderId: order.id });
+  } catch (e) {
+    await logEvent(c, 'sponsored_campaign_error', { message: e.message });
+    return c.json({ error: 'Failed to update sponsored campaign.' }, 500);
+  }
 });
 
 export default services;
