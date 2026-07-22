@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity, Film, Radio, Play, Lock } from 'lucide-react';
+import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity, Film, Radio, Play, Lock, ShieldCheck, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
@@ -16,6 +16,7 @@ import WalletDashboard from '../../../components/WalletDashboard';
 import MastheadNewsletter from '../../../components/MastheadNewsletter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '';
 
 let csrfToken = null;
 async function fetchCsrfToken() {
@@ -39,7 +40,10 @@ async function api(path, options = {}) {
     headers,
     ...options,
   });
-  if (!res.ok) throw new Error('API request failed');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'API request failed');
+  }
   return res.json();
 }
 
@@ -55,6 +59,13 @@ export default function ProfilePage() {
 
   const [profileTab, setProfileTab] = useState('stories'); // 'stories' | 'documentaries' | 'rooms'
   const [publisherRooms, setPublisherRooms] = useState([]);
+
+  // Secure Room Creation State (100 KES Paystack Fee)
+  const [showRoomModal, setShowRoomModal] = useState(false);
+  const [roomTitle, setRoomTitle] = useState('');
+  const [roomDesc, setRoomDesc] = useState('');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [roomModalError, setRoomModalError] = useState('');
 
   const [apiKeys, setApiKeys] = useState([]);
   const [newKeyName, setNewKeyName] = useState('');
@@ -85,6 +96,14 @@ export default function ProfilePage() {
     } catch (e) { /* ignore */ }
   };
 
+  const fetchPublisherRooms = async () => {
+    try {
+      const data = await api('/rooms');
+      const rooms = data.rooms || [];
+      setPublisherRooms(rooms.filter((r) => r.host_id === id));
+    } catch (e) {}
+  };
+
   const generateKey = async () => {
     if (!newKeyName.trim()) return;
     try {
@@ -109,15 +128,13 @@ export default function ProfilePage() {
   const handleUpgrade = async () => {
     setUpgrading(true);
     try {
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
-      const csrfData = await csrfRes.json();
-
+      const token = await fetchCsrfToken();
       const res = await fetch(`${API_BASE}/payments/subscribe/pro`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfData.token || '',
+          'X-CSRF-Token': token || '',
         },
       });
       const data = await res.json();
@@ -127,6 +144,82 @@ export default function ProfilePage() {
     } catch (e) {
       console.error(e);
       setUpgrading(false);
+    }
+  };
+
+  // Load Paystack script dynamically
+  const loadPaystackScript = () => new Promise((resolve) => {
+    if (window.PaystackPop) return resolve(true);
+    const script = document.createElement('script');
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
+  // Secure 100 KES Room Hosting Payment & Creation
+  const handleHostRoomPayment = async (e) => {
+    e.preventDefault();
+    if (!roomTitle.trim()) {
+      setRoomModalError('Please enter a room title.');
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setRoomModalError('');
+
+    const loaded = await loadPaystackScript();
+    if (!loaded) {
+      setRoomModalError('Failed to load Paystack payment gateway.');
+      setIsProcessingPayment(false);
+      return;
+    }
+
+    const handler = window.PaystackPop.setup({
+      key: PAYSTACK_PUBLIC_KEY,
+      email: user?.email || profile?.email || 'host@opinionplus.online',
+      amount: 10000, // 100 KES in subunits (cents)
+      currency: 'KES',
+      ref: 'host_room_' + Math.random().toString(36).substring(2, 15) + Date.now(),
+      callback: async (response) => {
+        try {
+          const data = await api('/rooms', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: roomTitle.trim(),
+              description: roomDesc.trim(),
+              reference: response.reference
+            })
+          });
+
+          if (data.ok && data.room) {
+            window.location.href = `/rooms/${data.room.id}`;
+          } else {
+            setRoomModalError(data.error || 'Room creation verification failed.');
+            setIsProcessingPayment(false);
+          }
+        } catch (err) {
+          setRoomModalError(err.message || 'Secure payment verification error.');
+          setIsProcessingPayment(false);
+        }
+      },
+      onClose: () => {
+        setIsProcessingPayment(false);
+        setRoomModalError('Payment window closed.');
+      }
+    });
+
+    handler.openIframe();
+  };
+
+  // Secure Room Deletion (Host & Admin Only)
+  const handleDeleteRoom = async (roomId) => {
+    if (!confirm('Are you sure you want to permanently delete this room? This action cannot be undone.')) return;
+    try {
+      await api(`/rooms/${roomId}`, { method: 'DELETE' });
+      setPublisherRooms((prev) => prev.filter((r) => r.id !== roomId));
+    } catch (e) {
+      alert(e.message || 'Failed to delete room securely.');
     }
   };
 
@@ -159,13 +252,7 @@ export default function ProfilePage() {
       fetchApiUsage();
     }
     if (id) {
-      fetch(`${API_BASE}/rooms`)
-        .then((r) => r.json())
-        .then((data) => {
-          const rooms = data.rooms || [];
-          setPublisherRooms(rooms.filter((r) => r.host_id === id));
-        })
-        .catch(() => {});
+      fetchPublisherRooms();
     }
   }, [isOwner, id]);
 
@@ -247,6 +334,81 @@ export default function ProfilePage() {
                 <Download size={16} /> Download High-Res PNG
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Secure Room Creation Modal (100 KES via Paystack) */}
+      {showRoomModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-white border-2 border-ink rounded-md max-w-md w-full p-8 relative shadow-2xl animate-in zoom-in-95 duration-300">
+            <button onClick={() => setShowRoomModal(false)} disabled={isProcessingPayment} className="absolute top-4 right-4 text-ink-400 hover:text-signal transition-colors bg-ink-50 hover:bg-red-50 p-1.5 rounded-full">
+              <X size={18} />
+            </button>
+            
+            <div className="mb-6">
+              <h3 className="text-xl font-black text-ink uppercase tracking-tight flex items-center gap-2">
+                <Radio className="text-signal" size={22} /> Host Live Space
+              </h3>
+              <p className="text-xs text-ink-500 mt-1">Broadcast real-time audio and video sessions to your audience securely.</p>
+            </div>
+
+            <div className="mb-5 bg-signal/5 border border-signal/20 p-3.5 rounded-sm flex items-center gap-3">
+              <ShieldCheck className="text-signal shrink-0" size={24} />
+              <p className="text-xs text-ink-700 font-medium">
+                Hosting a broadcast requires a secure one-time verification fee of <strong className="text-ink">100 KES</strong> via Paystack.
+              </p>
+            </div>
+
+            <form onSubmit={handleHostRoomPayment} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-widest text-ink-600 mb-1.5">Space Title *</label>
+                <input 
+                  type="text"
+                  required
+                  value={roomTitle}
+                  onChange={(e) => setRoomTitle(e.target.value)}
+                  placeholder="e.g., Evening Political Debate"
+                  disabled={isProcessingPayment}
+                  className="w-full bg-white border-2 border-wire rounded-sm px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-ink transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-widest text-ink-600 mb-1.5">Description (Optional)</label>
+                <textarea 
+                  value={roomDesc}
+                  onChange={(e) => setRoomDesc(e.target.value)}
+                  placeholder="Brief summary of the discussion..."
+                  disabled={isProcessingPayment}
+                  className="w-full bg-white border-2 border-wire rounded-sm px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-ink transition-colors resize-none h-20"
+                />
+              </div>
+
+              {roomModalError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-sm text-red-600 text-xs font-bold">
+                  {roomModalError}
+                </div>
+              )}
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRoomModal(false)}
+                  disabled={isProcessingPayment}
+                  className="flex-1 bg-ink-50 border border-wire text-ink font-bold uppercase text-xs tracking-widest py-3 rounded-sm hover:bg-ink-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingPayment || !roomTitle.trim()}
+                  className="flex-1 bg-signal text-white font-bold uppercase text-xs tracking-widest py-3 rounded-sm hover:bg-signal/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-md"
+                >
+                  {isProcessingPayment ? <><Loader2 size={16} className="animate-spin" /> Processing...</> : 'Pay 100 KES & Launch'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -571,7 +733,7 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Tab 3: Live Audio Rooms */}
+          {/* Tab 3: Live Audio Rooms (Secure Host Management & Deletion) */}
           {profileTab === 'rooms' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
@@ -579,12 +741,12 @@ export default function ProfilePage() {
                   Live & Scheduled Audio Discussions hosted by {publisherName}
                 </p>
                 {isOwner && (
-                  <Link
-                    href="/rooms"
-                    className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                  <button
+                    onClick={() => { setRoomTitle(''); setRoomDesc(''); setRoomModalError(''); setShowRoomModal(true); }}
+                    className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
                   >
-                    <Plus size={14} /> Host New Room
-                  </Link>
+                    <Plus size={14} /> Host New Space (100 KES)
+                  </button>
                 )}
               </div>
 
@@ -592,41 +754,50 @@ export default function ProfilePage() {
                 <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
                   <Radio size={32} className="mx-auto text-ink-300 mb-3" />
                   <p className="text-lg font-bold text-ink mb-1">No active audio rooms.</p>
-                  <p className="text-xs text-ink-500">This publisher is not currently hosting any live discussions.</p>
+                  <p className="text-xs text-ink-500 mb-4">This publisher is not currently hosting any live discussions.</p>
+                  {isOwner && (
+                    <button
+                      onClick={() => { setRoomTitle(''); setRoomDesc(''); setRoomModalError(''); setShowRoomModal(true); }}
+                      className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <Plus size={14} /> Host Your First Space
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {publisherRooms.map((room) => (
-                    <div key={room.id} className="border-2 border-ink bg-white p-6 rounded-sm shadow-sm flex flex-col justify-between space-y-4">
+                    <div key={room.id} className="border-2 border-ink bg-white p-6 rounded-sm shadow-sm flex flex-col justify-between space-y-4 relative group">
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-signal text-white">
-                            {room.category}
+                            Live Space
                           </span>
-                          {room.is_premium ? (
-                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-amber-100 text-amber-800 flex items-center gap-1">
-                              <Lock size={10} /> KES {(room.price_cents / 100).toLocaleString()}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-800">
-                              Free
-                            </span>
-                          )}
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" /> Active
+                          </span>
                         </div>
                         <h3 className="text-lg font-black text-ink leading-snug">{room.title}</h3>
-                        <p className="text-xs text-ink-600 line-clamp-2 font-medium">{room.description || 'Live audio briefing.'}</p>
+                        <p className="text-xs text-ink-600 line-clamp-2 font-medium">{room.description || 'Live audio briefing session.'}</p>
                       </div>
 
-                      <div className="pt-4 border-t border-wire flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Live Now
-                        </span>
+                      <div className="pt-4 border-t border-wire flex items-center justify-between gap-2">
                         <Link
                           href={`/rooms/${room.id}`}
-                          className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm flex items-center gap-1.5"
+                          className="flex-1 bg-signal text-white font-bold uppercase text-xs tracking-wider py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm flex items-center justify-center gap-1.5 text-center"
                         >
-                          <Play size={13} fill="currentColor" /> Join
+                          <Play size={13} fill="currentColor" /> Join Space
                         </Link>
+
+                        {isOwner && (
+                          <button
+                            onClick={() => handleDeleteRoom(room.id)}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white p-2.5 rounded-sm transition-colors border border-red-200"
+                            title="Permanently Delete Room"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

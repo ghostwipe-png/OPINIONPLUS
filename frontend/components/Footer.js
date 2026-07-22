@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Instagram, Linkedin, Twitter, Rss, ArrowUp, Check, Loader2, Mail } from 'lucide-react';
 
 const SOCIAL_LINKS = [
@@ -24,10 +25,16 @@ function isValidEmail(value) {
 }
 
 export default function Footer() {
+  const pathname = usePathname();
   const [email, setEmail] = useState('');
   const [pref, setPref] = useState('all');
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
+
+  // Automatically hide the footer on any live room page (/rooms/[id])
+  if (pathname && pathname.startsWith('/rooms/')) {
+    return null;
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -96,7 +103,8 @@ export default function Footer() {
             <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-5 pb-2 border-b border-white/10">Explore</h4>
             <ul className="space-y-3 text-[13px] font-medium text-white/80">
               <li><Link href="/" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Feed</Link></li>
-              <li><Link href="/leaderboard" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Leaderboard</Link></li>
+              <li><Link href="/campuses" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Campus</Link></li>
+              <li><Link href="/jobs" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Jobs</Link></li>
               <li><Link href="/publish" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Publish story</Link></li>
             </ul>
           </div>
@@ -105,7 +113,8 @@ export default function Footer() {
           <div className="lg:col-span-2">
             <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/40 mb-5 pb-2 border-b border-white/10">Support</h4>
             <ul className="space-y-3 text-[13px] font-medium text-white/80">
-              <li><Link href="/about" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Guidelines</Link></li>
+              <li><Link href="/services" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Services</Link></li>
+              <li><Link href="/pricing" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Partner</Link></li>
               <li><Link href="/privacy" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Privacy policy</Link></li>
             </ul>
           </div>

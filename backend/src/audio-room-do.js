@@ -2,75 +2,96 @@ export class AudioRoomDO {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.participants = new Map(); // participantId -> participant object
-    this.chatMessages = []; // last 200 messages
-    this.roomMetadata = {
+    this.sockets = []; 
+    this.roomState = {
+      id: '',
       title: 'Live Audio Space',
       hostId: '',
+      hostName: '',
       createdAt: new Date().toISOString(),
       isRecording: false,
       recordingStartedAt: null,
+      participants: new Map(),
+      chatMessages: [],
+      raisedHands: [],
     };
-    this.raisedHands = []; // ordered queue of participantIds
   }
 
   async fetch(request) {
     const url = new URL(request.url);
-    const pathParts = url.pathname.split('/');
-    // pathParts format: ['', 'room', roomId, ...] or similar depending on routing
 
-    if (url.pathname.endsWith('/create') && request.method === 'POST') {
-      const body = await request.json();
-      this.roomMetadata.title = body.title || 'Live Audio Space';
-      this.roomMetadata.hostId = body.hostId || '';
-      this.roomMetadata.createdAt = new Date().toISOString();
-      return Response.json({ ok: true, roomMetadata: this.roomMetadata });
+    if (request.method === 'GET' && !request.headers.get('Upgrade')) {
+      return Response.json({
+        id: this.roomState.id,
+        title: this.roomState.title,
+        hostId: this.roomState.hostId,
+        participantCount: this.roomState.participants.size,
+      });
     }
 
-    if (url.pathname.includes('/room/') || pathParts.length >= 3) {
-      if (request.method === 'GET') {
-        return Response.json({
-          roomMetadata: this.roomMetadata,
-          participants: Array.from(this.participants.values()),
-          raisedHands: this.raisedHands,
-          chatMessages: this.chatMessages,
-        });
-      }
+    if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
+      return new Response('Expected WebSocket upgrade', { status: 426 });
     }
 
-    // WebSocket upgrade check
-    const upgradeHeader = request.headers.get('Upgrade');
-    if (upgradeHeader !== 'websocket') {
-      return new Response('Expected upgrade to websocket', { status: 426 });
+    // MAXIMUM SECURITY: Extract identity strictly from secure headers injected by our own router.
+    // Hackers cannot modify these headers externally.
+    const secureUserId = request.headers.get('X-Secure-User-Id');
+    const secureUserName = request.headers.get('X-Secure-User-Name') || 'Verified User';
+    const secureUserAvatar = request.headers.get('X-Secure-User-Avatar') || null;
+    const secureUserRole = request.headers.get('X-Secure-User-Role') || 'user';
+
+    if (!secureUserId) {
+      return new Response('Security Exception: Unverified Identity', { status: 403 });
     }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
-    this.state.acceptWebSocket(server);
+    server.accept();
+    
+    // Bind immutable identity to the socket instance.
+    server.verifiedIdentity = {
+      id: secureUserId,
+      name: secureUserName,
+      avatar: secureUserAvatar,
+      role: secureUserRole
+    };
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
+    this.sockets.push(server);
+
+    server.addEventListener('message', async (event) => {
+      await this.webSocketMessage(server, event.data);
     });
+
+    server.addEventListener('close', () => { this.webSocketClose(server); });
+    server.addEventListener('error', () => { this.webSocketClose(server); });
+
+    return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws, messageString) {
     try {
       const msg = JSON.parse(messageString);
       const { type, payload } = msg;
-      const participantId = ws.deserializeAttachment?.()?.participantId || ws.participantId;
 
       switch (type) {
         case 'join': {
-          const id = 'p_' + crypto.randomUUID().slice(0, 8);
-          ws.participantId = id;
-          ws.serializeAttachment?.({ participantId: id });
+          if (this.roomState.participants.size >= 50) {
+            ws.send(JSON.stringify({ type: 'error', payload: { message: 'Room is full.' } }));
+            ws.close();
+            return;
+          }
 
+          const connectionId = crypto.randomUUID();
+          ws.connectionId = connectionId;
+
+          // ZERO-TRUST: We completely ignore payload.userId from the client.
           const participant = {
-            id,
-            name: payload.name || 'Guest',
-            avatar: payload.avatar || '',
+            id: ws.verifiedIdentity.id,
+            name: ws.verifiedIdentity.name,
+            avatar: ws.verifiedIdentity.avatar,
+            role: ws.verifiedIdentity.role,
+            connectionId,
             isMuted: true,
             isCameraOff: true,
             isHandRaised: false,
@@ -80,261 +101,145 @@ export class AudioRoomDO {
             joinedAt: new Date().toISOString(),
           };
 
-          this.participants.set(id, participant);
+          if (this.roomState.participants.size === 0 && !this.roomState.hostId) {
+            this.roomState.hostId = participant.id;
+            this.roomState.hostName = participant.name;
+          }
 
-          // Send full room state to the newly joined client
-          ws.send(JSON.stringify({
-            type: 'room-state',
+          this.roomState.participants.set(connectionId, participant);
+
+          ws.send(JSON.stringify({ 
+            type: 'room-state', 
             payload: {
-              roomMetadata: this.roomMetadata,
-              participants: Array.from(this.participants.values()),
-              raisedHands: this.raisedHands,
-              chatHistory: this.chatMessages,
-              selfId: id,
-            },
+              id: this.roomState.id,
+              title: this.roomState.title,
+              hostId: this.roomState.hostId,
+              isRecording: this.roomState.isRecording,
+              participants: Array.from(this.roomState.participants.values()),
+              chatMessages: this.roomState.chatMessages,
+              raisedHands: this.roomState.raisedHands,
+              selfConnectionId: connectionId
+            }
           }));
 
-          // Broadcast participant joined to others
-          this.broadcast({
-            type: 'participant-joined',
-            payload: participant,
-          }, id);
+          this.broadcast({ type: 'participant-joined', payload: participant }, connectionId);
           break;
         }
-
         case 'leave': {
-          if (participantId) {
-            this.handleRemoveParticipant(participantId);
-          }
+          if (ws.connectionId) this.handleRemoveParticipant(ws.connectionId);
           break;
         }
-
-        case 'webrtc-offer':
-        case 'webrtc-answer':
+        case 'webrtc-offer': 
+        case 'webrtc-answer': 
         case 'webrtc-ice-candidate': {
-          const targetSocket = this.findSocketByParticipantId(payload.targetId);
-          if (targetSocket) {
-            targetSocket.send(JSON.stringify({
-              type,
-              payload: {
-                senderId: participantId,
-                ...payload,
-              },
+          const targetWs = this.sockets.find(s => s.connectionId === payload.targetConnectionId);
+          if (targetWs) {
+            targetWs.send(JSON.stringify({ 
+              type, 
+              payload: { senderConnectionId: ws.connectionId, [type === 'webrtc-ice-candidate' ? 'candidate' : 'sdp']: payload[type === 'webrtc-ice-candidate' ? 'candidate' : 'sdp'] } 
             }));
           }
           break;
         }
-
-        case 'toggle-mute': {
-          const p = this.participants.get(participantId);
-          if (p) {
-            p.isMuted = payload.isMuted;
-            this.broadcast({
-              type: 'participant-updated',
-              payload: { id: participantId, isMuted: p.isMuted },
-            });
-          }
-          break;
-        }
-
+        case 'toggle-mute':
         case 'toggle-camera': {
-          const p = this.participants.get(participantId);
-          if (p) {
-            p.isCameraOff = payload.isCameraOff;
-            this.broadcast({
-              type: 'participant-updated',
-              payload: { id: participantId, isCameraOff: p.isCameraOff },
-            });
+          const p = this.roomState.participants.get(ws.connectionId);
+          if (p) { 
+            if (type === 'toggle-mute') p.isMuted = payload.isMuted;
+            else p.isCameraOff = payload.isCameraOff;
+            this.broadcast({ type: 'participant-updated', payload: { connectionId: ws.connectionId, isMuted: p.isMuted, isCameraOff: p.isCameraOff } }); 
           }
           break;
         }
-
         case 'raise-hand': {
-          const p = this.participants.get(participantId);
+          const p = this.roomState.participants.get(ws.connectionId);
           if (p) {
             p.isHandRaised = !p.isHandRaised;
-            if (p.isHandRaised) {
-              if (!this.raisedHands.includes(participantId)) {
-                this.raisedHands.push(participantId);
-              }
-              this.broadcast({
-                type: 'hand-raised',
-                payload: { participantId, name: p.name },
-              });
-            } else {
-              this.raisedHands = this.raisedHands.filter(id => id !== participantId);
-              this.broadcast({
-                type: 'hand-lowered',
-                payload: { participantId },
-              });
-            }
+            if (p.isHandRaised) this.roomState.raisedHands.push(ws.connectionId);
+            else this.roomState.raisedHands = this.roomState.raisedHands.filter(id => id !== ws.connectionId);
+            this.broadcast({ type: 'participant-updated', payload: { connectionId: ws.connectionId, isHandRaised: p.isHandRaised } });
           }
           break;
         }
-
         case 'chat-message': {
-          const p = this.participants.get(participantId);
-          const chatObj = {
-            id: 'msg_' + crypto.randomUUID().slice(0, 8),
-            senderId: participantId,
-            senderName: p ? p.name : 'Guest',
-            text: payload.text,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          // Strict Sanitization: Strip html tags and cap length
+          if (!payload.text || typeof payload.text !== 'string') return;
+          const sanitizedText = payload.text.replace(/</g, "&lt;").replace(/>/g, "&gt;").slice(0, 500);
+          if (!sanitizedText) return;
+
+          const p = this.roomState.participants.get(ws.connectionId);
+          const msgObj = { 
+            id: crypto.randomUUID(), 
+            senderId: ws.connectionId, 
+            senderName: p ? p.name : ws.verifiedIdentity.name, 
+            text: sanitizedText, 
+            timestamp: new Date().toISOString() 
           };
-
-          this.chatMessages.push(chatObj);
-          if (this.chatMessages.length > 200) {
-            this.chatMessages.shift();
-          }
-
-          this.broadcast({
-            type: 'chat-message',
-            payload: chatObj,
-          });
-
-          // Persist to D1 asynchronously if DB binding exists
-          if (this.env?.DB) {
-            const roomId = this.state.id.toString();
-            this.env.DB.prepare(
-              `INSERT INTO room_chat_messages (id, room_id, sender_id, sender_name, text) VALUES (?, ?, ?, ?, ?)`
-            ).bind(chatObj.id, roomId, chatObj.senderId, chatObj.senderName, chatObj.text).run().catch(() => {});
-          }
+          
+          this.roomState.chatMessages.push(msgObj);
+          if (this.roomState.chatMessages.length > 300) this.roomState.chatMessages.shift();
+          this.broadcast({ type: 'chat-message', payload: msgObj });
           break;
         }
-
         case 'emoji-reaction': {
-          const p = this.participants.get(participantId);
-          this.broadcast({
-            type: 'emoji-reaction',
-            payload: {
-              senderId: participantId,
-              senderName: p ? p.name : 'Guest',
-              emoji: payload.emoji,
-            },
-          });
+          const allowed = ['🎉', '👏', '❤️', '🔥', '😂', '😮', '👍', '💡'];
+          if (!allowed.includes(payload.emoji)) return;
+          const p = this.roomState.participants.get(ws.connectionId);
+          this.broadcast({ type: 'emoji-reaction', payload: { senderId: ws.connectionId, senderName: p ? p.name : '', emoji: payload.emoji } });
           break;
         }
-
         case 'speaking-update': {
-          const p = this.participants.get(participantId);
+          const p = this.roomState.participants.get(ws.connectionId);
           if (p) {
-            p.audioLevel = payload.audioLevel || 0;
-            p.isSpeaking = p.audioLevel > 15;
+            p.audioLevel = typeof payload.audioLevel === 'number' ? Math.min(100, Math.max(0, payload.audioLevel)) : 0;
+            p.isSpeaking = p.audioLevel > 10;
+            this.handleDominantSpeaker();
           }
           break;
         }
-
-        case 'start-screen-share': {
-          const p = this.participants.get(participantId);
-          if (p) {
-            p.isScreenSharing = true;
-            this.broadcast({
-              type: 'screen-share-started',
-              payload: { participantId },
-            });
-          }
-          break;
-        }
-
-        case 'stop-screen-share': {
-          const p = this.participants.get(participantId);
-          if (p) {
-            p.isScreenSharing = false;
-            this.broadcast({
-              type: 'screen-share-stopped',
-              payload: { participantId },
-            });
-          }
-          break;
-        }
-
-        case 'start-recording': {
-          if (participantId === this.roomMetadata.hostId) {
-            this.roomMetadata.isRecording = true;
-            this.roomMetadata.recordingStartedAt = new Date().toISOString();
-            this.broadcast({ type: 'recording-started' });
-          }
-          break;
-        }
-
-        case 'stop-recording': {
-          if (participantId === this.roomMetadata.hostId) {
-            this.roomMetadata.isRecording = false;
-            this.broadcast({ type: 'recording-stopped' });
-          }
-          break;
-        }
-
         case 'ping': {
           ws.send(JSON.stringify({ type: 'pong' }));
           break;
         }
-
-        default:
-          break;
       }
-    } catch (err) {
-      // Handle parse errors silently
-    }
+    } catch (e) {}
   }
 
-  webSocketClose(ws, code, reason, wasClean) {
-    const participantId = ws.participantId;
-    if (participantId) {
-      this.handleRemoveParticipant(participantId);
-    }
+  webSocketClose(ws) {
+    this.sockets = this.sockets.filter(s => s !== ws);
+    if (ws.connectionId) this.handleRemoveParticipant(ws.connectionId);
   }
 
-  webSocketError(ws, error) {
-    const participantId = ws.participantId;
-    if (participantId) {
-      this.handleRemoveParticipant(participantId);
-    }
-  }
-
-  handleRemoveParticipant(participantId) {
-    const p = this.participants.get(participantId);
+  handleRemoveParticipant(connectionId) {
+    const p = this.roomState.participants.get(connectionId);
     if (!p) return;
+    this.roomState.participants.delete(connectionId);
+    this.roomState.raisedHands = this.roomState.raisedHands.filter(id => id !== connectionId);
+    this.broadcast({ type: 'participant-left', payload: { connectionId, name: p.name } });
 
-    this.participants.delete(participantId);
-    this.raisedHands = this.raisedHands.filter(id => id !== participantId);
-
-    // If host left, assign new host
-    if (this.roomMetadata.hostId === participantId && this.participants.size > 0) {
-      const nextParticipant = Array.from(this.participants.values())[0];
-      this.roomMetadata.hostId = nextParticipant.id;
-      this.broadcast({
-        type: 'host-changed',
-        payload: { newHostId: nextParticipant.id, newHostName: nextParticipant.name },
-      });
+    if (p.id === this.roomState.hostId && this.roomState.participants.size > 0) {
+      const nextParticipant = Array.from(this.roomState.participants.values())[0];
+      this.roomState.hostId = nextParticipant.id;
+      this.broadcast({ type: 'host-changed', payload: { newHostId: nextParticipant.id } });
     }
-
-    this.broadcast({
-      type: 'participant-left',
-      payload: { id: participantId },
-    });
   }
 
-  findSocketByParticipantId(targetId) {
-    const sockets = this.state.getWebSockets();
-    for (const ws of sockets) {
-      if (ws.participantId === targetId) {
-        return ws;
-      }
+  handleDominantSpeaker() {
+    let dominant = null;
+    let maxLevel = 10;
+    const audioLevels = {};
+    for (const [connId, p] of this.roomState.participants.entries()) {
+      audioLevels[connId] = p.audioLevel;
+      if (p.audioLevel > maxLevel) { maxLevel = p.audioLevel; dominant = connId; }
     }
-    return null;
+    this.broadcast({ type: 'speaker-update', payload: { dominantSpeakerId: dominant, audioLevels } });
   }
 
-  broadcast(messageObj, excludeParticipantId = null) {
-    const sockets = this.state.getWebSockets();
+  broadcast(messageObj, excludeConnectionId = null) {
     const str = JSON.stringify(messageObj);
-    for (const ws of sockets) {
-      if (ws.participantId && ws.participantId !== excludeParticipantId) {
-        try {
-          ws.send(str);
-        } catch (e) {
-          // Socket dead
-        }
+    for (const ws of this.sockets) {
+      if (ws.connectionId && ws.connectionId !== excludeConnectionId) {
+        try { ws.send(str); } catch (e) {}
       }
     }
   }

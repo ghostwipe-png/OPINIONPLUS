@@ -1,4 +1,3 @@
--- Rooms table
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -12,7 +11,6 @@ CREATE TABLE IF NOT EXISTS rooms (
   ended_at TEXT
 );
 
--- Chat messages
 CREATE TABLE IF NOT EXISTS room_chat_messages (
   id TEXT PRIMARY KEY,
   room_id TEXT NOT NULL,
@@ -21,9 +19,9 @@ CREATE TABLE IF NOT EXISTS room_chat_messages (
   text TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
 CREATE INDEX IF NOT EXISTS idx_room_chat_room_id ON room_chat_messages (room_id);
 
--- Room participants (for history)
 CREATE TABLE IF NOT EXISTS room_participants (
   room_id TEXT NOT NULL,
   user_id TEXT NOT NULL,

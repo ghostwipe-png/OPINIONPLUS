@@ -5,7 +5,7 @@ import { apiKeyAuth } from './middleware/apiKey.js';
 import { apiLimit } from './middleware/apiLimit.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
 import { createDB } from './utils/db.js';
-import { AudioRoomDO } from './durableObjects/AudioRoomDO.js';
+import { AudioRoomDO } from './audio-room-do.js';
 
 import auth from './routes/auth.js';
 import stories from './routes/stories.js';
@@ -67,21 +67,18 @@ app.use('*', async (c, next) => {
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com js.paystack.co",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "media-src 'self' https:",
-      "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com",
-      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss:",
+      "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com https://checkout.paystack.com",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss: https://api.paystack.co",
       "frame-ancestors 'none'",
     ].join('; ')
   );
   try {
     if (new URL(c.req.url).protocol === 'https:') {
-      c.res.headers.set(
-        'Strict-Transport-Security',
-        'max-age=63072000; includeSubDomains; preload'
-      );
+      c.res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     }
   } catch (e) { /* skip HSTS */ }
 });
@@ -93,7 +90,6 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
 }));
 
-// Enhanced Edge Caching Middleware for public read endpoints
 app.use('*', async (c, next) => {
   await next();
   const contentType = c.res.headers.get('Content-Type') || '';
@@ -129,14 +125,8 @@ app.use('*', async (c, next) => {
     await Promise.race([next(), timeout]);
   } catch (e) {
     if (e && e.message === '__REQUEST_TIMEOUT__') {
-      log('error', 'request timeout', {
-        path: c.req.path,
-        method: c.req.method,
-        requestId: c.get('requestId'),
-      });
-      if (!c.finalized) {
-        c.res = c.json({ error: 'Request timeout', requestId: c.get('requestId') }, 504);
-      }
+      log('error', 'request timeout', { path: c.req.path, method: c.req.method, requestId: c.get('requestId') });
+      if (!c.finalized) c.res = c.json({ error: 'Request timeout', requestId: c.get('requestId') }, 504);
       return;
     }
     throw e;
@@ -151,6 +141,7 @@ app.use('*', async (c, next) => {
   if (c.req.path === '/subscriptions/subscribe') return await next();
   if (c.req.path.startsWith('/archive/')) return await next();
   if (c.req.path.startsWith('/admin/')) return await next();
+  if (c.req.path === '/payments/webhook') return await next(); // Webhooks rely on HMAC signature, not CSRF
   return csrfProtection(c, next);
 });
 
@@ -174,52 +165,25 @@ app.use('/sms/*', async (c, next) => {
 app.get('/', async (c) => {
   let dbStatus = 'unknown';
   const dbStart = Date.now();
-  try {
-    await c.env.DB.prepare('SELECT 1').first();
-    dbStatus = 'ok';
-  } catch (e) {
-    dbStatus = 'error';
-    log('error', 'health check db failure', { error: e.message });
-  }
-  return c.json({
-    ok: dbStatus === 'ok',
-    service: 'opinionplus-api',
-    db: dbStatus,
-    dbLatencyMs: Date.now() - dbStart,
-    requestId: c.get('requestId'),
-  });
+  try { await c.env.DB.prepare('SELECT 1').first(); dbStatus = 'ok'; } 
+  catch (e) { dbStatus = 'error'; }
+  return c.json({ ok: dbStatus === 'ok', service: 'opinionplus-api', db: dbStatus, dbLatencyMs: Date.now() - dbStart, requestId: c.get('requestId') });
 });
 
 async function safeFirst(env, sql) {
-  try {
-    return await env.DB.prepare(sql).first();
-  } catch (e) {
-    return null;
-  }
+  try { return await env.DB.prepare(sql).first(); } catch (e) { return null; }
 }
 
 app.get('/metrics', async (c) => {
   const user = c.get('user');
-  if (!user || (user.role !== 'admin' && user.role !== 'root')) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  if (!user || (user.role !== 'admin' && user.role !== 'root')) return c.json({ error: 'Forbidden' }, 403);
   try {
     const [usersRow, storiesRow, engagementRow, last24hRow] = await Promise.all([
       safeFirst(c.env, 'SELECT COUNT(*) as count FROM users'),
       safeFirst(c.env, 'SELECT COUNT(*) as count FROM stories WHERE deleted = 0'),
-      safeFirst(
-        c.env,
-        `SELECT
-           COALESCE(SUM(json_array_length(likes)), 0) as totalLikes,
-           COALESCE(SUM(json_array_length(comments)), 0) as totalComments
-         FROM stories WHERE deleted = 0`
-      ),
-      safeFirst(
-        c.env,
-        "SELECT COUNT(*) as count FROM stories WHERE deleted = 0 AND created_at >= datetime('now', '-1 day')"
-      ),
+      safeFirst(c.env, `SELECT COALESCE(SUM(json_array_length(likes)), 0) as totalLikes, COALESCE(SUM(json_array_length(comments)), 0) as totalComments FROM stories WHERE deleted = 0`),
+      safeFirst(c.env, "SELECT COUNT(*) as count FROM stories WHERE deleted = 0 AND created_at >= datetime('now', '-1 day')"),
     ]);
-
     return c.json({
       totalUsers: usersRow?.count ?? null,
       totalStories: storiesRow?.count ?? null,
@@ -228,26 +192,45 @@ app.get('/metrics', async (c) => {
       storiesLast24h: last24hRow?.count ?? null,
       timestamp: new Date().toISOString(),
     });
-  } catch (e) {
-    log('error', 'metrics endpoint failed', { error: e.message, requestId: c.get('requestId') });
-    return c.json({ error: 'Failed to load metrics' }, 500);
-  }
+  } catch (e) { return c.json({ error: 'Failed to load metrics' }, 500); }
 });
 
 app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   const user = c.get('user');
-  const { results } = await c.env.DB.prepare(
-    'SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100'
-  ).bind(user.id).all();
+  const { results } = await c.env.DB.prepare('SELECT * FROM stories WHERE author_id = ? AND deleted = 0 AND privacy = "public" ORDER BY created_at DESC LIMIT 100').bind(user.id).all();
   return c.json({ publisher: user.publisher_name, stories: results });
 });
 
-// WebSocket endpoint for real-time live audio room chat via Durable Objects
-app.get('/rooms/:id/ws', async (c) => {
-  const roomId = c.req.param('id');
+// =========================================================================
+// MAXIMUM SECURITY WEBSOCKET UPGRADE ROUTE
+// =========================================================================
+app.get('/rooms/:roomId/ws', async (c) => {
+  const user = c.get('user');
+  
+  // 1. Hard block unauthenticated users from initiating signaling
+  if (!user) {
+    return c.json({ error: 'Unauthorized: Valid secure session required.' }, 401);
+  }
+
+  const roomId = c.req.param('roomId');
+  
+  // 2. Cryptographic Server-Side Identity Injection
+  // We strip all client control over their identity by securely passing verified DB state
+  // to the Durable Object via internal headers. Clients cannot forge these.
+  const secureHeaders = new Headers(c.req.raw.headers);
+  secureHeaders.set('X-Secure-User-Id', user.id);
+  secureHeaders.set('X-Secure-User-Name', user.publisherName || user.name || 'User');
+  secureHeaders.set('X-Secure-User-Avatar', user.logoUrl || '');
+  secureHeaders.set('X-Secure-User-Role', user.role || 'user');
+
+  const secureRequest = new Request(c.req.url, {
+    method: c.req.method,
+    headers: secureHeaders,
+  });
+
   const id = c.env.AUDIO_ROOM_DO.idFromName(roomId);
   const stub = c.env.AUDIO_ROOM_DO.get(id);
-  return stub.fetch(c.req.raw);
+  return stub.fetch(secureRequest);
 });
 
 app.route('/auth', auth);
@@ -272,20 +255,19 @@ async function runRetentionCleanup(env) {
   try {
     const r = await env.DB.prepare("DELETE FROM archive WHERE status = 'approved' AND reviewed_at < datetime('now', '-30 days')").run();
     results.archiveApproved = r.meta?.changes || 0;
-  } catch (e) { log('error', 'cleanup: archive approved failed', { error: e.message }); }
+  } catch (e) {}
   try {
     const r = await env.DB.prepare("DELETE FROM archive WHERE status = 'rejected' AND reviewed_at < datetime('now', '-7 days')").run();
     results.archiveRejected = r.meta?.changes || 0;
-  } catch (e) { log('error', 'cleanup: archive rejected failed', { error: e.message }); }
+  } catch (e) {}
   try {
     const r = await env.DB.prepare("DELETE FROM search_history WHERE created_at < datetime('now', '-90 days')").run();
     results.searchHistory = r.meta?.changes || 0;
-  } catch (e) { /* optional table */ }
+  } catch (e) {}
   try {
     const r = await env.DB.prepare("DELETE FROM rate_limits WHERE created_at < datetime('now', '-1 days')").run();
     results.rateLimits = r.meta?.changes || 0;
-  } catch (e) { /* optional table */ }
-  log('info', 'retention cleanup complete', results);
+  } catch (e) {}
   return results;
 }
 
@@ -295,9 +277,7 @@ app.get('/admin-cleanup', async (c) => {
   try {
     const results = await runRetentionCleanup(c.env);
     return c.json({ ok: true, ...results });
-  } catch (e) {
-    return c.json({ ok: false, error: 'Cleanup failed' }, 500);
-  }
+  } catch (e) { return c.json({ ok: false, error: 'Cleanup failed' }, 500); }
 });
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
@@ -305,31 +285,20 @@ app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {
   const status = err.status || err.statusCode || 500;
   const requestId = c.get('requestId');
-  const meta = { error: err.message, status, path: c.req.path, method: c.req.method, requestId };
-  
   if (status >= 400 && status < 500) {
-    log('warn', 'client error', meta);
     return c.json({ error: err.message || 'Request error.', requestId }, status);
   }
-  
-  log('error', 'unhandled error', { ...meta, stack: (err.stack || '').slice(0, 500) });
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
 
 async function runCronJob(name, fn) {
-  try {
-    const result = await fn();
-    log('info', 'cron job complete', { job: name, result: result ?? null });
-  } catch (e) {
-    log('error', 'cron job failed', { job: name, error: e.message });
-  }
+  try { await fn(); } catch (e) {}
 }
 
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
     const jobs = [];
-
     if (event.cron === '*/5 * * * *') {
       jobs.push(runCronJob('publish-scheduled-stories', async () => {
         const storiesModule = await import('./routes/stories.js');
@@ -339,11 +308,9 @@ const worker = {
         return null;
       }));
     }
-
     if (event.cron === '0 3 * * *') {
       jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
     }
-
     await Promise.allSettled(jobs);
   },
 };

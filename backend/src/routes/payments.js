@@ -31,7 +31,6 @@ async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
   }
 }
 
-// Structured logging helper — never logs secret keys or full card data.
 function logEvent(kind, payload = {}) {
   try {
     console.log(JSON.stringify({ kind, timestamp: new Date().toISOString(), ...payload }));
@@ -63,14 +62,19 @@ async function loggedFetch(kind, url, options, retries = MAX_RETRIES) {
   }
 }
 
+// MAXIMUM SECURITY: Optimistic Locking to Prevent Double-Spend
 async function finalizeTransaction(db, reference, expectedUserId, credits) {
   if (!expectedUserId || !credits || credits <= 0) return { credited: false };
+  
+  // The UPDATE condition "AND status = 'pending'" acts as a mutex.
   const update = await db
     .prepare('UPDATE payment_transactions SET status = ? WHERE reference = ? AND status = ?')
     .bind('completed', reference, 'pending')
     .run();
+    
   const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
-  if (!flipped) return { credited: false };
+  if (!flipped) return { credited: false }; 
+  
   await db
     .prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?')
     .bind(expectedUserId, credits, credits)
@@ -95,15 +99,16 @@ async function handlePartnerSubscription(db, userId, tier, referralCode) {
     if (referrer && referrer.id !== userId) {
       const existing = await db.prepare('SELECT * FROM referrals WHERE referred_id = ?').bind(userId).first();
       if (!existing) {
-        await db.prepare('INSERT INTO referrals (id, referrer_id, referred_id, bonus_paid) VALUES (?, ?, ?, ?)')
-          .bind(crypto.randomUUID(), referrer.id, userId, REFERRAL_BONUS).run();
-        await db.prepare('UPDATE wallets SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?')
-          .bind(REFERRAL_BONUS, REFERRAL_BONUS, referrer.id).run();
+        await db.batch([
+          db.prepare('INSERT INTO referrals (id, referrer_id, referred_id, bonus_paid) VALUES (?, ?, ?, ?)').bind(crypto.randomUUID(), referrer.id, userId, REFERRAL_BONUS),
+          db.prepare('UPDATE wallets SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?').bind(REFERRAL_BONUS, REFERRAL_BONUS, referrer.id)
+        ]);
       }
     }
   }
 }
 
+// MAXIMUM SECURITY: Constant-Time HMAC Signature Verification
 async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
   if (!signatureHeader || !secretKey) return false;
   try {
@@ -111,9 +116,14 @@ async function verifyPaystackSignature(secretKey, rawBody, signatureHeader) {
     const key = await crypto.subtle.importKey('raw', enc.encode(secretKey), { name: 'HMAC', hash: 'SHA-512' }, false, ['sign']);
     const sigBuffer = await crypto.subtle.sign('HMAC', key, enc.encode(rawBody));
     const computedHex = [...new Uint8Array(sigBuffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    
     if (computedHex.length !== signatureHeader.length) return false;
+    
+    // Bitwise XOR comparison defends against Timing Attacks
     let diff = 0;
-    for (let i = 0; i < computedHex.length; i++) diff |= computedHex.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
+    for (let i = 0; i < computedHex.length; i++) {
+      diff |= computedHex.charCodeAt(i) ^ signatureHeader.charCodeAt(i);
+    }
     return diff === 0;
   } catch (e) { return false; }
 }
@@ -127,15 +137,9 @@ function isPositiveInt(n) {
 }
 
 function escapeHtml(str = '') {
-  return String(str)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  return String(str).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
-// Professional, print-friendly HTML receipt.
 function generateReceiptHtml(transaction) {
   const amountKes = (Number(transaction.amount || 0) / 100).toLocaleString('en-KE');
   const date = transaction.created_at ? new Date(transaction.created_at).toLocaleString('en-KE') : '';
@@ -208,6 +212,7 @@ payments.post('/initialize', requireAuth, async (c) => {
   let body;
   try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid request body.' }, 400); }
   const { packageId, idempotency_key: idempotencyKey } = body || {};
+  
   if (typeof packageId !== 'string') return c.json({ error: 'Invalid package.' }, 400);
   const pkg = PACKAGES.find((p) => p.id === packageId);
   if (!pkg) return c.json({ error: 'Invalid package.' }, 400);
@@ -218,22 +223,14 @@ payments.post('/initialize', requireAuth, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
 
-  // Idempotency: if a request with this key already exists, return its state instead of double-charging.
   if (idempotencyKey && typeof idempotencyKey === 'string') {
     try {
       const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
       if (existing) {
-        if (existing.status === 'completed') {
-          return c.json({ reference: existing.reference, email: user.email, status: 'completed', credits: existing.credits, idempotent: true });
-        }
-        if (existing.status === 'pending' && existing.authorization_url) {
-          return c.json({ reference: existing.reference, email: user.email, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
-        }
+        if (existing.status === 'completed') return c.json({ reference: existing.reference, email: user.email, status: 'completed', credits: existing.credits, idempotent: true });
+        if (existing.status === 'pending' && existing.authorization_url) return c.json({ reference: existing.reference, email: user.email, authorization_url: existing.authorization_url, access_code: existing.access_code, idempotent: true });
       }
-    } catch (e) {
-      // idempotency_key column may not exist yet on older schemas — fail open and continue as a normal purchase
-      logEvent('idempotency_lookup_failed', { message: e.message });
-    }
+    } catch (e) { logEvent('idempotency_lookup_failed', { message: e.message }); }
   }
 
   const reference = `op_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -242,7 +239,6 @@ payments.post('/initialize', requireAuth, async (c) => {
     await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending', idempotencyKey || null).run();
   } catch (e) {
-    // Fallback for schemas without the idempotency_key column yet.
     await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(txnId, user.id, pkg.amount, pkg.credits, 'paystack', reference, 'pending').run();
   }
@@ -259,12 +255,10 @@ payments.post('/initialize', requireAuth, async (c) => {
       return c.json({ error: data.message || 'Payment initialization failed.', details: data }, 502);
     }
     try {
-      await c.env.DB.prepare('UPDATE payment_transactions SET authorization_url = ?, access_code = ? WHERE id = ?')
-        .bind(data.data.authorization_url, data.data.access_code, txnId).run();
-    } catch (e) { /* columns may not exist on older schemas — non-fatal */ }
+      await c.env.DB.prepare('UPDATE payment_transactions SET authorization_url = ?, access_code = ? WHERE id = ?').bind(data.data.authorization_url, data.data.access_code, txnId).run();
+    } catch (e) {}
     return c.json({ reference, email: user.email, authorization_url: data.data.authorization_url, access_code: data.data.access_code });
   } catch (e) {
-    console.error('PAYSTACK INITIALIZE ERROR:', e.message);
     await c.env.DB.prepare('UPDATE payment_transactions SET status = ? WHERE id = ?').bind('failed', txnId).run();
     return c.json({ error: 'Payment initialization failed.' }, 500);
   }
@@ -280,22 +274,16 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
   try {
     const body = await c.req.json();
     idempotencyKey = body?.idempotency_key;
-  } catch (e) { /* body optional for this route */ }
+  } catch (e) {}
 
   if (idempotencyKey && typeof idempotencyKey === 'string') {
     try {
       const existing = await c.env.DB.prepare('SELECT * FROM payment_transactions WHERE idempotency_key = ? AND user_id = ?').bind(idempotencyKey, user.id).first();
       if (existing) {
-        if (existing.status === 'completed') {
-          return c.json({ reference: existing.reference, status: 'completed', idempotent: true });
-        }
-        if (existing.status === 'pending' && existing.authorization_url) {
-          return c.json({ authorization_url: existing.authorization_url, reference: existing.reference, access_code: existing.access_code, idempotent: true });
-        }
+        if (existing.status === 'completed') return c.json({ reference: existing.reference, status: 'completed', idempotent: true });
+        if (existing.status === 'pending' && existing.authorization_url) return c.json({ authorization_url: existing.authorization_url, reference: existing.reference, access_code: existing.access_code, idempotent: true });
       }
-    } catch (e) {
-      logEvent('idempotency_lookup_failed', { message: e.message });
-    }
+    } catch (e) { logEvent('idempotency_lookup_failed', { message: e.message }); }
   }
 
   try {
@@ -308,19 +296,17 @@ payments.post('/subscribe/pro', requireAuth, async (c) => {
     });
 
     const data = await response.json();
-
     if (!data.status) return c.json({ error: data.message || 'Subscription initialization failed.' }, 502);
 
     if (idempotencyKey && typeof idempotencyKey === 'string') {
       try {
         await c.env.DB.prepare('INSERT INTO payment_transactions (id, user_id, amount, credits, method, reference, status, idempotency_key, authorization_url, access_code) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)')
           .bind(crypto.randomUUID(), user.id, PRO_PLAN_AMOUNT, 'paystack', data.data.reference, 'pending', idempotencyKey, data.data.authorization_url, data.data.access_code).run();
-      } catch (e) { /* older schema without idempotency columns — non-fatal */ }
+      } catch (e) {}
     }
 
     return c.json({ authorization_url: data.data.authorization_url, reference: data.data.reference, access_code: data.data.access_code });
   } catch (e) {
-    console.error('PAYSTACK SUBSCRIBE ERROR:', e.message);
     return c.json({ error: 'Subscription initialization failed.' }, 500);
   }
 });
@@ -347,6 +333,7 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
     const response = await loggedFetch('verify', `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, { headers: { Authorization: `Bearer ${secretKey}` } });
     const data = await response.json();
     if (!data.status) return c.json({ verified: false, message: 'Payment not found.' });
+    
     const txn = data.data;
     if (txn.status === 'success') {
       const type = txn.metadata?.type;
@@ -361,13 +348,12 @@ payments.get('/verify/:reference', requireAuth, async (c) => {
     }
     return c.json({ verified: true, status: txn.status, amount: txn.amount / 100, credits: txn.metadata?.credits || 0, type: txn.metadata?.type, reference });
   } catch (e) {
-    console.error('PAYSTACK VERIFY ERROR:', e.message);
     return c.json({ error: 'Verification failed.' }, 500);
   }
 });
 
 // -----------------------------------------------------------------------
-// NEW: Refund a completed transaction (admin only, PIN-gated)
+// Refund a completed transaction (admin only, PIN-gated)
 // -----------------------------------------------------------------------
 payments.post('/refund', requireAuth, async (c) => {
   const user = c.get('user');
@@ -379,6 +365,7 @@ payments.post('/refund', requireAuth, async (c) => {
   let body;
   try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid request body.' }, 400); }
   const { reference, amount } = body || {};
+  
   if (typeof reference !== 'string' || !reference) return c.json({ error: 'A transaction reference is required.' }, 400);
   if (amount !== undefined && !isPositiveInt(amount)) return c.json({ error: 'Refund amount must be a positive integer (in kobo).' }, 400);
 
@@ -389,7 +376,7 @@ payments.post('/refund', requireAuth, async (c) => {
   if (!txn) return c.json({ error: 'Transaction not found.' }, 404);
   if (txn.status === 'refunded') return c.json({ error: 'Transaction already refunded.' }, 400);
   if (txn.status !== 'completed') return c.json({ error: 'Only completed transactions can be refunded.' }, 400);
-  if (amount !== undefined && amount > txn.amount) return c.json({ error: 'Refund amount cannot exceed the original transaction amount.' }, 400);
+  if (amount !== undefined && amount > txn.amount) return c.json({ error: 'Refund amount cannot exceed original amount.' }, 400);
 
   try {
     const response = await loggedFetch('refund', 'https://api.paystack.co/refund', {
@@ -406,14 +393,13 @@ payments.post('/refund', requireAuth, async (c) => {
     logEvent('refund_succeeded', { reference, actor: user.email, amount: amount || txn.amount });
     return c.json({ ok: true, refund_id: data.data?.id, amount_refunded: amount || txn.amount });
   } catch (e) {
-    console.error('PAYSTACK REFUND ERROR:', e.message);
     logEvent('refund_error', { reference, message: e.message });
     return c.json({ error: 'Refund failed.' }, 500);
   }
 });
 
 // -----------------------------------------------------------------------
-// NEW: Public, printable HTML receipt for a transaction
+// Public, printable HTML receipt for a transaction
 // -----------------------------------------------------------------------
 payments.get('/receipt/:reference', async (c) => {
   const reference = c.req.param('reference');
@@ -423,7 +409,7 @@ payments.get('/receipt/:reference', async (c) => {
 });
 
 // -----------------------------------------------------------------------
-// NEW: Revenue statistics for the admin dashboard
+// Revenue statistics for the admin dashboard
 // -----------------------------------------------------------------------
 payments.get('/stats', requireAuth, async (c) => {
   const user = c.get('user');
@@ -456,7 +442,6 @@ payments.get('/stats', requireAuth, async (c) => {
 
     return c.json({ total_revenue: totalRevenue, total_transactions: results.length, period, breakdown });
   } catch (e) {
-    console.error('PAYMENT STATS ERROR:', e.message);
     return c.json({ error: 'Failed to load stats.' }, 500);
   }
 });
@@ -466,16 +451,10 @@ payments.post('/webhook', async (c) => {
   const signature = c.req.header('x-paystack-signature');
   const rawBody = await c.req.text();
 
-  if (!secretKey) {
-    console.error('PAYSTACK WEBHOOK - No secret key configured, rejecting');
-    return c.json({ error: 'Not configured.' }, 500);
-  }
+  if (!secretKey) return c.json({ error: 'Not configured.' }, 500);
 
   const validSignature = await verifyPaystackSignature(secretKey, rawBody, signature);
-  if (!validSignature) {
-    console.error('PAYSTACK WEBHOOK - Invalid signature, rejecting');
-    return c.json({ error: 'Invalid signature.' }, 401);
-  }
+  if (!validSignature) return c.json({ error: 'SECURITY ALERT: Invalid Signature.' }, 401);
 
   let body;
   try { body = JSON.parse(rawBody); } catch (e) { return c.json({ error: 'Invalid payload.' }, 400); }
@@ -496,7 +475,6 @@ payments.post('/webhook', async (c) => {
       }
       logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: type || 'sms_credits' });
     } catch (e) {
-      console.error('PAYSTACK WEBHOOK - error:', e.message);
       logEvent('webhook_error', { event: body.event, reference: txn.reference, message: e.message });
     }
   }
