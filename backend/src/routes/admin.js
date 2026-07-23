@@ -1,4 +1,3 @@
-// backend/src/routes/admin.js
 import { Hono } from 'hono';
 import { requireAdmin, requireRoot, requirePin } from '../middleware/auth.js';
 
@@ -15,24 +14,8 @@ async function log(c, action, target, detail = '') {
     .run();
 }
 
-async function verifyAdminPinInternal(env, pin) {
-  if (!pin || !env.ADMIN_PIN_HASH) return false;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
-  const hex = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-  let diff = 0;
-  if (hex.length !== env.ADMIN_PIN_HASH.length) return false;
-  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ env.ADMIN_PIN_HASH.charCodeAt(i);
-  return diff === 0;
-}
-
-// Ensure requirePin is rock solid inside route manually if middleware falls short
-async function validatePin(c) {
-  const pin = c.req.header('X-Admin-Pin');
-  if (!(await verifyAdminPinInternal(c.env, pin))) {
-    await log(c, 'security_alert_invalid_pin', c.req.path);
-    return false;
-  }
-  return true;
+function isValidEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 // ---------------------------------------------------------------------------
@@ -51,9 +34,11 @@ admin.get('/users', async (c) => {
 });
 
 admin.patch('/user/:id', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   const body = await c.req.json();
+  if (body.email !== undefined && !isValidEmail(body.email)) {
+    return c.json({ error: 'Invalid email address.' }, 400);
+  }
   await c.env.DB.prepare('UPDATE users SET publisher_name = ?, email = ?, tier = ? WHERE id = ?')
     .bind(body.publisherName, body.email, body.tier, id)
     .run();
@@ -61,8 +46,33 @@ admin.patch('/user/:id', requirePin, async (c) => {
   return c.json({ ok: true });
 });
 
+// NEW: hard-delete a user account. This route is referenced by the admin
+// console's "Delete User" action (root only, PIN gated). It performs a
+// soft-delete style suspension + anonymization rather than a physical
+// DELETE FROM users, to preserve referential integrity with existing
+// service_orders / payment_transactions / stories rows.
+admin.delete('/user/:id', requireRoot, requirePin, async (c) => {
+  const id = c.req.param('id');
+  const target = await c.env.DB.prepare('SELECT id, email FROM users WHERE id = ?').bind(id).first();
+  if (!target) return c.json({ error: 'User not found.' }, 404);
+  if (target.email === c.env.ROOT_ADMIN_EMAIL) return c.json({ error: 'Root admin cannot be deleted.' }, 400);
+
+  try {
+    await c.env.DB.prepare(
+      "UPDATE users SET suspended = 1, email = ?, publisher_name = 'Deleted User' WHERE id = ?"
+    ).bind(`deleted+${id}@opinionplus.invalid`, id).run();
+    try {
+      await c.env.DB.prepare('UPDATE users SET session_version = IFNULL(session_version, 0) + 1 WHERE id = ?').bind(id).run();
+    } catch (e) { /* session_version column may not exist yet */ }
+  } catch (e) {
+    return c.json({ error: 'Failed to delete user.' }, 500);
+  }
+
+  await log(c, 'hard_delete_user', id, `Permanently deleted account for ${target.email}`);
+  return c.json({ ok: true });
+});
+
 admin.post('/users/:id/suspend', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE users SET suspended = 1 WHERE id = ?').bind(id).run();
   await log(c, 'suspend_user', id);
@@ -70,7 +80,6 @@ admin.post('/users/:id/suspend', requirePin, async (c) => {
 });
 
 admin.post('/users/:id/unsuspend', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE users SET suspended = 0 WHERE id = ?').bind(id).run();
   await log(c, 'unsuspend_user', id);
@@ -78,7 +87,6 @@ admin.post('/users/:id/unsuspend', requirePin, async (c) => {
 });
 
 admin.post('/user/:id/force-logout', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   try {
     await c.env.DB.prepare('UPDATE users SET session_version = IFNULL(session_version, 0) + 1 WHERE id = ?').bind(id).run();
@@ -88,7 +96,6 @@ admin.post('/user/:id/force-logout', requireRoot, requirePin, async (c) => {
 });
 
 admin.post('/force-logout-all', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   try {
     await c.env.DB.prepare('UPDATE users SET session_version = IFNULL(session_version, 0) + 1').run();
     await log(c, 'force_logout_all', 'GLOBAL');
@@ -114,7 +121,6 @@ admin.get('/stories', async (c) => {
 });
 
 admin.post('/story/:id/feature', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   const { featured } = await c.req.json();
   await c.env.DB.prepare('UPDATE stories SET featured = ? WHERE id = ?').bind(featured ? 1 : 0, id).run();
@@ -123,7 +129,6 @@ admin.post('/story/:id/feature', requirePin, async (c) => {
 });
 
 admin.post('/stories/:id/block-media', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE stories SET media_blocked = 1 WHERE id = ?').bind(id).run();
   await log(c, 'block_media', id);
@@ -131,7 +136,6 @@ admin.post('/stories/:id/block-media', requirePin, async (c) => {
 });
 
 admin.post('/stories/:id/unblock-media', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE stories SET media_blocked = 0 WHERE id = ?').bind(id).run();
   await log(c, 'unblock_media', id);
@@ -139,7 +143,6 @@ admin.post('/stories/:id/unblock-media', requirePin, async (c) => {
 });
 
 admin.delete('/stories/:id', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE stories SET deleted = 1 WHERE id = ?').bind(id).run();
   await log(c, 'delete_post', id);
@@ -147,13 +150,11 @@ admin.delete('/stories/:id', requirePin, async (c) => {
 });
 
 admin.get('/reports', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const { results } = await c.env.DB.prepare('SELECT * FROM reports ORDER BY created_at DESC').all();
   return c.json({ reports: results });
 });
 
 admin.post('/reports/:id/resolve', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const id = c.req.param('id');
   await c.env.DB.prepare('UPDATE reports SET resolved = 1 WHERE id = ?').bind(id).run();
   await log(c, 'resolve_report', id);
@@ -161,48 +162,27 @@ admin.post('/reports/:id/resolve', requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Financial Controls & Telemetry
+// Financial Controls
 // ---------------------------------------------------------------------------
 
 admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const { email, amount, reason } = await c.req.json();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email address.' }, 400);
+  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount === 0) {
+    return c.json({ error: 'Amount must be a non-zero integer.' }, 400);
+  }
   const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (!user) return c.json({ error: 'User not found' }, 404);
-  
+
+  // Balance can never go below zero even on a large negative adjustment.
+  const record = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
+  const newBalance = Math.max(0, (record?.balance || 0) + amount);
   await c.env.DB.prepare(
-    'INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, MAX(0, ?), 0) ON CONFLICT(user_id) DO UPDATE SET balance = MAX(0, balance + ?)'
-  ).bind(user.id, amount, amount).run();
-  
-  await log(c, 'manual_credit_adjust', user.id, `Adjusted by ${amount}. Reason: ${reason}`);
-  return c.json({ ok: true, amount });
-});
+    'INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = ?'
+  ).bind(user.id, newBalance, newBalance).run();
 
-admin.get('/sms/history', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  const { results } = await c.env.DB.prepare('SELECT * FROM sms_history ORDER BY created_at DESC LIMIT 200').all();
-  return c.json({ history: results });
-});
-
-admin.get('/subscriptions/admin/list', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  const { results } = await c.env.DB.prepare('SELECT * FROM subscribers ORDER BY created_at DESC LIMIT 500').all();
-  const activeCount = results.filter(s => s.status === 'active').length;
-  return c.json({ subscribers: results, total: results.length, active: activeCount });
-});
-
-admin.get('/subscriptions/admin/export', requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  const { results } = await c.env.DB.prepare('SELECT email, preferences, status, created_at FROM subscribers').all();
-  if (!results.length) return c.text('No subscribers available', 404);
-  
-  const headers = Object.keys(results[0]).join(',');
-  const rows = results.map(row => Object.values(row).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const csv = `${headers}\n${rows}`;
-  
-  c.header('Content-Type', 'text/csv');
-  c.header('Content-Disposition', `attachment; filename="subscribers_${Date.now()}.csv"`);
-  return c.text(csv);
+  await log(c, 'manual_credit_adjust', user.id, `Adjusted by ${amount}. Reason: ${reason || 'not provided'}. New balance: ${newBalance}`);
+  return c.json({ ok: true, amount, newBalance });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,13 +196,13 @@ admin.get('/export/:entity', requirePin, async (c) => {
     if (entity === 'users') data = (await c.env.DB.prepare('SELECT id, email, publisher_name, tier, role, created_at FROM users').all()).results;
     if (entity === 'transactions') data = (await c.env.DB.prepare('SELECT reference, email, amount, credits, status, method, created_at FROM payment_transactions').all()).results;
     if (entity === 'stories') data = (await c.env.DB.prepare('SELECT id, author_id, title, type, privacy, created_at FROM stories WHERE deleted = 0').all()).results;
-    
+
     if (!data.length) return c.text('No data available', 404);
-    
+
     const headers = Object.keys(data[0]).join(',');
     const rows = data.map(row => Object.values(row).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
     const csv = `${headers}\n${rows}`;
-    
+
     c.header('Content-Type', 'text/csv');
     c.header('Content-Disposition', `attachment; filename="export_${entity}_${Date.now()}.csv"`);
     return c.text(csv);
@@ -292,8 +272,8 @@ admin.get('/admins', requireRoot, async (c) => {
 });
 
 admin.post('/admins', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const { email } = await c.req.json();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email address.' }, 400);
   const actor = c.get('user');
   await c.env.DB.prepare('INSERT OR IGNORE INTO admins (email, added_by) VALUES (?, ?)')
     .bind(email, actor.email)
@@ -306,7 +286,6 @@ admin.post('/admins', requireRoot, requirePin, async (c) => {
 });
 
 admin.delete('/admins/:email', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
   const email = c.req.param('email');
   if (email === c.env.ROOT_ADMIN_EMAIL) return c.json({ error: 'Root admin cannot be removed.' }, 400);
   await c.env.DB.prepare('DELETE FROM admins WHERE email = ?').bind(email).run();
@@ -398,92 +377,102 @@ admin.get('/services/orders/:id', requireRoot, async (c) => {
 });
 
 admin.post('/services/orders/:id/fulfill', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const id = c.req.param('id');
-    const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE id = ?').bind(id).first();
-    if (!order) return c.json({ error: 'Order not found' }, 404);
-    if (order.status !== 'pending') return c.json({ error: 'Order is not pending' }, 400);
+  const id = c.req.param('id');
+  // Optimistic lock: only a genuinely pending order can be fulfilled once.
+  const update = await c.env.DB.prepare("UPDATE service_orders SET status = ?, paystack_status = ? WHERE id = ? AND status = ?")
+    .bind('active', 'success', id, 'pending').run();
+  const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
+  if (!flipped) return c.json({ error: 'Order not found or not pending' }, 400);
 
-    await c.env.DB.prepare('UPDATE service_orders SET status = ?, paystack_status = ? WHERE id = ? AND status = ?').bind('active', 'success', id, 'pending').run();
-    await adminProvisionService(c.env.DB, order.service_type, order.package_id, order.user_id);
-    await log(c, 'fulfill_order', id, `Fulfilled order ${id} for ${order.user_email}`);
-    return c.json({ ok: true });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+  const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE id = ?').bind(id).first();
+  await adminProvisionService(c.env.DB, order.service_type, order.package_id, order.user_id);
+  await log(c, 'fulfill_order', id, `Fulfilled order ${id} for ${order.user_email}`);
+  return c.json({ ok: true });
 });
 
 admin.post('/services/orders/:id/cancel', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const id = c.req.param('id');
-    const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE id = ?').bind(id).first();
-    if (!order) return c.json({ error: 'Order not found' }, 404);
-    if (order.status !== 'pending') return c.json({ error: 'Only pending orders can be cancelled' }, 400);
+  const id = c.req.param('id');
+  const update = await c.env.DB.prepare("UPDATE service_orders SET status = ? WHERE id = ? AND status = ?")
+    .bind('cancelled', id, 'pending').run();
+  const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
+  if (!flipped) return c.json({ error: 'Only pending orders can be cancelled' }, 400);
 
-    await c.env.DB.prepare('UPDATE service_orders SET status = ? WHERE id = ?').bind('cancelled', id).run();
-    await log(c, 'cancel_order', id, `Cancelled order ${id}`);
-    return c.json({ ok: true });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+  await log(c, 'cancel_order', id, `Cancelled order ${id}`);
+  return c.json({ ok: true });
 });
 
 admin.post('/services/orders/:id/refund', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const id = c.req.param('id');
-    const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE id = ?').bind(id).first();
-    if (!order) return c.json({ error: 'Order not found' }, 404);
+  const id = c.req.param('id');
+  const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE id = ?').bind(id).first();
+  if (!order) return c.json({ error: 'Order not found' }, 404);
+  if (order.paystack_status === 'refunded') return c.json({ error: 'Order already refunded.' }, 400);
 
-    await c.env.DB.prepare('UPDATE service_orders SET paystack_status = ?, status = ? WHERE id = ?').bind('refunded', 'cancelled', id).run();
-    await log(c, 'refund_order', id, `Marked order ${id} as refunded`);
-    return c.json({ ok: true });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+  const update = await c.env.DB.prepare('UPDATE service_orders SET paystack_status = ?, status = ? WHERE id = ? AND paystack_status != ?')
+    .bind('refunded', 'cancelled', id, 'refunded').run();
+  const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
+
+  // Reverse SMS credits that were granted for this order, mirroring the
+  // logic in payments.js /refund, so a refunded service order can't leave
+  // credits sitting in the user's account.
+  let creditsDeducted = 0;
+  if (flipped && order.service_type === 'sms') {
+    const pkg = await c.env.DB.prepare('SELECT sms_count FROM sms_packages WHERE id = ?').bind(order.package_id).first();
+    const count = pkg ? pkg.sms_count : 0;
+    if (count > 0) {
+      await c.env.DB.prepare('UPDATE sms_credits SET balance = MAX(0, balance - ?) WHERE user_id = ?')
+        .bind(count, order.user_id).run();
+      creditsDeducted = count;
+    }
+  }
+
+  await log(c, 'refund_order', id, `Marked order ${id} as refunded. Credits deducted: ${creditsDeducted}`);
+  return c.json({ ok: true, credits_deducted: creditsDeducted });
 });
 
 admin.post('/services/grant', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const { email, serviceType, packageId, credits } = await c.req.json();
-    if (!email || !serviceType || !packageId) return c.json({ error: 'Missing required fields' }, 400);
+  const { email, serviceType, packageId, credits } = await c.req.json();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email address.' }, 400);
+  if (!serviceType || !packageId) return c.json({ error: 'Missing required fields' }, 400);
+  if (credits !== undefined && (typeof credits !== 'number' || !Number.isInteger(credits) || credits < 0)) {
+    return c.json({ error: 'Credits must be a non-negative integer.' }, 400);
+  }
 
-    const user = await c.env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first();
-    if (!user) return c.json({ error: 'User not found' }, 404);
+  const user = await c.env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'User not found' }, 404);
 
-    const amountPaid = 0;
-    const orderId = crypto.randomUUID();
-    const ref = `admin_grant_${crypto.randomUUID()}`;
+  const amountPaid = 0;
+  const orderId = crypto.randomUUID();
+  const ref = `admin_grant_${crypto.randomUUID()}`;
 
-    await c.env.DB.prepare(
-      'INSERT INTO service_orders (id, user_id, user_email, service_type, package_id, amount_paid, paystack_reference, paystack_status, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(orderId, user.id, user.email, serviceType, packageId, amountPaid, ref, 'admin_grant', 'active', JSON.stringify({ grantedBy: c.get('user').email })).run();
+  await c.env.DB.prepare(
+    'INSERT INTO service_orders (id, user_id, user_email, service_type, package_id, amount_paid, paystack_reference, paystack_status, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(orderId, user.id, user.email, serviceType, packageId, amountPaid, ref, 'admin_grant', 'active', JSON.stringify({ grantedBy: c.get('user').email })).run();
 
-    await adminProvisionService(c.env.DB, serviceType, packageId, user.id, credits);
-    await log(c, 'grant_service', user.email, `Granted ${serviceType} (${packageId}) to ${email}`);
-    return c.json({ ok: true, message: `Service granted to ${email}` });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+  await adminProvisionService(c.env.DB, serviceType, packageId, user.id, credits);
+  await log(c, 'grant_service', user.email, `Granted ${serviceType} (${packageId}) to ${email}`);
+  return c.json({ ok: true, message: `Service granted to ${email}` });
 });
 
 admin.post('/services/revoke', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const { email, serviceType, orderId } = await c.req.json();
-    const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
-    if (!user) return c.json({ error: 'User not found' }, 404);
+  const { email, serviceType, orderId } = await c.req.json();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email address.' }, 400);
+  const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'User not found' }, 404);
 
-    if (serviceType === 'sms') {
-      await c.env.DB.prepare('UPDATE sms_credits SET balance = 0 WHERE user_id = ?').bind(user.id).run();
-    } else if (serviceType === 'api') {
-      await c.env.DB.prepare('UPDATE api_keys SET tier = ?, requests_today = 0 WHERE user_id = ?').bind('free', user.id).run();
-    }
+  if (serviceType === 'sms') {
+    await c.env.DB.prepare('UPDATE sms_credits SET balance = 0 WHERE user_id = ?').bind(user.id).run();
+  } else if (serviceType === 'api') {
+    await c.env.DB.prepare('UPDATE api_keys SET tier = ?, requests_today = 0 WHERE user_id = ?').bind('free', user.id).run();
+  }
 
-    if (orderId) {
-      await c.env.DB.prepare('UPDATE service_orders SET status = ? WHERE id = ?').bind('cancelled', orderId).run();
-    } else {
-      await c.env.DB.prepare('UPDATE service_orders SET status = ? WHERE user_id = ? AND service_type = ? AND status = ?').bind('cancelled', user.id, serviceType, 'active').run();
-    }
+  if (orderId) {
+    await c.env.DB.prepare('UPDATE service_orders SET status = ? WHERE id = ?').bind('cancelled', orderId).run();
+  } else {
+    await c.env.DB.prepare('UPDATE service_orders SET status = ? WHERE user_id = ? AND service_type = ? AND status = ?').bind('cancelled', user.id, serviceType, 'active').run();
+  }
 
-    await log(c, 'revoke_service', email, `Revoked ${serviceType} access for ${email}`);
-    return c.json({ ok: true });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
+  await log(c, 'revoke_service', email, `Revoked ${serviceType} access for ${email}`);
+  return c.json({ ok: true });
 });
 
 admin.get('/services/users', requireRoot, async (c) => {
@@ -576,55 +565,59 @@ admin.get('/services/export', requireRoot, async (c) => {
   return c.text(csv);
 });
 
+// NEW: reconciliation endpoint — cross-checks a batch of local order
+// references against Paystack's own record of the transaction so an admin
+// can spot drift between the two systems (e.g. a webhook that silently
+// failed to process).
+admin.get('/services/reconcile', requireRoot, async (c) => {
+  const secretKey = c.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
+
+  const { results: pending } = await c.env.DB.prepare(
+    "SELECT id, paystack_reference, status, paystack_status FROM service_orders WHERE status = 'pending' ORDER BY created_at DESC LIMIT 50"
+  ).all();
+
+  const mismatches = [];
+  for (const order of pending) {
+    try {
+      const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(order.paystack_reference)}`, {
+        headers: { Authorization: `Bearer ${secretKey}` },
+      });
+      const data = await res.json();
+      if (data.status && data.data?.status === 'success') {
+        mismatches.push({ orderId: order.id, reference: order.paystack_reference, localStatus: order.status, paystackStatus: data.data.status });
+      }
+    } catch (e) { /* skip transient errors, surfaced on next run */ }
+  }
+
+  return c.json({ checked: pending.length, mismatches });
+});
+
 admin.post('/services/sms/adjust', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  try {
-    const { email, credits, reason } = await c.req.json();
-    if (!email || credits === undefined || !reason) return c.json({ error: 'Missing required fields' }, 400);
+  const { email, credits, reason } = await c.req.json();
+  if (!isValidEmail(email)) return c.json({ error: 'Invalid email address.' }, 400);
+  if (typeof credits !== 'number' || !Number.isInteger(credits) || credits === 0) {
+    return c.json({ error: 'Credits must be a non-zero integer.' }, 400);
+  }
+  if (!reason || typeof reason !== 'string') return c.json({ error: 'A reason is required.' }, 400);
 
-    const user = await c.env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first();
-    if (!user) return c.json({ error: 'User not found' }, 404);
+  const user = await c.env.DB.prepare('SELECT id, email FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'User not found' }, 404);
 
-    const creditRecord = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
-    const currentBalance = creditRecord?.balance || 0;
-    const newBalance = Math.max(0, currentBalance + Number(credits));
+  const creditRecord = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
+  const currentBalance = creditRecord?.balance || 0;
+  const newBalance = Math.max(0, currentBalance + Number(credits));
 
-    await c.env.DB.prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = ?')
-      .bind(user.id, newBalance, newBalance).run();
+  await c.env.DB.prepare('INSERT INTO sms_credits (user_id, balance, total_sent) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET balance = ?')
+    .bind(user.id, newBalance, newBalance).run();
 
-    const orderId = crypto.randomUUID();
-    await c.env.DB.prepare(
-      'INSERT INTO service_orders (id, user_id, user_email, service_type, package_id, amount_paid, paystack_reference, paystack_status, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(orderId, user.id, user.email, 'sms', 'admin_adjustment', 0, `admin_adj_${crypto.randomUUID()}`, 'admin_adjustment', 'completed', JSON.stringify({ creditsChanged: credits, reason, adjustedBy: c.get('user').email })).run();
+  const orderId = crypto.randomUUID();
+  await c.env.DB.prepare(
+    'INSERT INTO service_orders (id, user_id, user_email, service_type, package_id, amount_paid, paystack_reference, paystack_status, status, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(orderId, user.id, user.email, 'sms', 'admin_adjustment', 0, `admin_adj_${crypto.randomUUID()}`, 'admin_adjustment', 'completed', JSON.stringify({ creditsChanged: credits, reason, adjustedBy: c.get('user').email })).run();
 
-    await log(c, 'adjust_sms_credits', email, `Adjusted SMS credits by ${credits}. Reason: ${reason}. New balance: ${newBalance}`);
-    return c.json({ ok: true, newBalance });
-  } catch (e) { return c.json({ error: 'Internal Server Error', detail: e.message }, 500); }
-});
-
-// ---------------------------------------------------------------------------
-// Campus Management
-// ---------------------------------------------------------------------------
-
-admin.get('/campuses', requireRoot, async (c) => {
-  const { results } = await c.env.DB.prepare('SELECT * FROM campus_editions ORDER BY created_at DESC').all();
-  return c.json({ campuses: results });
-});
-
-admin.post('/campuses/:id/suspend', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  const id = c.req.param('id');
-  await c.env.DB.prepare("UPDATE campus_editions SET status = 'suspended' WHERE id = ?").bind(id).run();
-  await log(c, 'suspend_campus', id);
-  return c.json({ ok: true });
-});
-
-admin.post('/campuses/:id/activate', requireRoot, requirePin, async (c) => {
-  if (!(await validatePin(c))) return c.json({ error: 'Incorrect PIN.' }, 401);
-  const id = c.req.param('id');
-  await c.env.DB.prepare("UPDATE campus_editions SET status = 'active' WHERE id = ?").bind(id).run();
-  await log(c, 'activate_campus', id);
-  return c.json({ ok: true });
+  await log(c, 'adjust_sms_credits', email, `Adjusted SMS credits by ${credits}. Reason: ${reason}. New balance: ${newBalance}`);
+  return c.json({ ok: true, newBalance });
 });
 
 export default admin;

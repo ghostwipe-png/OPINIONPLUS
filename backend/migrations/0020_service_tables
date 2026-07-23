@@ -1,0 +1,101 @@
+-- 0020_service_tables.sql
+-- Ensures the service-payments tables referenced by services.js, payments.js
+-- and admin.js exist. Safe to run against a database that already has some
+-- or all of these tables (IF NOT EXISTS everywhere).
+
+CREATE TABLE IF NOT EXISTS service_orders (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  service_type TEXT NOT NULL,
+  package_id TEXT NOT NULL,
+  amount_paid INTEGER NOT NULL,
+  paystack_reference TEXT NOT NULL UNIQUE,
+  paystack_status TEXT DEFAULT 'pending',
+  metadata TEXT DEFAULT '{}',
+  status TEXT DEFAULT 'pending',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_orders_user_id ON service_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_service_orders_service_type ON service_orders(service_type);
+CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
+CREATE INDEX IF NOT EXISTS idx_service_orders_reference ON service_orders(paystack_reference);
+
+CREATE TABLE IF NOT EXISTS sms_packages (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sms_count INTEGER NOT NULL,
+  price_kes_cents INTEGER NOT NULL,
+  features TEXT DEFAULT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS press_release_packages (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  price_kes_cents INTEGER NOT NULL,
+  features TEXT DEFAULT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sponsored_packages (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  duration_days INTEGER NOT NULL,
+  impressions_goal INTEGER NOT NULL,
+  price_kes_cents INTEGER NOT NULL,
+  features TEXT DEFAULT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS api_packages (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  requests_per_day INTEGER NOT NULL,
+  price_kes_cents INTEGER NOT NULL,
+  features TEXT DEFAULT NULL,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Referenced by payments.js /refund and admin.js /services/orders/:id/refund
+CREATE TABLE IF NOT EXISTS payment_transactions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  credits INTEGER DEFAULT 0,
+  method TEXT DEFAULT 'paystack',
+  reference TEXT NOT NULL UNIQUE,
+  status TEXT DEFAULT 'pending',
+  idempotency_key TEXT,
+  authorization_url TEXT,
+  access_code TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_user_id ON payment_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_reference ON payment_transactions(reference);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_idempotency ON payment_transactions(idempotency_key);
+
+CREATE TABLE IF NOT EXISTS sms_credits (
+  user_id TEXT PRIMARY KEY,
+  balance INTEGER NOT NULL DEFAULT 0,
+  total_sent INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS admin_logs (
+  id TEXT PRIMARY KEY,
+  actor_email TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  detail TEXT,
+  ip TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_logs_created_at ON admin_logs(created_at);

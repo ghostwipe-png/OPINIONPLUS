@@ -1,3 +1,4 @@
+// backend/src/index.js
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { attachUser, csrfProtection } from './middleware/auth.js';
@@ -23,7 +24,7 @@ import polls from './routes/polls.js';
 import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
-import services from './routes/services.js'; // NEW: Services Router
+import services from './routes/services.js';
 
 const app = new Hono();
 
@@ -143,8 +144,8 @@ app.use('*', async (c, next) => {
   if (c.req.path === '/payments/initialize') return await next();
   if (c.req.path.startsWith('/archive/')) return await next();
   if (c.req.path.startsWith('/admin/')) return await next();
-  if (c.req.path === '/payments/webhook') return await next(); // Webhooks rely on HMAC signature, not CSRF
-  if (c.req.path === '/services/webhook') return await next(); // NEW: Bypass CSRF for Service Webhooks
+  if (c.req.path === '/payments/webhook') return await next();
+  if (c.req.path === '/services/webhook') return await next();
   return csrfProtection(c, next);
 });
 
@@ -210,16 +211,12 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
 app.get('/rooms/:roomId/ws', async (c) => {
   const user = c.get('user');
   
-  // 1. Hard block unauthenticated users from initiating signaling
   if (!user) {
     return c.json({ error: 'Unauthorized: Valid secure session required.' }, 401);
   }
 
   const roomId = c.req.param('roomId');
   
-  // 2. Cryptographic Server-Side Identity Injection
-  // We strip all client control over their identity by securely passing verified DB state
-  // to the Durable Object via internal headers. Clients cannot forge these.
   const secureHeaders = new Headers(c.req.raw.headers);
   secureHeaders.set('X-Secure-User-Id', user.id);
   secureHeaders.set('X-Secure-User-Name', user.publisherName || user.name || 'User');
@@ -252,7 +249,7 @@ app.route('/polls', polls);
 app.route('/rooms', rooms);
 app.route('/jobs', jobs);
 app.route('/campuses', campuses);
-app.route('/services', services); // NEW: Mount Services route
+app.route('/services', services);
 
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
@@ -283,6 +280,9 @@ app.get('/admin-cleanup', async (c) => {
     return c.json({ ok: true, ...results });
   } catch (e) { return c.json({ ok: false, error: 'Cleanup failed' }, 500); }
 });
+
+// Safely handle orphaned or legacy presence requests without throwing 403s
+app.all('/presence/*', (c) => c.json({ online: 0, status: 'disabled' }));
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 

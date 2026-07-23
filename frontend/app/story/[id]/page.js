@@ -1,3 +1,4 @@
+// app/story/[id]/page.js
 import { notFound } from 'next/navigation';
 import StoryClientView from './StoryClientView';
 

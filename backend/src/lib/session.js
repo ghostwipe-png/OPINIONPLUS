@@ -1,7 +1,5 @@
-// Minimal signed-cookie session, so we don't need a JWT dependency in a
-// Worker. Not a full JWT — just an HMAC over a JSON payload. Good enough for
-// a first-party session cookie; swap for proper JWT/OAuth session handling
-// before scaling this up.
+// backend/src/lib/session.js
+const IS_LOCAL_DEV = false;
 
 async function hmac(secret, data) {
   const key = await crypto.subtle.importKey(
@@ -42,9 +40,9 @@ export function readCookie(request, name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function sessionCookieHeader(token, { maxAgeSeconds = 60 * 60 * 24 * 30 } = {}) {
-  return `op_session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${maxAgeSeconds}`;
+export function sessionCookieHeader(token, { maxAgeSeconds = 60 * 60 * 24 * 365 } = {}) { // ⚡ Extended to 1 Year
+  const securityAttr = IS_LOCAL_DEV ? 'SameSite=Lax' : 'Secure; SameSite=None';
+  return `op_session=${encodeURIComponent(token)}; HttpOnly; ${securityAttr}; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 
-export const clearSessionCookieHeader =
-  'op_session=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0';
+export const clearSessionCookieHeader = `op_session=; HttpOnly; ${IS_LOCAL_DEV ? 'SameSite=Lax' : 'Secure; SameSite=None'}; Path=/; Max-Age=0`;

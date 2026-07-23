@@ -1,3 +1,4 @@
+// lib/store.js
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
@@ -220,7 +221,7 @@ export function StoreProvider({ children }) {
   function normalizeStory(s) {
     return {
       id: s.id,
-      authorId: s.author_id || null, // Safety override: Handles empty newsdesk mappings
+      authorId: s.author_id || null, 
       title: s.title,
       excerpt: s.excerpt || '',
       body: s.body,
@@ -265,13 +266,34 @@ export function StoreProvider({ children }) {
 
   const createStory = useCallback((story) => {
     const id = uid('s');
-    const newStory = { id, authorId: story.authorId, title: story.title, excerpt: story.excerpt || '', body: story.body, type: story.type || 'story', privacy: story.privacy || 'public', coverImage: story.coverImage || null, files: story.files || [], likes: [], ratings: {}, comments: [], mediaBlocked: false, deleted: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const newStory = { 
+      id, 
+      authorId: story.authorId, 
+      title: story.title, 
+      excerpt: story.excerpt || '', 
+      body: story.body, 
+      type: story.type || 'story', 
+      privacy: story.privacy || 'public', 
+      coverImage: story.coverImage || null, 
+      files: story.files || [], 
+      likes: [], 
+      ratings: {}, 
+      comments: [], 
+      mediaBlocked: false, 
+      deleted: false, 
+      createdAt: new Date().toISOString(), 
+      updatedAt: new Date().toISOString() 
+    };
+    
+    // Instantly prepend the new story to the front of the local state array
     setData(d => ({ ...d, stories: [newStory, ...d.stories] }));
+    
     if (USE_API) {
       enqueueOrRun(async () => {
         try {
           const res = await api('/stories', { method: 'POST', body: JSON.stringify({ title: story.title, excerpt: story.excerpt, body: story.body, type: story.type, privacy: story.privacy, coverImage: story.coverImage, files: story.files }) });
-          setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id } : s) }));
+          // Update the temporary ID with the real database ID
+          setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id || id } : s) }));
           invalidateCache('/stories');
           setStoriesError(null);
         } catch (e) {

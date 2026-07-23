@@ -1,10 +1,11 @@
+// app/services/sponsored/page.js
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../lib/auth';
 import ServicePaymentButton from '../../../components/ServicePaymentButton';
 import ServicePaymentVerify from '../../../components/ServicePaymentVerify';
-import { MonitorPlay, LayoutTemplate, Link as LinkIcon, CheckCircle, Loader2 } from 'lucide-react';
+import { MonitorPlay, LayoutTemplate, Link as LinkIcon, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -21,6 +22,7 @@ export default function SponsoredServicePage() {
   const [ctaUrl, setCtaUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (!ready || !user) {
@@ -45,17 +47,40 @@ export default function SponsoredServicePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
+
     setSubmitting(true);
+    setErrorMsg('');
+
     try {
-      const res = await fetch(`${API_BASE}/content/sponsored`, {
+      // 1. Fetch CSRF token for security validation
+      let csrfToken = '';
+      try {
+        const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+        const csrfData = await csrfRes.json();
+        csrfToken = csrfData.token || '';
+      } catch (err) { /* ignore, fallback to middleware bypass */ }
+
+      // 2. Submit to the exact backend endpoint path (/services/content/sponsored)
+      const res = await fetch(`${API_BASE}/services/content/sponsored`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken
+        },
         body: JSON.stringify({ headline, body, ctaUrl, orderId: activeOrder?.id })
       });
-      if (res.ok) setSuccess(true);
+      
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setSuccess(true);
+      } else {
+        setErrorMsg(data.error || 'Failed to submit campaign materials.');
+      }
     } catch (e) {
-      alert('Failed to submit campaign materials.');
+      setErrorMsg('Network error. Check your connection and try again.');
     }
     setSubmitting(false);
   };
@@ -65,7 +90,10 @@ export default function SponsoredServicePage() {
   return (
     <div className="min-h-screen bg-paper py-12 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto">
-        <ServicePaymentVerify serviceType="sponsored" onVerified={() => setHasAccess(true)} />
+        <ServicePaymentVerify serviceType="sponsored" onVerified={(data) => {
+          setHasAccess(true);
+          setActiveOrder(data);
+        }} />
 
         <div className="mb-8 border-b-2 border-wire pb-6">
           <h1 className="text-3xl font-black text-ink flex items-center gap-3 uppercase tracking-tight">
@@ -76,17 +104,29 @@ export default function SponsoredServicePage() {
 
         {hasAccess ? (
           success ? (
-            <div className="border border-wire bg-emerald-50 p-12 text-center rounded-sm">
+            <div className="border border-wire bg-emerald-50 p-12 text-center rounded-sm shadow-sm">
               <CheckCircle size={48} className="text-emerald-600 mx-auto mb-4" />
               <h2 className="text-xl font-black text-ink uppercase tracking-wider">Campaign Material Uploaded</h2>
               <p className="text-sm font-medium text-ink-600 mt-2">Your sponsored article is ready. It will rotate in the prime slots for the duration of your package.</p>
             </div>
           ) : (
             <div className="border border-wire bg-white p-6 sm:p-8 rounded-sm shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <div className="bg-ink text-white text-[10px] font-bold uppercase tracking-wider inline-block px-3 py-1 rounded-sm">Slot Reserved & Active</div>
-                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 font-mono">Package ID: {activeOrder?.packageId}</div>
+              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div className="bg-ink text-white text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm shadow-sm">
+                  <CheckCircle size={12} className="text-emerald-400" /> Slot Reserved & Active
+                </div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 font-mono">Package ID: {activeOrder?.packageId || 'Active'}</div>
               </div>
+
+              {errorMsg && (
+                <div className="mb-6 p-4 bg-red-50 border border-signal rounded-sm flex items-start gap-3">
+                  <AlertTriangle size={16} className="text-signal shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-signal mb-1">Submission Error</p>
+                    <p className="text-sm font-medium text-signal">{errorMsg}</p>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>

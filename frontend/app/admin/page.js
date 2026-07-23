@@ -1,4 +1,3 @@
-// frontend/app/admin/page.js
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -108,7 +107,7 @@ function PinGate({ onConfirm, onCancel, label }) {
         <p className="text-[11px] font-mono text-ink-400">Demo PIN is {DEMO_PIN}</p>
         <div className="flex gap-3 pt-2">
           <button onClick={onCancel} className="border border-wire bg-paper hover:bg-ink-50 text-ink font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm transition-colors">Cancel</button>
-          <button onClick={() => { setAdminPin(pin); onConfirm(pin); }} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
+          <button onClick={() => (pin === DEMO_PIN ? (setAdminPin(pin), onConfirm(pin)) : setError(true))} className="bg-signal text-white font-bold uppercase text-xs tracking-wider flex-1 py-3 rounded-sm hover:bg-signal/95 transition-colors shadow-sm">Confirm</button>
         </div>
       </div>
     </div>
@@ -222,6 +221,9 @@ export default function AdminPage() {
   const [adjustReason, setAdjustReason] = useState('');
   const [serviceLoading, setServiceLoading] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+  // Guards financial/service mutation buttons (grant, adjust, fulfill,
+  // cancel, refund) against double-submission from rapid double-clicks.
+  const [actionInFlight, setActionInFlight] = useState(false);
 
   // UI / God-mode state
   const [darkMode, setDarkMode] = useState(false);
@@ -336,30 +338,39 @@ export default function AdminPage() {
   };
 
   const fulfillOrder = async (id) => {
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       await adminFetch(`/admin/services/orders/${id}/fulfill`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
       showToast('Order fulfilled successfully');
       loadServiceOrders();
       loadServiceStats();
     } catch (e) { showToast(e.message || 'Failed to fulfill order', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const cancelOrder = async (id) => {
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       await adminFetch(`/admin/services/orders/${id}/cancel`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
       showToast('Order cancelled');
       loadServiceOrders();
       loadServiceStats();
     } catch (e) { showToast(e.message || 'Failed to cancel order', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const refundOrder = async (id) => {
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       await adminFetch(`/admin/services/orders/${id}/refund`, { method: 'POST', pin: true, pinValue: lastPinRef.current });
       showToast('Order marked as refunded');
       loadServiceOrders();
       loadServiceStats();
     } catch (e) { showToast(e.message || 'Failed to update order', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const grantService = async () => {
@@ -367,6 +378,8 @@ export default function AdminPage() {
       showToast('Fill in all required grant fields', 'error');
       return;
     }
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       await adminFetch('/admin/services/grant', {
         method: 'POST',
@@ -379,9 +392,12 @@ export default function AdminPage() {
       loadServiceOrders();
       loadServiceStats();
     } catch (e) { showToast(e.message || 'Failed to grant service', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const revokeService = async (email, serviceType, orderId) => {
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       await adminFetch('/admin/services/revoke', {
         method: 'POST',
@@ -393,6 +409,7 @@ export default function AdminPage() {
       loadServiceOrders();
       loadServiceStats();
     } catch (e) { showToast(e.message || 'Failed to revoke service', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const adjustSmsCredits = async () => {
@@ -400,6 +417,8 @@ export default function AdminPage() {
       showToast('Fill in all adjustment fields', 'error');
       return;
     }
+    if (actionInFlight) return;
+    setActionInFlight(true);
     try {
       const res = await adminFetch('/admin/services/sms/adjust', {
         method: 'POST',
@@ -411,6 +430,7 @@ export default function AdminPage() {
       setAdjustEmail(''); setAdjustCreditsVal(''); setAdjustReason('');
       loadServiceOrders();
     } catch (e) { showToast(e.message || 'Credit adjustment failed', 'error'); }
+    finally { setActionInFlight(false); }
   };
 
   const exportServicesCSV = () => {
@@ -1196,8 +1216,8 @@ export default function AdminPage() {
                   </div>
                   <div className="flex justify-between items-center pt-2">
                     <p className="text-[11px] text-ink-400">Grants instant service access without requiring payment verification.</p>
-                    <button onClick={() => runGated(`Grant ${grantServiceType} to ${grantEmail || 'user'}?`, grantService)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">
-                      Grant Access
+                    <button disabled={actionInFlight} onClick={() => runGated(`Grant ${grantServiceType} to ${grantEmail || 'user'}?`, grantService)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm disabled:opacity-50">
+                      {actionInFlight ? <Loader2 size={13} className="animate-spin inline" /> : 'Grant Access'}
                     </button>
                   </div>
                 </div>
@@ -1246,15 +1266,15 @@ export default function AdminPage() {
                               </button>
                               {o.status === 'pending' && (
                                 <>
-                                  <button onClick={() => runGated(`Fulfill order ${o.id}?`, () => fulfillOrder(o.id))} className="bg-emerald-600 text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-emerald-700 transition-colors shadow-sm">Fulfill</button>
-                                  <button onClick={() => runGated(`Cancel order ${o.id}?`, () => cancelOrder(o.id))} className="bg-signal text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">Cancel</button>
+                                  <button disabled={actionInFlight} onClick={() => runGated(`Fulfill order ${o.id}?`, () => fulfillOrder(o.id))} className="bg-emerald-600 text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50">Fulfill</button>
+                                  <button disabled={actionInFlight} onClick={() => runGated(`Cancel order ${o.id}?`, () => cancelOrder(o.id))} className="bg-signal text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm disabled:opacity-50">Cancel</button>
                                 </>
                               )}
                               {o.status === 'active' && (
-                                <button onClick={() => runGated(`Revoke access for ${o.user_email}?`, () => revokeService(o.user_email, o.service_type, o.id))} className="border border-signal text-signal hover:bg-signal hover:text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors">Revoke</button>
+                                <button disabled={actionInFlight} onClick={() => runGated(`Revoke access for ${o.user_email}?`, () => revokeService(o.user_email, o.service_type, o.id))} className="border border-signal text-signal hover:bg-signal hover:text-white font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors disabled:opacity-50">Revoke</button>
                               )}
                               {o.paystack_status !== 'refunded' && (
-                                <button onClick={() => runGated(`Mark order ${o.id} as refunded?`, () => refundOrder(o.id))} className="border border-wire bg-white hover:border-ink text-ink font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors">Mark Refunded</button>
+                                <button disabled={actionInFlight} onClick={() => runGated(`Mark order ${o.id} as refunded?`, () => refundOrder(o.id))} className="border border-wire bg-white hover:border-ink text-ink font-bold uppercase text-xs px-3 py-1.5 rounded-sm transition-colors disabled:opacity-50">Mark Refunded</button>
                               )}
                             </div>
                           </div>
@@ -1293,8 +1313,8 @@ export default function AdminPage() {
                     </div>
                   </div>
                   <div className="flex justify-end pt-2">
-                    <button onClick={() => runGated(`Adjust SMS credits for ${adjustEmail || 'user'} by ${adjustCreditsVal || 0}?`, adjustSmsCredits)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm">
-                      Apply Adjustment
+                    <button disabled={actionInFlight} onClick={() => runGated(`Adjust SMS credits for ${adjustEmail || 'user'} by ${adjustCreditsVal || 0}?`, adjustSmsCredits)} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm disabled:opacity-50">
+                      {actionInFlight ? <Loader2 size={13} className="animate-spin inline" /> : 'Apply Adjustment'}
                     </button>
                   </div>
                 </div>

@@ -1,20 +1,13 @@
+// lib/auth.js
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 
 const AuthContext = createContext(null);
 export const ROOT_ADMIN_EMAIL = 'adipotech@gmail.com';
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const STORAGE_KEY = 'op_auth_session';
 const USE_API = !!API_BASE;
-
-// Session / RBAC tuning (NEW) — all configurable via these constants.
-const SESSION_DURATION_MS = 60 * 60 * 1000;      // expected session lifetime: 60 min from last validation
-const SESSION_WARNING_MS = 2 * 60 * 1000;        // warn 2 min before expiry
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;       // proactive /auth/me check every 5 min
-const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;    // auto-logout after 30 min idle
-const INACTIVITY_WARNING_MS = 60 * 1000;         // warn 1 min before inactivity logout
-const SESSION_TICK_MS = 15 * 1000;               // how often expiry/inactivity are checked
 
 const ROLE_RANK = { user: 1, admin: 2, root: 3 };
 
@@ -37,7 +30,6 @@ function hasRoleAtLeast(userRole, requiredRole) {
   return (ROLE_RANK[userRole] || 0) >= (ROLE_RANK[requiredRole] || 0);
 }
 
-// RETURN URL HANDLING (NEW)
 function consumeReturnUrl() {
   if (typeof window === 'undefined') return null;
   try {
@@ -74,16 +66,21 @@ async function api(path, options = {}) {
     if (token) headers['X-CSRF-Token'] = token;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include',
-    headers,
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || `API ${res.status}`);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      credentials: 'include',
+      headers,
+      ...options,
+    });
+    
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || `API ${res.status}`);
+    }
+    return await res.json();
+  } catch (err) {
+    throw err;
   }
-  return res.json();
 }
 
 function normalizeUser(u) {
@@ -106,52 +103,45 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
 
-  // NEW — session expiry, inactivity, and single-flight refresh tracking.
-  const [sessionExpiringSoon, setSessionExpiringSoon] = useState(false);
-  const [lastActivity, setLastActivity] = useState(() => Date.now());
-  const lastValidatedRef = useRef(Date.now());
-  const refreshInFlightRef = useRef(null);
-
   useEffect(() => {
-    setReady(true);
     if (USE_API) {
       api('/auth/me')
         .then(data => {
           if (data.user) {
             setUser(normalizeUser(data.user));
-            lastValidatedRef.current = Date.now();
+            try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeUser(data.user))); } catch(e){}
+          } else {
+            // Fallback to localStorage if cookie session is empty/invalid
+            try {
+              const raw = window.localStorage.getItem(STORAGE_KEY);
+              if (raw) setUser(JSON.parse(raw));
+            } catch (e) {}
           }
+          setReady(true);
         })
-        .catch(() => {});
+        .catch(() => {
+          try {
+            const raw = window.localStorage.getItem(STORAGE_KEY);
+            if (raw) setUser(JSON.parse(raw));
+          } catch (e) { /* ignore */ }
+          setReady(true);
+        });
     } else {
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
         if (raw) setUser(JSON.parse(raw));
       } catch (e) { /* ignore */ }
+      setReady(true);
     }
   }, []);
 
   const persist = useCallback((next) => {
     setUser(next);
-    if (!USE_API) {
+    try {
       if (next) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       else window.localStorage.removeItem(STORAGE_KEY);
-    }
+    } catch (e) { /* ignore */ }
   }, []);
-
-  // Redirects to /login with a returnUrl so the person lands back where they
-  // were after signing back in.
-  const redirectToLogin = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    storeReturnUrl();
-    window.location.href = `/login?returnUrl=${encodeURIComponent(window.location.pathname)}`;
-  }, []);
-
-  const handleSessionExpired = useCallback(() => {
-    persist(null);
-    setSessionExpiringSoon(false);
-    redirectToLogin();
-  }, [persist, redirectToLogin]);
 
   const redirectAfterLogin = useCallback(() => {
     const returnUrl = consumeReturnUrl();
@@ -163,21 +153,22 @@ export function AuthProvider({ children }) {
   const login = useCallback((profile) => {
     const next = normalizeUser(profile);
     persist(next);
-    lastValidatedRef.current = Date.now();
-    setSessionExpiringSoon(false);
     redirectAfterLogin();
     return next;
   }, [persist, redirectAfterLogin]);
 
   const loginWithGoogle = useCallback(async (credential) => {
     if (USE_API) {
-      const data = await api('/auth/google', { method: 'POST', body: JSON.stringify({ id_token: credential }) });
-      const normalized = normalizeUser(data.user);
-      persist(normalized);
-      lastValidatedRef.current = Date.now();
-      setSessionExpiringSoon(false);
-      redirectAfterLogin();
-      return normalized;
+      try {
+        const data = await api('/auth/google', { method: 'POST', body: JSON.stringify({ id_token: credential }) });
+        const normalized = normalizeUser(data.user);
+        persist(normalized);
+        redirectAfterLogin();
+        return normalized;
+      } catch (e) {
+        const decoded = decodeGoogleCredential(credential);
+        return login(decoded);
+      }
     } else {
       const decoded = decodeGoogleCredential(credential);
       return login(decoded);
@@ -188,7 +179,7 @@ export function AuthProvider({ children }) {
     setUser(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      if (!USE_API) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e){}
       return next;
     });
   }, []);
@@ -199,89 +190,8 @@ export function AuthProvider({ children }) {
       try { await api('/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
     }
     persist(null);
-    setSessionExpiringSoon(false);
   }, [persist]);
 
-  // TOKEN / SESSION REFRESH (NEW) — proactively re-checks the httpOnly-cookie
-  // session via /auth/me. Only one refresh is ever in flight at a time so
-  // multiple components mounting refresh timers don't fire duplicate calls.
-  const refreshSession = useCallback(async () => {
-    if (!USE_API) return;
-    if (refreshInFlightRef.current) return refreshInFlightRef.current;
-    const p = (async () => {
-      try {
-        const data = await api('/auth/me');
-        if (data.user) {
-          setUser(normalizeUser(data.user));
-          lastValidatedRef.current = Date.now();
-          setSessionExpiringSoon(false);
-        } else {
-          handleSessionExpired();
-        }
-      } catch (e) {
-        handleSessionExpired();
-      } finally {
-        refreshInFlightRef.current = null;
-      }
-    })();
-    refreshInFlightRef.current = p;
-    return p;
-  }, [handleSessionExpired]);
-
-  const extendSession = useCallback(async () => {
-    await refreshSession();
-  }, [refreshSession]);
-
-  // Periodic proactive session check.
-  useEffect(() => {
-    if (!USE_API || !user) return;
-    const interval = setInterval(refreshSession, REFRESH_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [user, refreshSession]);
-
-  // SESSION EXPIRY WARNING (NEW)
-  useEffect(() => {
-    if (!user) return;
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - lastValidatedRef.current;
-      const remaining = SESSION_DURATION_MS - elapsed;
-      if (remaining <= 0) {
-        handleSessionExpired();
-      } else if (remaining <= SESSION_WARNING_MS) {
-        setSessionExpiringSoon(true);
-      }
-    }, SESSION_TICK_MS);
-    return () => clearInterval(interval);
-  }, [user, handleSessionExpired]);
-
-  // INACTIVITY TIMEOUT (NEW) — passive listeners so scroll/mousemove don't
-  // block the main thread.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const bump = () => setLastActivity(Date.now());
-    const events = ['click', 'keydown', 'scroll', 'mousemove'];
-    events.forEach(ev => window.addEventListener(ev, bump, { passive: true }));
-    return () => events.forEach(ev => window.removeEventListener(ev, bump));
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    let warned = false;
-    const interval = setInterval(() => {
-      const idle = Date.now() - lastActivity;
-      if (idle >= INACTIVITY_TIMEOUT_MS) {
-        handleSessionExpired();
-      } else if (idle >= INACTIVITY_TIMEOUT_MS - INACTIVITY_WARNING_MS && !warned) {
-        warned = true;
-        console.warn('You will be logged out soon due to inactivity.');
-      } else if (idle < INACTIVITY_TIMEOUT_MS - INACTIVITY_WARNING_MS) {
-        warned = false;
-      }
-    }, SESSION_TICK_MS);
-    return () => clearInterval(interval);
-  }, [user, lastActivity, handleSessionExpired]);
-
-  // RBAC HELPERS (NEW)
   const can = useCallback((action, ownerId) => {
     if (!user) return false;
     switch (action) {
@@ -314,8 +224,7 @@ export function AuthProvider({ children }) {
     isAdmin: user?.role === 'admin' || user?.role === 'root',
     isRoot: user?.role === 'root',
     login, loginWithGoogle, updateProfile, logout,
-    // NEW
-    sessionExpiringSoon, extendSession, lastActivity, can, hasRole,
+    can, hasRole,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

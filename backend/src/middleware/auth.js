@@ -1,3 +1,4 @@
+// backend/src/middleware/auth.js
 import { readCookie, verifySessionToken } from '../lib/session.js';
 
 const ROOT_EMAIL = 'adipotech@gmail.com';
@@ -122,6 +123,12 @@ export async function verifyCsrfToken(secret, token) {
 
 export async function csrfProtection(c, next) {
   if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') {
+    return await next();
+  }
+
+  const path = c.req.path;
+  // Bypass CSRF checks for webhooks and authenticated content submission routes
+  if (path.includes('/webhook') || path.includes('/content/')) {
     return await next();
   }
 

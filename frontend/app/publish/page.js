@@ -1,8 +1,10 @@
+// app/publish/page.js
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Image as ImageIcon, Paperclip, X, FileText, Film, Save, Send, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { Image as ImageIcon, Paperclip, X, FileText, Film, Save, Send, CheckCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore } from '../../lib/store';
 import RichTextEditor from '../../components/RichTextEditor';
@@ -31,6 +33,7 @@ function PublishForm() {
 
   const [draft, setDraft] = useState(emptyDraft());
   const [saved, setSaved] = useState(false);
+  const [successModal, setSuccessModal] = useState(null); // { id } when published
 
   useEffect(() => {
     if (editId) {
@@ -93,20 +96,53 @@ function PublishForm() {
       privacy: asPrivacy || draft.privacy,
       authorId: user.id,
     };
+    
     if (editId) {
       updateStory(editId, payload);
-      router.push(`/story/${editId}`);
+      router.refresh(); // Soft-refresh server data cache
+      setSuccessModal({ id: editId });
     } else {
       const id = createStory(payload);
       window.localStorage.removeItem(DRAFT_KEY);
-      router.push(`/story/${id}`);
+      router.refresh(); // Soft-refresh server data cache so feeds load instantly
+      setSuccessModal({ id });
     }
   };
 
   if (!ready || !isAuthenticated) return null;
 
   return (
-    <div className="bg-paper min-h-screen py-12 pb-24">
+    <div className="bg-paper min-h-screen py-12 pb-24 relative">
+      
+      {/* SUCCESS POPUP ANIMATION MODAL */}
+      {successModal && (
+        <div className="fixed inset-0 bg-ink/80 backdrop-blur-sm z-50 grid place-items-center px-4 animate-in fade-in duration-200">
+          <div className="bg-paper border-2 border-ink p-8 sm:p-12 max-w-md w-full text-center space-y-6 shadow-2xl rounded-sm animate-in zoom-in-95 duration-300">
+            <div className="w-16 h-16 bg-emerald-100 border border-emerald-300 text-emerald-600 rounded-full grid place-items-center mx-auto shadow-sm">
+              <CheckCircle size={32} className="animate-bounce" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-2xl font-black text-ink uppercase tracking-wider">Publication Success</h2>
+              <p className="text-xs font-bold text-emerald-700 tracking-wide uppercase">Check it out in the feeds</p>
+            </div>
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <Link
+                href={`/story/${successModal.id}`}
+                className="flex-1 bg-ink text-white font-bold uppercase text-xs tracking-wider py-3.5 rounded-sm hover:bg-signal transition-colors text-center shadow-sm flex items-center justify-center gap-1.5"
+              >
+                View Story <ArrowRight size={14} />
+              </Link>
+              <Link
+                href="/"
+                className="flex-1 border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider py-3.5 rounded-sm hover:border-ink transition-colors text-center"
+              >
+                Back to Feed
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-3xl mx-auto px-5">
         
         {/* Header Banner */}
@@ -186,8 +222,8 @@ function PublishForm() {
                 onClick={addCover}
                 className="w-full border-2 border-dashed border-wire bg-white hover:border-ink rounded-sm p-8 flex flex-col items-center justify-center gap-2 text-ink-600 transition-colors group cursor-pointer"
               >
-                <div className="w-12 h-12 bg-ink-50 rounded-full grid place-name-center group-hover:bg-ink group-hover:text-white transition-colors">
-                  <ImageIcon size={22} className="mx-auto mt-3" />
+                <div className="w-12 h-12 bg-ink-50 rounded-full grid place-content-center group-hover:bg-ink group-hover:text-white transition-colors">
+                  <ImageIcon size={22} className="mx-auto" />
                 </div>
                 <span className="text-xs font-bold uppercase tracking-wider text-ink mt-2">Add Cover Image or Media</span>
                 <span className="text-[11px] text-ink-400">Supports high-res photography and graphics via Cloudinary</span>
@@ -245,10 +281,10 @@ function PublishForm() {
           </div>
 
           {/* Action Buttons */}
-          <div className="rule pt-8 flex items-center gap-4 flex-wrap">
+          <div className="pt-8 flex items-center gap-4 flex-wrap">
             <button 
               onClick={() => publish()} 
-              className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-2 shadow-md"
+              className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-2 shadow-md cursor-pointer"
             >
               <Send size={15} /> {editId ? 'Save Changes' : 'Publish Story'}
             </button>
@@ -256,7 +292,7 @@ function PublishForm() {
             {!editId && (
               <button 
                 onClick={saveDraftLocally} 
-                className="border border-ink bg-white text-ink font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2"
+                className="border border-ink bg-white text-ink font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
               >
                 <Save size={15} /> {saved ? 'Draft Saved ✓' : 'Save Local Draft'}
               </button>

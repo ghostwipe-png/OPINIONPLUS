@@ -1,3 +1,4 @@
+// app/story/[id]/StoryClientView.js
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
@@ -77,6 +78,7 @@ export default function StoryClientView() {
   const sourceUrl = story?.sourceUrl || story?.source_url;
   const sourceName = story?.sourceName || story?.source_name;
   const coverImage = story?.coverImage || story?.cover_image;
+  const mediaUrl = story?.mediaUrl || story?.media_url;
 
   useEffect(() => {
     if (!contentRef.current) return;
@@ -132,13 +134,15 @@ export default function StoryClientView() {
   const authorName = author?.publisherName || author?.publisher_name;
 
   return (
-    <div className="bg-paper min-h-screen pb-24">
+    <div className="bg-paper min-h-screen pb-24 overflow-x-hidden">
+      {/* Scroll Progress Bar */}
       <div className="fixed top-0 left-0 right-0 h-1 bg-wire/40 z-50 no-print" aria-hidden="true">
         <div className="h-full bg-signal transition-transform duration-150 origin-left" style={{ transform: `scaleX(${progress / 100})` }} />
       </div>
 
+      {/* Floating Table of Contents for Wide Screens */}
       {toc.length > 0 && (
-        <nav aria-label="Table of contents" className="no-print hidden xl:block fixed left-8 top-32 w-56 max-h-[50vh] overflow-y-auto text-xs bg-white p-4 border border-wire rounded-sm shadow-sm">
+        <nav aria-label="Table of contents" className="no-print hidden 2xl:block fixed left-6 top-32 w-64 max-h-[50vh] overflow-y-auto text-xs bg-white p-4 border border-wire rounded-sm shadow-sm z-30">
           <p className="font-bold uppercase tracking-wider text-ink mb-3 flex items-center gap-1.5"><List size={13} className="text-signal" /> In this story</p>
           <ul className="space-y-2 border-l border-wire pl-3">
             {toc.map((t) => (
@@ -150,7 +154,8 @@ export default function StoryClientView() {
         </nav>
       )}
 
-      <article className="w-full max-w-4xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16">
+      {/* Fully Expanded Immersive Article Container */}
+      <article className="w-full max-w-5xl mx-auto px-4 sm:px-8 lg:px-12 pt-10 sm:pt-16">
         {story.privacy !== 'public' && (
           <div className="mb-6 bg-amber-50 border border-amber-300 text-amber-800 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm inline-block">
             {story.privacy === 'private' ? 'Private — Visible to you only' : 'Archived Content'}
@@ -216,7 +221,7 @@ export default function StoryClientView() {
             </div>
 
             {isOwner && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <Link href={`/publish?edit=${story.id}`} className="border border-ink text-ink font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-1.5">
                   <Pencil size={13} /> Edit
                 </Link>
@@ -241,34 +246,47 @@ export default function StoryClientView() {
           </div>
         )}
 
-        {/* ⚡ Dynamic Medium Cover Image Floating on the Right with Text Wrapping */}
-        {coverImage && !story.mediaBlocked && (
-          <div className="mb-6 sm:float-right sm:ml-8 sm:mb-6 sm:w-80 w-full rounded-sm overflow-hidden border border-wire shadow-sm shrink-0">
-            <img src={coverImage} alt="" className="w-full h-auto max-h-[320px] object-cover" />
+        {/* Hero Visual or Documentary Video */}
+        {story.type === 'documentary' && mediaUrl ? (
+          <div className="mb-10 rounded-sm overflow-hidden border border-wire bg-black aspect-video shadow-lg w-full">
+            <iframe 
+              src={mediaUrl.replace('watch?v=', 'embed/')} 
+              title={activeTitle}
+              className="w-full h-full"
+              allowFullScreen
+            />
           </div>
-        )}
+        ) : coverImage && !story.mediaBlocked ? (
+          <div className="mb-10 sm:float-right sm:ml-8 sm:mb-6 sm:w-[420px] w-full rounded-sm overflow-hidden border border-wire shadow-md shrink-0">
+            <img src={coverImage} alt="" className="w-full h-auto max-h-[380px] object-cover" />
+          </div>
+        ) : null}
+
         {story.mediaBlocked && (
           <div className="w-full aspect-[16/9] rounded-sm mb-10 border border-wire bg-ink-100 grid place-items-center px-6 text-center">
             <p className="text-sm font-bold text-ink-500">This content has been restricted for violating OPINIONPLUS publishing guidelines.</p>
           </div>
         )}
 
-        {/* ⚡ Audio Narration Widget */}
-        <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
+        {/* Audio Narration Widget */}
+        <div className="mb-8">
+          <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
+        </div>
 
+        {/* Flexible Full-Width Article Content Body */}
         <div
           ref={contentRef}
-          className={`prose-story w-full max-w-[720px] mx-auto text-ink-800 text-lg leading-[1.85] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere] clear-none
+          className={`prose-story w-full max-w-none text-ink-800 text-lg sm:text-xl leading-[1.9] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere] clear-none
             [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-black [&_h1]:mt-8 [&_h1]:mb-4
-            [&_h2]:font-display [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:border-b [&_h2]:border-wire [&_h2]:pb-2
-            [&_h3]:font-display [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mt-6 [&_h3]:mb-3 [&_h3]:scroll-mt-24
+            [&_h2]:font-display [&_h2]:text-2xl sm:[&_h2]:text-3xl [&_h2]:font-bold [&_h2]:mt-10 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:border-b [&_h2]:border-wire [&_h2]:pb-2
+            [&_h3]:font-display [&_h3]:text-xl sm:[&_h3]:text-2xl [&_h3]:font-bold [&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:scroll-mt-24
             [&_p]:mb-6 [&_p]:font-medium
-            [&_blockquote]:border-l-4 [&_blockquote]:border-signal [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-ink-700 [&_blockquote]:my-6 [&_blockquote]:text-xl
+            [&_blockquote]:border-l-4 [&_blockquote]:border-signal [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-ink-700 [&_blockquote]:my-8 [&_blockquote]:text-xl sm:[&_blockquote]:text-2xl
             [&_pre]:bg-ink [&_pre]:text-emerald-400 [&_pre]:rounded-sm [&_pre]:p-4 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:overflow-x-auto [&_pre]:my-6
             [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2
             [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2
             [&_a]:text-signal [&_a]:underline [&_a]:font-bold
-            [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-sm [&_img]:my-6
+            [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-sm [&_img]:my-6 [&_img]:mx-auto
             [&_table]:w-full [&_table]:border-collapse [&_table]:my-6
             [&_td]:border [&_td]:border-wire [&_td]:p-3
             [&_th]:border [&_th]:border-wire [&_th]:p-3 [&_th]:bg-ink-50 [&_th]:font-bold
@@ -279,7 +297,7 @@ export default function StoryClientView() {
         <div className="clear-both" />
 
         {story.files?.length > 0 && (
-          <div className="max-w-[720px] mx-auto mb-12 border-2 border-wire rounded-sm p-6 bg-ink-50/50">
+          <div className="w-full mb-12 border-2 border-wire rounded-sm p-6 bg-ink-50/50">
             <p className="text-xs font-bold uppercase tracking-widest text-ink-500 mb-3">Associated Files & Attachments</p>
             <ul className="space-y-2">
               {story.files.map((f, i) => (
@@ -292,40 +310,47 @@ export default function StoryClientView() {
           </div>
         )}
 
-        <div className="max-w-[720px] mx-auto mb-10">
+        <div className="w-full mb-10">
           <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: authorName, coverImage: coverImage }} />
         </div>
 
-        <div className="max-w-[720px] mx-auto rule pt-8 flex items-center justify-between flex-wrap gap-6 bg-white p-6 border border-wire rounded-sm shadow-sm">
-          <div className="flex items-center gap-6 flex-wrap">
-            <button 
-              onClick={requireAuth(() => toggleLike(story.id, user.id))} 
-              className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider transition-colors px-4 py-2 rounded-sm border ${
-                liked ? 'bg-signal text-white border-signal' : 'border-wire text-ink hover:border-ink'
-              }`}
-            >
-              <Heart size={16} fill={liked ? 'currentColor' : 'none'} /> {likesList.length} Likes
-            </button>
-            <div className="flex items-center gap-2">
-              <StarRating value={myRating} onRate={requireAuth((n) => rateStory(story.id, user.id, n))} readOnly={!isAuthenticated} />
-            </div>
-            {isAuthenticated && !isOwner && (
-              <button onClick={handleReport} disabled={reported} className="text-xs font-bold uppercase tracking-wider text-ink-400 hover:text-signal flex items-center gap-1 disabled:opacity-40 transition-colors">
-                <Flag size={13} /> {reported ? 'Reported' : 'Report'}
+        {/* --- ALL REACTIONS & INTERACTIONS SECTION ORGANIZED AT THE END --- */}
+        <section className="w-full rule pt-8 pb-8 mt-12 bg-white p-6 sm:p-10 border border-wire rounded-sm shadow-sm space-y-8">
+          <div className="flex items-center justify-between flex-wrap gap-6 border-b border-wire pb-6">
+            <div className="flex items-center gap-6 flex-wrap">
+              <button 
+                onClick={requireAuth(() => toggleLike(story.id, user.id))} 
+                className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider transition-colors px-6 py-3 rounded-sm border cursor-pointer ${
+                  liked ? 'bg-signal text-white border-signal' : 'border-wire text-ink hover:border-ink'
+                }`}
+              >
+                <Heart size={18} fill={liked ? 'currentColor' : 'none'} /> {likesList.length} Likes
               </button>
-            )}
+              <div className="flex items-center gap-2">
+                <StarRating value={myRating} onRate={requireAuth((n) => rateStory(story.id, user.id, n))} readOnly={!isAuthenticated} />
+              </div>
+              {isAuthenticated && !isOwner && (
+                <button onClick={handleReport} disabled={reported} className="text-xs font-bold uppercase tracking-wider text-ink-400 hover:text-signal flex items-center gap-1 disabled:opacity-40 transition-colors cursor-pointer">
+                  <Flag size={13} /> {reported ? 'Reported' : 'Report'}
+                </button>
+              )}
+            </div>
+            
+            <div className="no-print flex items-center gap-4">
+              <StoryQRCodeModal story={story} />
+              <ShareButtons url={`/story/${story.id}`} title={activeTitle} />
+            </div>
           </div>
-          
-          <div className="no-print flex items-center gap-4">
-            <StoryQRCodeModal story={story} />
-            <ShareButtons url={`/story/${story.id}`} title={activeTitle} />
-          </div>
-        </div>
 
+          {/* Comment Thread & Discussion */}
+          <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={authorId} />
+        </section>
+
+        {/* Previous & Next Story Navigation */}
         {(prevStory || nextStory) && (
-          <nav aria-label="Story navigation" className="max-w-[720px] mx-auto rule mt-10 pt-8 grid grid-cols-2 gap-6">
+          <nav aria-label="Story navigation" className="w-full rule mt-10 pt-8 grid grid-cols-1 sm:grid-cols-2 gap-6">
             {prevStory ? (
-              <Link href={`/story/${prevStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center gap-3 text-left">
+              <Link href={`/story/${prevStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center gap-3 text-left bg-white">
                 <ChevronLeft size={20} className="shrink-0 text-ink-400 group-hover:text-signal transition-colors" />
                 <div className="min-w-0">
                   <span className="block text-[10px] font-bold uppercase tracking-widest text-ink-400 mb-1">Previous Story</span>
@@ -334,7 +359,7 @@ export default function StoryClientView() {
               </Link>
             ) : <span />}
             {nextStory ? (
-              <Link href={`/story/${nextStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center justify-end gap-3 text-right">
+              <Link href={`/story/${nextStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center justify-end gap-3 text-right bg-white">
                 <div className="min-w-0">
                   <span className="block text-[10px] font-bold uppercase tracking-widest text-ink-400 mb-1">Next Story</span>
                   <span className="block text-xs font-bold text-ink line-clamp-1 group-hover:text-signal transition-colors">{nextStory.title}</span>
@@ -345,12 +370,9 @@ export default function StoryClientView() {
           </nav>
         )}
 
-        <div className="max-w-[720px] mx-auto mt-16">
-          <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={authorId} />
-        </div>
-
+        {/* Related Author Stories */}
         {related.length > 0 && (
-          <div className="max-w-4xl mx-auto mt-20 pt-10 border-t-2 border-wire">
+          <div className="w-full mt-20 pt-10 border-t-2 border-wire">
             <h3 className="text-lg font-bold uppercase tracking-wider text-ink mb-6">More from {authorName}</h3>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {related.map((s) => (<StoryCard key={s.id} story={s} />))}
@@ -359,10 +381,11 @@ export default function StoryClientView() {
         )}
       </article>
 
+      {/* Scroll to Top Button */}
       {showToTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="no-print fixed bottom-8 right-8 w-12 h-12 rounded-sm bg-ink text-white grid place-items-center shadow-xl hover:bg-signal transition-colors z-40"
+          className="no-print fixed bottom-8 right-8 w-12 h-12 rounded-sm bg-ink text-white grid place-items-center shadow-xl hover:bg-signal transition-colors z-40 cursor-pointer"
           aria-label="Scroll to top"
         >
           <ArrowUp size={18} />
