@@ -3,10 +3,9 @@
 
 import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Search, ArrowRight, Tag, Newspaper, X, Sparkles, Megaphone, MonitorPlay } from 'lucide-react';
+import { Loader2, ArrowRight, Newspaper, Megaphone, MonitorPlay } from 'lucide-react';
 import BreakingTicker from '../components/BreakingTicker';
 import FilterBar from '../components/FilterBar';
-import StoryCard from '../components/StoryCard';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const PAGE_SIZE = 20;
@@ -27,13 +26,8 @@ export default function HomePage() {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  
-  // Search state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchTopic, setSearchTopic] = useState('');
-  const [activeSearchTerm, setActiveSearchTerm] = useState('');
 
-  const fetchStories = useCallback(async (currentCursor = null, isReset = false, queryTerm = '') => {
+  const fetchStories = useCallback(async (currentCursor = null, isReset = false) => {
     if (isReset) {
       setLoading(true);
     } else {
@@ -45,15 +39,11 @@ export default function HomePage() {
       if (filter !== 'all') {
         url += `&type=${filter}`;
       }
-      if (queryTerm.trim()) {
-        url += `&search=${encodeURIComponent(queryTerm.trim())}`;
-      }
 
       if (currentCursor) {
         url += `&cursor=${encodeURIComponent(currentCursor)}`;
       }
 
-      // Add cache-busting timestamp to guarantee fresh items on auto-reload
       url += `${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 
       const res = await fetch(url, { cache: 'no-store' });
@@ -75,11 +65,10 @@ export default function HomePage() {
   useEffect(() => {
     setCursor(null);
     setHasMore(true);
-    fetchStories(null, true, activeSearchTerm);
+    fetchStories(null, true);
 
-    // Auto-reload feed when user switches back to this tab after publishing
     const handleRevalidate = () => {
-      fetchStories(null, true, activeSearchTerm);
+      fetchStories(null, true);
     };
 
     const handleVisibilityChange = () => {
@@ -95,26 +84,14 @@ export default function HomePage() {
       window.removeEventListener('focus', handleRevalidate);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [filter, activeSearchTerm, fetchStories]);
-
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    const combined = [searchQuery, searchTopic].filter(Boolean).join(' ');
-    setActiveSearchTerm(combined);
-  };
-
-  const handleClearSearch = () => {
-    setSearchQuery('');
-    setSearchTopic('');
-    setActiveSearchTerm('');
-  };
+  }, [filter, fetchStories]);
 
   return (
     <div className="bg-paper min-h-screen pb-16 flex flex-col">
       <BreakingTicker />
 
       {/* 1. CORPORATE HERO SECTION */}
-      <section className="relative bg-[#1C1917] text-white pt-16 pb-40 px-5 overflow-hidden">
+      <section className="relative bg-[#1C1917] text-white pt-16 pb-24 px-5 overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1600&auto=format&fit=crop&q=80')] bg-cover bg-center opacity-25 mix-blend-luminosity pointer-events-none" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#1C1917] via-[#1C1917]/90 to-transparent pointer-events-none" />
 
@@ -163,104 +140,87 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 2. REDESIGNED ELEGANT FLOATING SEARCH MODULE */}
-      <div className="max-w-5xl mx-auto px-5 -mt-16 relative z-30 mb-12">
-        <form onSubmit={handleSearchSubmit} className="bg-white rounded-xl shadow-2xl border border-wire p-4 sm:p-5 flex flex-col md:flex-row items-center gap-3 backdrop-blur-md bg-white/95">
-          
-          {/* Keyword Search Input */}
-          <div className="flex items-center gap-3 flex-1 w-full bg-[#F4F4F6] px-5 py-3.5 rounded-full border border-wire/60 focus-within:border-signal transition-colors">
-            <Search size={18} className="text-signal shrink-0" />
-            <input 
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by title, keyword, or author..."
-              className="w-full text-sm font-medium text-ink bg-transparent outline-none placeholder:text-ink-400"
-            />
-          </div>
-
-          {/* Topic / Category Input */}
-          <div className="flex items-center gap-3 flex-1 w-full bg-[#F4F4F6] px-5 py-3.5 rounded-full border border-wire/60 focus-within:border-signal transition-colors">
-            <Tag size={18} className="text-signal shrink-0" />
-            <input 
-              type="text"
-              value={searchTopic}
-              onChange={(e) => setSearchTopic(e.target.value)}
-              placeholder="Filter by topic or category..."
-              className="w-full text-sm font-medium text-ink bg-transparent outline-none placeholder:text-ink-400"
-            />
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <button 
-              type="submit"
-              className="flex-1 md:flex-none bg-[#E0492B] hover:bg-ink text-white font-bold uppercase tracking-wider text-xs px-8 py-4 rounded-full transition-colors shrink-0 shadow-md flex items-center justify-center gap-2"
-            >
-              <Sparkles size={14} /> Search
-            </button>
-            {activeSearchTerm && (
-              <button 
-                type="button"
-                onClick={handleClearSearch}
-                className="bg-ink-100 hover:bg-ink hover:text-white text-ink p-4 rounded-full transition-colors shrink-0"
-                title="Clear Search"
-              >
-                <X size={16} />
-              </button>
-            )}
-          </div>
-        </form>
-
-        {activeSearchTerm && (
-          <div className="mt-3 flex items-center justify-between text-xs font-bold text-white px-4">
-            <span>Showing live results for: &ldquo;{activeSearchTerm}&rdquo;</span>
-            <button onClick={handleClearSearch} className="text-signal hover:underline underline-offset-2">Reset search</button>
-          </div>
-        )}
-      </div>
-
-      {/* 3. MAIN CONTENT SECTION */}
-      <div id="feed-section" className="scroll-mt-24 flex-1 max-w-7xl mx-auto px-5 w-full">
+      {/* 2. MAIN CONTENT SECTION */}
+      <div id="feed-section" className="scroll-mt-24 flex-1 max-w-7xl mx-auto px-5 w-full pt-10">
         <FilterBar filter={filter} onFilterChange={setFilter} filters={FILTERS} filterLabels={FILTER_LABELS} />
 
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4 py-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 py-12">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="skeleton h-64 rounded-sm" />
+              <div key={i} className="skeleton h-72 rounded-xl bg-wire/20" />
             ))}
           </div>
         ) : stories.length === 0 ? (
-          <div className="border border-dashed border-wire rounded-sm p-20 flex flex-col items-center text-center my-10 bg-white">
+          <div className="border-none rounded-2xl p-20 flex flex-col items-center text-center my-10 bg-white shadow-sm">
             <Newspaper size={40} className="text-ink-300 mb-4" />
-            <p className="text-2xl font-bold mb-2 text-ink">No matching stories found.</p>
-            <p className="text-sm text-ink-500 mb-6 font-medium">Try adjusting your keywords or clearing the search filter.</p>
-            {activeSearchTerm && (
-              <button onClick={handleClearSearch} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-8 py-3.5 rounded-sm hover:bg-signal/90 transition-colors shadow-md">
-                View all content
-              </button>
-            )}
+            <p className="text-2xl font-bold mb-2 text-ink">No stories found.</p>
+            <p className="text-sm text-ink-500 mb-6 font-medium">Check back later or try adjusting the category filter.</p>
           </div>
         ) : (
-          <div className="py-6 space-y-10">
-            {/* COMPACT MULTI-COLUMN GRID FOR HIGH DENSITY BROWSING */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-              {stories.map((story) => (
-                <div key={story.id} className="bg-white border border-wire rounded-sm p-3 shadow-xs hover:shadow-md transition-all flex flex-col justify-between text-xs">
-                  <StoryCard story={story} compact />
-                </div>
-              ))}
+          <div className="py-8 space-y-12">
+            {/* ELEGANT CARDS MATCHING REFERENCE DESIGN */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8">
+              {stories.map((story) => {
+                const imageUrl = story.coverImage || story.cover_image || '';
+                return (
+                  <div 
+                    key={story.id} 
+                    className="bg-white rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_32px_rgba(0,0,0,0.1)] transition-all duration-300 flex flex-col justify-between group border border-wire/40"
+                  >
+                    {/* Top Full-Width Image Preview */}
+                    <div className="h-48 w-full overflow-hidden bg-ink-100 relative">
+                      {imageUrl ? (
+                        <img 
+                          src={imageUrl} 
+                          alt={story.title} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-ink text-white font-black text-xs uppercase tracking-widest">
+                          OpinionPlus
+                        </div>
+                      )}
+                      <span className="absolute top-3 left-3 bg-ink/80 backdrop-blur-sm text-white font-bold text-[9px] uppercase px-2.5 py-1 rounded-md tracking-wider">
+                        {story.type?.replace('_', ' ') || 'Story'}
+                      </span>
+                    </div>
+
+                    {/* Content Section */}
+                    <div className="p-6 flex-1 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-base font-bold text-ink group-hover:text-signal transition-colors line-clamp-2 leading-snug mb-2.5">
+                          {story.title}
+                        </h3>
+                        <p className="text-ink-600 text-xs line-clamp-3 leading-relaxed mb-6 font-medium">
+                          {story.excerpt || story.body?.slice(0, 120) || 'Explore the full narrative and insights...'}
+                        </p>
+                      </div>
+
+                      {/* Action Pill Button */}
+                      <div>
+                        <Link 
+                          href={`/story/${story.id}`}
+                          className="inline-flex items-center justify-between w-full bg-[#A32A29] hover:bg-ink text-white font-bold uppercase text-[10px] tracking-wider px-5 py-3 rounded-full transition-colors shadow-sm group/btn"
+                        >
+                          <span>Read story</span>
+                          <ArrowRight size={14} className="group-hover/btn:translate-x-1 transition-transform" />
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {hasMore && (
-              <div className="pt-8 text-center border-t border-wire">
+              <div className="pt-10 text-center flex justify-center">
                 <button 
-                  onClick={() => fetchStories(cursor, false, activeSearchTerm)} 
+                  onClick={() => fetchStories(cursor, false)} 
                   disabled={loadingMore}
-                  className="border-2 border-ink text-ink font-bold uppercase tracking-wider text-xs px-10 py-3.5 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50 shadow-sm"
+                  className="bg-white border border-wire/60 text-ink font-bold uppercase tracking-wider text-xs px-10 py-4 rounded-full hover:bg-ink hover:text-white hover:border-ink transition-all flex items-center justify-center gap-2 disabled:opacity-50 shadow-sm"
                 >
-                  {loadingMore && <Loader2 size={14} className="animate-spin text-signal" />}
-                  {loadingMore ? 'Loading more...' : 'Load more items'}
+                  {loadingMore && <Loader2 size={14} className="animate-spin" />}
+                  {loadingMore ? 'Loading more...' : 'Load more stories'}
                 </button>
               </div>
             )}

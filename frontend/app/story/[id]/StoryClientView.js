@@ -4,13 +4,12 @@
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Heart, Flag, Pencil, Trash2, Film, FileText, Paperclip, ArrowUp, List, ChevronLeft, ChevronRight, UserPlus, UserMinus, ExternalLink } from 'lucide-react';
+import { Heart, Flag, Pencil, Trash2, Film, FileText, Paperclip, ArrowUp, UserPlus, UserMinus, ExternalLink, Share2 } from 'lucide-react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StarRating from '../../../components/StarRating';
 import ShareButtons from '../../../components/ShareButtons';
 import CommentThread from '../../../components/CommentThread';
-import StoryCard from '../../../components/StoryCard';
 import ReadLaterButton from '../../../components/ReadLaterButton';
 import CollaborateButton from '../../../components/CollaborateButton';
 import StoryAudioPlayer from '../../../components/StoryAudioPlayer';
@@ -28,10 +27,10 @@ export default function StoryClientView() {
   const router = useRouter();
   const { stories, users, toggleLike, rateStory, reportStory, deleteStory, toggleFollow, follows } = useStore();
   const { user, isAuthenticated } = useAuth();
+  
   const [reported, setReported] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showToTop, setShowToTop] = useState(false);
-  const [toc, setToc] = useState([]);
   const [translation, setTranslation] = useState(null);
   const contentRef = useRef(null);
 
@@ -52,19 +51,18 @@ export default function StoryClientView() {
   const iFollowAuthor = user && author ? (follows[user.id] || []).includes(author.id) : false;
 
   const related = story
-    ? stories.filter((s) => (s.authorId === authorId || s.author_id === authorId) && s.id !== story.id && !s.deleted && s.privacy === 'public').slice(0, 3)
+    ? stories.filter((s) => (s.authorId === authorId || s.author_id === authorId) && s.id !== story.id && !s.deleted && s.privacy === 'public')
     : [];
 
   const feedOrder = useMemo(
     () => stories.filter((s) => !s.deleted && s.privacy === 'public').sort((a, b) => new Date(b.createdAt || b.created_at) - new Date(a.createdAt || a.created_at)),
     [stories]
   );
-  const feedIndex = story ? feedOrder.findIndex((s) => s.id === story.id) : -1;
-  const prevStory = feedIndex > 0 ? feedOrder[feedIndex - 1] : null;
-  const nextStory = feedIndex >= 0 && feedIndex < feedOrder.length - 1 ? feedOrder[feedIndex + 1] : null;
+  
+  const sidebarStories = related.length >= 3 ? related.slice(0, 5) : feedOrder.filter(s => s.id !== story?.id).slice(0, 5);
 
   const storyCreatedAt = story?.createdAt || story?.created_at;
-  const date = storyCreatedAt ? new Date(storyCreatedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+  const date = storyCreatedAt ? new Date(storyCreatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 
   const activeTitle = translation?.title || story?.title;
   const rawBodyHtml = translation?.body || story?.body || '';
@@ -79,16 +77,6 @@ export default function StoryClientView() {
   const sourceName = story?.sourceName || story?.source_name;
   const coverImage = story?.coverImage || story?.cover_image;
   const mediaUrl = story?.mediaUrl || story?.media_url;
-
-  useEffect(() => {
-    if (!contentRef.current) return;
-    const headings = Array.from(contentRef.current.querySelectorAll('h2, h3'));
-    const entries = headings.map((h, i) => {
-      if (!h.id) h.id = `section-${i}-${h.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`;
-      return { id: h.id, text: h.textContent, level: h.tagName === 'H2' ? 2 : 3 };
-    });
-    setToc(entries);
-  }, [sanitizedHtml]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -134,261 +122,244 @@ export default function StoryClientView() {
   const authorName = author?.publisherName || author?.publisher_name;
 
   return (
-    <div className="bg-paper min-h-screen pb-24 overflow-x-hidden">
+    <div className="bg-paper min-h-screen pb-24 font-sans">
       {/* Scroll Progress Bar */}
-      <div className="fixed top-0 left-0 right-0 h-1 bg-wire/40 z-50 no-print" aria-hidden="true">
+      <div className="fixed top-0 left-0 right-0 h-1 bg-gray-200 z-50 no-print" aria-hidden="true">
         <div className="h-full bg-signal transition-transform duration-150 origin-left" style={{ transform: `scaleX(${progress / 100})` }} />
       </div>
 
-      {/* Floating Table of Contents for Wide Screens */}
-      {toc.length > 0 && (
-        <nav aria-label="Table of contents" className="no-print hidden 2xl:block fixed left-6 top-32 w-64 max-h-[50vh] overflow-y-auto text-xs bg-white p-4 border border-wire rounded-sm shadow-sm z-30">
-          <p className="font-bold uppercase tracking-wider text-ink mb-3 flex items-center gap-1.5"><List size={13} className="text-signal" /> In this story</p>
-          <ul className="space-y-2 border-l border-wire pl-3">
-            {toc.map((t) => (
-              <li key={t.id} className={t.level === 3 ? 'ml-3' : ''}>
-                <a href={`#${t.id}`} className="text-ink-500 hover:text-signal transition-colors line-clamp-2 font-medium">{t.text}</a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      )}
-
-      {/* Fully Expanded Immersive Article Container */}
-      <article className="w-full max-w-5xl mx-auto px-4 sm:px-8 lg:px-12 pt-10 sm:pt-16">
-        {story.privacy !== 'public' && (
-          <div className="mb-6 bg-amber-50 border border-amber-300 text-amber-800 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-sm inline-block">
-            {story.privacy === 'private' ? 'Private — Visible to you only' : 'Archived Content'}
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 mb-6 flex-wrap text-xs font-bold uppercase tracking-wider text-ink-500">
-          <span className="bg-ink text-white px-2.5 py-1 rounded-sm flex items-center gap-1.5">
-            {story.type === 'documentary' ? <Film size={12} /> : <FileText size={12} />}
-            {story.type || 'Story'}
-          </span>
-          <span>•</span>
-          <span>{date}</span>
-          <span>•</span>
-          <span>{readMinutes} min read ({words.toLocaleString()} words)</span>
+      {/* Main Split-Screen Container with Independent Scrolling Columns */}
+      <div className="max-w-[96rem] mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           
-          {sourceUrl && (
-            <>
-              <span>•</span>
-              <a 
-                href={sourceUrl} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="text-signal hover:underline inline-flex items-center gap-1 font-bold bg-signal/10 px-2.5 py-1 rounded-sm border border-signal/20 transition-colors"
-              >
-                Source: {sourceName || 'Original Publisher'} <ExternalLink size={11} />
-              </a>
-            </>
-          )}
-
-          <div className="ml-auto">
-            <LanguageToggle storyId={story.id} onTranslate={setTranslation} />
-          </div>
-        </div>
-
-        <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-ink leading-tight tracking-tight mb-8 break-words">
-          {activeTitle}
-        </h1>
-
-        {author && (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10 pb-8 border-b-2 border-wire">
-            <div className="flex items-center gap-4">
-              <Link href={`/profile/${author.id}`} className="group flex items-center gap-3">
-                <img src={authorLogo} alt={authorName} className="w-14 h-14 rounded-full border-2 border-ink object-cover shadow-sm group-hover:scale-105 transition-transform" />
-                <div>
-                  <span className="block text-base font-bold text-ink group-hover:text-signal transition-colors">{authorName}</span>
-                  <span className="block text-xs font-medium text-ink-400 mt-0.5">{followerCount} follower{followerCount === 1 ? '' : 's'}</span>
-                  {author.suspended && <span className="text-[10px] font-bold text-signal uppercase">Account suspended</span>}
+          {/* ================= LEFT COLUMN: MAIN ARTICLE CONTENT (LIGHT GREY, INDEPENDENT SCROLL) ================= */}
+          <div className="lg:col-span-8 bg-[#F4F4F6] rounded-3xl p-6 sm:p-12 shadow-sm lg:h-[calc(100vh-6rem)] lg:overflow-y-auto scroll-smooth space-y-6">
+            
+            {/* Title & Metadata Card */}
+            <div className="bg-[#F4F4F6] rounded-2xl p-2 sm:p-4 relative">
+              {story.privacy !== 'public' && (
+                <div className="mb-4 bg-amber-50 text-amber-800 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded inline-block">
+                  {story.privacy === 'private' ? 'Private Content' : 'Archived Content'}
                 </div>
-              </Link>
-              
-              {!isOwner && user && (
-                <button
-                  onClick={() => toggleFollow(user.id, author.id)}
-                  className={`font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm transition-colors flex items-center gap-1.5 ${
-                    iFollowAuthor ? 'border border-ink text-ink hover:bg-ink hover:text-white' : 'bg-signal text-white hover:bg-signal/90'
-                  }`}
-                >
-                  {iFollowAuthor ? <UserMinus size={13} /> : <UserPlus size={13} />}
-                  {iFollowAuthor ? 'Following' : 'Follow'}
-                </button>
               )}
+
+              {/* Upper Meta */}
+              <div className="flex items-center gap-3 mb-4 flex-wrap text-xs font-bold uppercase tracking-wider text-gray-500">
+                <span className="bg-gray-200 text-gray-700 px-3 py-1 rounded-full flex items-center gap-1.5">
+                  {story.type === 'documentary' ? <Film size={12} /> : <FileText size={12} />}
+                  {story.type?.replace('_', ' ') || 'Story'}
+                </span>
+                <span>•</span>
+                <span>{date}</span>
+                <span>•</span>
+                <span>{readMinutes} min read</span>
+                
+                {sourceUrl && (
+                  <>
+                    <span>•</span>
+                    <a 
+                      href={sourceUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-signal hover:underline inline-flex items-center gap-1 bg-signal/10 px-3 py-1 rounded-full"
+                    >
+                      {sourceName || 'Source'} <ExternalLink size={11} />
+                    </a>
+                  </>
+                )}
+              </div>
+
+              {/* Red Headline */}
+              <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-black text-[#9B1C1C] uppercase leading-tight tracking-tight mb-8 break-words">
+                {activeTitle}
+              </h1>
+
+              {/* Author & Action Row */}
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pt-4 border-t border-gray-300/60">
+                <div className="flex items-center gap-4">
+                  {author && (
+                    <Link href={`/profile/${author.id}`} className="group flex items-center gap-3">
+                      <img src={authorLogo} alt={authorName} className="w-12 h-12 rounded-full object-cover shadow-sm bg-gray-200" />
+                      <div>
+                        <span className="block text-sm font-bold text-gray-900 group-hover:text-signal transition-colors">{authorName}</span>
+                        <span className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mt-0.5">{followerCount} followers</span>
+                      </div>
+                    </Link>
+                  )}
+                  
+                  {author && !isOwner && user && (
+                    <button
+                      onClick={() => toggleFollow(user.id, author.id)}
+                      className={`text-[10px] font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-colors flex items-center gap-1 ${
+                        iFollowAuthor ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-[#9B1C1C] text-white hover:bg-black'
+                      }`}
+                    >
+                      {iFollowAuthor ? <UserMinus size={11} /> : <UserPlus size={11} />}
+                      {iFollowAuthor ? 'Following' : 'Follow'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {isOwner && (
+                    <>
+                      <Link href={`/publish?edit=${story.id}`} className="text-gray-500 hover:text-gray-900 p-2"><Pencil size={18} /></Link>
+                      <button onClick={handleDelete} className="text-gray-500 hover:text-red-600 p-2"><Trash2 size={18} /></button>
+                      <CollaborateButton storyId={story.id} isOwner={isOwner} />
+                    </>
+                  )}
+                  <div className="flex items-center justify-center p-2 rounded-full text-gray-600 hover:bg-gray-200/50 cursor-pointer">
+                     <ShareButtons url={`/story/${story.id}`} title={activeTitle} />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {isOwner && (
-              <div className="flex items-center gap-3 flex-wrap">
-                <Link href={`/publish?edit=${story.id}`} className="border border-ink text-ink font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-ink hover:text-white transition-colors flex items-center gap-1.5">
-                  <Pencil size={13} /> Edit
-                </Link>
-                <button onClick={handleDelete} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-4 py-2 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-1.5">
-                  <Trash2 size={13} /> Delete
-                </button>
-                <CollaborateButton storyId={story.id} isOwner={isOwner} />
+            {/* Media Block */}
+            {story.type === 'documentary' && mediaUrl ? (
+              <div className="rounded-2xl overflow-hidden bg-black aspect-video shadow-sm w-full">
+                <iframe 
+                  src={mediaUrl.replace('watch?v=', 'embed/')} 
+                  title={activeTitle}
+                  className="w-full h-full"
+                  allowFullScreen
+                />
+              </div>
+            ) : coverImage && !story.mediaBlocked ? (
+              <div className="rounded-2xl overflow-hidden shadow-sm w-full bg-gray-200">
+                <img src={coverImage} alt="" className="w-full h-auto max-h-[500px] object-cover" />
+              </div>
+            ) : null}
+
+            {story.mediaBlocked && (
+              <div className="w-full aspect-[16/9] rounded-2xl bg-gray-200 grid place-items-center px-6 text-center">
+                <p className="text-sm font-bold text-gray-500">Media restricted per publishing guidelines.</p>
               </div>
             )}
-          </div>
-        )}
 
-        {isNews && isAuthenticated && (
-          <div className="bg-ink text-white rounded-sm p-6 mb-10 flex items-center justify-between flex-wrap gap-4 shadow-md">
-            <div>
-              <p className="text-base font-bold mb-1">Have a distinct take on this report?</p>
-              <p className="text-xs text-white/70">Publish your editorial perspective under your own masthead.</p>
+            {/* Audio Narration Widget */}
+            <div className="bg-[#F4F4F6] rounded-2xl p-2">
+              <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
             </div>
-            <Link href={`/publish?title=${encodeURIComponent('My take on: ' + story.title)}`} className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-sm hover:bg-signal/90 transition-colors flex items-center gap-2">
-              <Pencil size={14} /> Write Your Take
-            </Link>
-          </div>
-        )}
 
-        {/* Hero Visual or Documentary Video */}
-        {story.type === 'documentary' && mediaUrl ? (
-          <div className="mb-10 rounded-sm overflow-hidden border border-wire bg-black aspect-video shadow-lg w-full">
-            <iframe 
-              src={mediaUrl.replace('watch?v=', 'embed/')} 
-              title={activeTitle}
-              className="w-full h-full"
-              allowFullScreen
-            />
-          </div>
-        ) : coverImage && !story.mediaBlocked ? (
-          <div className="mb-10 sm:float-right sm:ml-8 sm:mb-6 sm:w-[420px] w-full rounded-sm overflow-hidden border border-wire shadow-md shrink-0">
-            <img src={coverImage} alt="" className="w-full h-auto max-h-[380px] object-cover" />
-          </div>
-        ) : null}
+            {/* Article Body Container (Light Grey background seamlessly integrated) */}
+            <div className="bg-[#F4F4F6] rounded-2xl p-2 sm:p-4 relative">
+               <div className="absolute top-2 right-2">
+                 <LanguageToggle storyId={story.id} onTranslate={setTranslation} />
+               </div>
 
-        {story.mediaBlocked && (
-          <div className="w-full aspect-[16/9] rounded-sm mb-10 border border-wire bg-ink-100 grid place-items-center px-6 text-center">
-            <p className="text-sm font-bold text-ink-500">This content has been restricted for violating OPINIONPLUS publishing guidelines.</p>
-          </div>
-        )}
+              <div
+                ref={contentRef}
+                className={`prose-story w-full max-w-none text-[#2D2D2D] text-lg sm:text-xl leading-[1.8] break-words [word-break:break-word] [overflow-wrap:anywhere]
+                  [&_h2]:text-[#9B1C1C] [&_h2]:text-2xl sm:[&_h2]:text-3xl [&_h2]:font-bold [&_h2]:mt-10 [&_h2]:mb-4
+                  [&_h3]:text-[#9B1C1C] [&_h3]:text-xl sm:[&_h3]:text-2xl [&_h3]:font-bold [&_h3]:mt-8 [&_h3]:mb-3
+                  [&_p]:mb-6
+                  [&_blockquote]:border-l-4 [&_blockquote]:border-[#9B1C1C] [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-gray-600 [&_blockquote]:my-8 [&_blockquote]:text-xl
+                  [&_a]:text-[#9B1C1C] [&_a]:underline [&_a]:font-bold
+                  [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-8 [&_img]:shadow-sm
+                  ${firstBlockHasText ? ' [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-[#9B1C1C] [&>*:first-child]:first-letter:text-6xl [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-4 [&>*:first-child]:first-letter:pt-2' : ''}`}
+                dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+              />
+            </div>
 
-        {/* Audio Narration Widget */}
-        <div className="mb-8">
-          <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
-        </div>
-
-        {/* Flexible Full-Width Article Content Body */}
-        <div
-          ref={contentRef}
-          className={`prose-story w-full max-w-none text-ink-800 text-lg sm:text-xl leading-[1.9] mb-12 break-words [word-break:break-word] [overflow-wrap:anywhere] clear-none
-            [&_h1]:font-display [&_h1]:text-3xl [&_h1]:font-black [&_h1]:mt-8 [&_h1]:mb-4
-            [&_h2]:font-display [&_h2]:text-2xl sm:[&_h2]:text-3xl [&_h2]:font-bold [&_h2]:mt-10 [&_h2]:mb-4 [&_h2]:scroll-mt-24 [&_h2]:border-b [&_h2]:border-wire [&_h2]:pb-2
-            [&_h3]:font-display [&_h3]:text-xl sm:[&_h3]:text-2xl [&_h3]:font-bold [&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:scroll-mt-24
-            [&_p]:mb-6 [&_p]:font-medium
-            [&_blockquote]:border-l-4 [&_blockquote]:border-signal [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-ink-700 [&_blockquote]:my-8 [&_blockquote]:text-xl sm:[&_blockquote]:text-2xl
-            [&_pre]:bg-ink [&_pre]:text-emerald-400 [&_pre]:rounded-sm [&_pre]:p-4 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:overflow-x-auto [&_pre]:my-6
-            [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ul]:space-y-2
-            [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_ol]:space-y-2
-            [&_a]:text-signal [&_a]:underline [&_a]:font-bold
-            [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-sm [&_img]:my-6 [&_img]:mx-auto
-            [&_table]:w-full [&_table]:border-collapse [&_table]:my-6
-            [&_td]:border [&_td]:border-wire [&_td]:p-3
-            [&_th]:border [&_th]:border-wire [&_th]:p-3 [&_th]:bg-ink-50 [&_th]:font-bold
-            ${firstBlockHasText ? ' [&>*:first-child]:first-letter:font-display [&>*:first-child]:first-letter:font-black [&>*:first-child]:first-letter:text-signal [&>*:first-child]:first-letter:text-[4.5rem] [&>*:first-child]:first-letter:leading-[0.75] [&>*:first-child]:first-letter:float-left [&>*:first-child]:first-letter:pr-4 [&>*:first-child]:first-letter:pt-2' : ''}`}
-          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-        />
-
-        <div className="clear-both" />
-
-        {story.files?.length > 0 && (
-          <div className="w-full mb-12 border-2 border-wire rounded-sm p-6 bg-ink-50/50">
-            <p className="text-xs font-bold uppercase tracking-widest text-ink-500 mb-3">Associated Files & Attachments</p>
-            <ul className="space-y-2">
-              {story.files.map((f, i) => (
-                <li key={i} className="text-sm font-semibold flex items-center gap-2">
-                  <Paperclip size={14} className="text-signal shrink-0" />
-                  <a href={f.url} className="text-ink hover:text-signal underline break-words">{f.name}</a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="w-full mb-10">
-          <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: authorName, coverImage: coverImage }} />
-        </div>
-
-        {/* --- ALL REACTIONS & INTERACTIONS SECTION ORGANIZED AT THE END --- */}
-        <section className="w-full rule pt-8 pb-8 mt-12 bg-white p-6 sm:p-10 border border-wire rounded-sm shadow-sm space-y-8">
-          <div className="flex items-center justify-between flex-wrap gap-6 border-b border-wire pb-6">
-            <div className="flex items-center gap-6 flex-wrap">
-              <button 
-                onClick={requireAuth(() => toggleLike(story.id, user.id))} 
-                className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider transition-colors px-6 py-3 rounded-sm border cursor-pointer ${
-                  liked ? 'bg-signal text-white border-signal' : 'border-wire text-ink hover:border-ink'
-                }`}
-              >
-                <Heart size={18} fill={liked ? 'currentColor' : 'none'} /> {likesList.length} Likes
-              </button>
-              <div className="flex items-center gap-2">
-                <StarRating value={myRating} onRate={requireAuth((n) => rateStory(story.id, user.id, n))} readOnly={!isAuthenticated} />
+            {/* Attachments */}
+            {story.files?.length > 0 && (
+              <div className="w-full rounded-2xl p-6 bg-gray-200/50 shadow-sm">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-3">Associated Files & Attachments</p>
+                <ul className="space-y-2">
+                  {story.files.map((f, i) => (
+                    <li key={i} className="text-sm font-semibold flex items-center gap-2">
+                      <Paperclip size={16} className="text-[#9B1C1C] shrink-0" />
+                      <a href={f.url} className="text-gray-800 hover:text-[#9B1C1C] underline break-words">{f.name}</a>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              {isAuthenticated && !isOwner && (
-                <button onClick={handleReport} disabled={reported} className="text-xs font-bold uppercase tracking-wider text-ink-400 hover:text-signal flex items-center gap-1 disabled:opacity-40 transition-colors cursor-pointer">
-                  <Flag size={13} /> {reported ? 'Reported' : 'Report'}
-                </button>
-              )}
+            )}
+
+            <div className="w-full">
+              <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: authorName, coverImage: coverImage }} />
             </div>
+
+            {/* Reactions & Comments Block */}
+            <section className="bg-white rounded-2xl shadow-sm p-6 sm:p-10 space-y-8 mt-4">
+              <div className="flex items-center justify-between flex-wrap gap-6 border-b border-gray-100 pb-6">
+                <div className="flex items-center gap-6 flex-wrap">
+                  <button 
+                    onClick={requireAuth(() => toggleLike(story.id, user.id))} 
+                    className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition-colors px-6 py-3 rounded-full border cursor-pointer ${
+                      liked ? 'bg-[#9B1C1C] text-white border-[#9B1C1C]' : 'border-gray-200 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    <Heart size={16} fill={liked ? 'currentColor' : 'none'} /> {likesList.length} Likes
+                  </button>
+                  <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-full border border-gray-100">
+                    <StarRating value={myRating} onRate={requireAuth((n) => rateStory(story.id, user.id, n))} readOnly={!isAuthenticated} />
+                  </div>
+                  {isAuthenticated && !isOwner && (
+                    <button onClick={handleReport} disabled={reported} className="text-[10px] font-bold uppercase tracking-wider text-gray-400 hover:text-red-500 flex items-center gap-1 disabled:opacity-40 transition-colors">
+                      <Flag size={12} /> {reported ? 'Reported' : 'Report'}
+                    </button>
+                  )}
+                </div>
+                <div className="no-print">
+                  <StoryQRCodeModal story={story} />
+                </div>
+              </div>
+
+              <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={authorId} />
+            </section>
+          </div>
+
+          {/* ================= RIGHT COLUMN: RELATED STORIES (LIGHT GREY, INDEPENDENT SCROLL) ================= */}
+          <aside className="lg:col-span-4 bg-[#F4F4F6] rounded-3xl p-6 shadow-sm lg:h-[calc(100vh-6rem)] lg:overflow-y-auto scroll-smooth">
+            <h3 className="text-[#9B1C1C] text-lg font-black uppercase mb-6 tracking-wide px-2">Related Stories</h3>
             
-            <div className="no-print flex items-center gap-4">
-              <StoryQRCodeModal story={story} />
-              <ShareButtons url={`/story/${story.id}`} title={activeTitle} />
+            <div className="flex flex-col gap-4">
+              {sidebarStories.map(s => {
+                const sDate = new Date(s.createdAt || s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                return (
+                  <Link 
+                    href={`/story/${s.id}`} 
+                    key={s.id} 
+                    className="flex gap-4 p-3 bg-white rounded-2xl hover:shadow-md transition-all group"
+                  >
+                    <div className="w-24 h-20 shrink-0 rounded-xl overflow-hidden bg-gray-200">
+                      {s.coverImage || s.cover_image ? (
+                        <img 
+                          src={s.coverImage || s.cover_image} 
+                          alt={s.title} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-800 text-white text-[8px] font-bold uppercase tracking-widest">
+                          OpinionPlus
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 py-1 flex flex-col justify-center">
+                      <span className="text-gray-400 text-[10px] font-extrabold uppercase tracking-widest mb-1.5">{sDate}</span>
+                      <h4 className="text-sm font-bold text-gray-900 line-clamp-3 leading-snug group-hover:text-[#9B1C1C] transition-colors">
+                        {s.title}
+                      </h4>
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
-          </div>
-
-          {/* Comment Thread & Discussion */}
-          <CommentThread storyId={story.id} comments={story.comments} storyAuthorId={authorId} />
-        </section>
-
-        {/* Previous & Next Story Navigation */}
-        {(prevStory || nextStory) && (
-          <nav aria-label="Story navigation" className="w-full rule mt-10 pt-8 grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {prevStory ? (
-              <Link href={`/story/${prevStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center gap-3 text-left bg-white">
-                <ChevronLeft size={20} className="shrink-0 text-ink-400 group-hover:text-signal transition-colors" />
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-bold uppercase tracking-widest text-ink-400 mb-1">Previous Story</span>
-                  <span className="block text-xs font-bold text-ink line-clamp-1 group-hover:text-signal transition-colors">{prevStory.title}</span>
-                </div>
-              </Link>
-            ) : <span />}
-            {nextStory ? (
-              <Link href={`/story/${nextStory.id}`} className="group p-4 border border-wire rounded-sm hover:border-ink transition-colors flex items-center justify-end gap-3 text-right bg-white">
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-bold uppercase tracking-widest text-ink-400 mb-1">Next Story</span>
-                  <span className="block text-xs font-bold text-ink line-clamp-1 group-hover:text-signal transition-colors">{nextStory.title}</span>
-                </div>
-                <ChevronRight size={20} className="shrink-0 text-ink-400 group-hover:text-signal transition-colors" />
-              </Link>
-            ) : <span />}
-          </nav>
-        )}
-
-        {/* Related Author Stories */}
-        {related.length > 0 && (
-          <div className="w-full mt-20 pt-10 border-t-2 border-wire">
-            <h3 className="text-lg font-bold uppercase tracking-wider text-ink mb-6">More from {authorName}</h3>
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {related.map((s) => (<StoryCard key={s.id} story={s} />))}
-            </div>
-          </div>
-        )}
-      </article>
+          </aside>
+          
+        </div>
+      </div>
 
       {/* Scroll to Top Button */}
       {showToTop && (
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          className="no-print fixed bottom-8 right-8 w-12 h-12 rounded-sm bg-ink text-white grid place-items-center shadow-xl hover:bg-signal transition-colors z-40 cursor-pointer"
+          className="no-print fixed bottom-8 right-8 w-12 h-12 rounded-full bg-[#9B1C1C] text-white grid place-items-center shadow-2xl hover:bg-black transition-colors z-40 cursor-pointer"
           aria-label="Scroll to top"
         >
-          <ArrowUp size={18} />
+          <ArrowUp size={20} />
         </button>
       )}
     </div>
