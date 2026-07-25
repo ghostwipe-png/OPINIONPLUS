@@ -1,3 +1,4 @@
+// backend/src/routes/rooms.js
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 
@@ -30,56 +31,53 @@ rooms.get('/:id', async (c) => {
   } catch (e) { return c.json({ error: 'Internal error.' }, 500); }
 });
 
+// Create a Free Live Room (Payments Disabled)
 rooms.post('/', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json().catch(() => ({}));
-  const { title, description, reference } = body;
+  const { title, description } = body;
 
-  if (!title || !reference) return c.json({ error: 'Missing required parameters.' }, 400);
+  if (!title) return c.json({ error: 'Room title is required.' }, 400);
+  if (!user || !user.id) return c.json({ error: 'Authentication error: User ID missing.' }, 401);
 
   try {
-    // 1. Double-Spend Protection
-    const existingPayment = await c.env.DB.prepare(`SELECT reference FROM room_payments WHERE reference = ?`).bind(reference).first();
-    if (existingPayment) return c.json({ error: 'Security alert: Transaction reference already consumed.' }, 400);
-
-    // 2. Server-to-Server Verification
-    const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${c.env.PAYSTACK_SECRET_KEY}`, 'Content-Type': 'application/json' }
-    });
-
-    const paystackData = await paystackRes.json();
-    if (!paystackRes.ok || !paystackData.status || paystackData.data?.status !== 'success') {
-      return c.json({ error: 'Payment verification failed.' }, 400);
-    }
-
-    const tx = paystackData.data;
-    if (tx.amount < 10000 || !tx.currency || tx.currency.toUpperCase() !== 'KES') {
-      return c.json({ error: `Invalid payment amount or currency.` }, 400);
-    }
-
-    // 3. MAXIMUM SECURITY: Atomic Database Batching
-    // If the room creation fails, the payment log rolls back. Money is never "lost" in a void.
     const roomId = 'room_' + crypto.randomUUID().slice(0, 10);
+    const hostName = user?.publisherName || user?.publisher_name || 'Host';
+    const email = user?.email || 'host@opinionplus.online';
     
-    const insertPayment = c.env.DB.prepare(
-      `INSERT INTO room_payments (reference, user_id, amount, currency, status) VALUES (?, ?, ?, ?, ?)`
-    ).bind(reference, user.id, tx.amount, tx.currency, tx.status);
+    // FIX 1: Ensure the user exists in the local database. 
+    // If the user authenticated externally but isn't in the SQL 'users' table,
+    // the FOREIGN KEY constraint (host_id -> users.id) will crash.
+    try {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO users (id, publisher_name, email) VALUES (?, ?, ?)`
+      ).bind(user.id, hostName, email).run();
+    } catch (e) {
+      console.warn("User sync warning:", e);
+    }
 
-    const insertRoom = c.env.DB.prepare(
-      `INSERT INTO rooms (id, title, description, host_id, host_name, status, scheduled_at) VALUES (?, ?, ?, ?, ?, 'live', ?)`
-    ).bind(roomId, title, description || '', user.id, user.publisherName || 'Host', null);
+    // FIX 2: Execute sequentially instead of using c.env.DB.batch()
+    // D1 sometimes incorrectly triggers FK errors if a parent (rooms) and child (room_participants) 
+    // are inserted in the exact same batch transaction.
+    await c.env.DB.prepare(
+      `INSERT INTO rooms (id, title, description, host_id, host_name, status) VALUES (?, ?, ?, ?, ?, 'live')`
+    ).bind(roomId, title, description || '', user.id, hostName).run();
 
-    const insertParticipant = c.env.DB.prepare(
-      `INSERT OR IGNORE INTO room_participants (room_id, user_id) VALUES (?, ?)`
-    ).bind(roomId, user.id);
-
-    await c.env.DB.batch([insertPayment, insertRoom, insertParticipant]);
+    try {
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO room_participants (room_id, user_id) VALUES (?, ?)`
+      ).bind(roomId, user.id).run();
+    } catch (e) {
+      console.warn("Participant insert warning:", e);
+    }
 
     const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first();
     return c.json({ ok: true, room, wsUrl: `/rooms/${roomId}/ws` });
 
-  } catch (e) { return c.json({ error: 'Secure transaction failed.' }, 500); }
+  } catch (e) { 
+    console.error("Create Free Room Error:", e);
+    return c.json({ error: e.message || 'Failed to create live space.' }, 500); 
+  }
 });
 
 rooms.post('/:id/join', requireAuth, async (c) => {
@@ -114,12 +112,11 @@ rooms.delete('/:id', requireAuth, async (c) => {
     if (!room) return c.json({ error: 'Room not found.' }, 404);
     if (room.host_id !== user.id && user.role !== 'root' && user.role !== 'admin') return c.json({ error: 'Unauthorized.' }, 403);
     
-    // Atomic cascade delete
-    await c.env.DB.batch([
-      c.env.DB.prepare('DELETE FROM room_chat_messages WHERE room_id = ?').bind(roomId),
-      c.env.DB.prepare('DELETE FROM room_participants WHERE room_id = ?').bind(roomId),
-      c.env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId)
-    ]);
+    // Execute sequentially to avoid cascade batch issues
+    await c.env.DB.prepare('DELETE FROM room_chat_messages WHERE room_id = ?').bind(roomId).run();
+    await c.env.DB.prepare('DELETE FROM room_participants WHERE room_id = ?').bind(roomId).run();
+    await c.env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(roomId).run();
+    
     return c.json({ ok: true, message: 'Room successfully deleted.' });
   } catch (e) { return c.json({ error: 'Failed to delete room securely.' }, 500); }
 });

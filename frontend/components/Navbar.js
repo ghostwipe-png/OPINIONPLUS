@@ -1,4 +1,4 @@
-// components/navbar.js
+// components/navbar.js[cite: 3]
 'use client';
 
 import Link from 'next/link';
@@ -24,7 +24,8 @@ import {
   Loader2,
   Sparkles,
   ChevronDown,
-  MessageCircle
+  MessageCircle,
+  Play
 } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { useStore } from '../lib/store';
@@ -53,13 +54,11 @@ export default function Navbar() {
   const { stories } = useStore();
   const pathname = usePathname();
   
-  // UI States
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [servicesOpen, setServicesOpen] = useState(false); // Controls Roll Down Menu
+  const [servicesOpen, setServicesOpen] = useState(false);
   const [mobileServicesOpen, setMobileServicesOpen] = useState(false);
 
-  // Deep Search States
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -137,7 +136,6 @@ export default function Navbar() {
 
   return (
     <>
-      {/* 🔍 DEEP SEARCH OVERLAY MODAL */}
       {searchOpen && (
         <div className="fixed inset-0 z-[60] bg-[#1C1917]/95 backdrop-blur-xl animate-in fade-in flex flex-col">
           <div className="p-5 md:p-8 flex justify-between items-center border-b border-white/10">
@@ -165,7 +163,6 @@ export default function Navbar() {
                  </button>
                </form>
 
-               {/* Deep Search Results Area */}
                <div className="mt-12">
                  {isSearching ? (
                    <div className="text-signal flex items-center gap-3 text-sm md:text-lg font-bold uppercase tracking-widest animate-pulse">
@@ -206,12 +203,10 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* ---------------- MAIN NAVBAR STRUCTURE ---------------- */}
       <header className="bg-ink border-b border-white/10 sticky top-0 z-40">
         <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-20">
             
-            {/* LEFT: Logo */}
             <Link href="/" className="shrink-0 group focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm bg-white p-1">
               <img 
                 src="/default-og-image.jpg" 
@@ -220,14 +215,15 @@ export default function Navbar() {
               />
             </Link>
 
-            {/* CENTER: Navigation Links */}
             <nav className="hidden lg:flex items-center gap-6 xl:gap-8 absolute left-1/2 -translate-x-1/2">
               <NavLink href="/">Feed</NavLink>
+              <NavLink href="/videos" className="flex items-center gap-1">
+                <Play size={13} fill="currentColor" /> Videos
+              </NavLink>
               <NavLink href="/?type=story">Stories</NavLink>
               <NavLink href="/?type=documentary">Docs</NavLink>
               <NavLink href="/campuses">Campus</NavLink>
               
-              {/* Roll Down Trigger Button */}
               <button 
                 onClick={() => setServicesOpen(!servicesOpen)}
                 className={`flex items-center gap-1.5 tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-colors focus-visible:outline-none pb-0.5 border-b-2 ${
@@ -238,7 +234,6 @@ export default function Navbar() {
               </button>
             </nav>
 
-            {/* RIGHT: Action & Utility Links */}
             <nav className="hidden lg:flex items-center gap-4 xl:gap-6">
               <button
                 onClick={handleSearchClick}
@@ -276,7 +271,6 @@ export default function Navbar() {
               </Link>
             </nav>
 
-            {/* MOBILE TOGGLES */}
             <div className="flex items-center gap-3 lg:hidden ml-auto z-10">
               <button onClick={handleSearchClick} className="text-white p-1 rounded-sm"><Search size={20} /></button>
               <button onClick={clearUnread} className="relative text-white p-1 rounded-sm">
@@ -292,7 +286,6 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* ---------------- FLEXIBLE ROLL DOWN MENU (DESKTOP) ---------------- */}
         <div 
           className={`hidden lg:block w-full bg-ink border-t border-white/5 shadow-2xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] absolute top-20 left-0 ${
             servicesOpen ? 'max-h-[500px] opacity-100 border-b border-white/10' : 'max-h-0 opacity-0 border-transparent'
@@ -349,7 +342,6 @@ export default function Navbar() {
               </Link>
             </div>
 
-            {/* Support Action / Intelligently Hidden Hotline */}
             <div className="col-span-1 border-l border-white/10 pl-8 flex flex-col justify-center">
               <p className="text-white/40 text-xs uppercase tracking-widest font-bold mb-4">Dedicated Support</p>
               
@@ -363,7 +355,6 @@ export default function Navbar() {
                   <MessageCircle size={20} className="text-signal group-hover:text-white transition-colors" />
                   <div className="flex flex-col">
                      <span className="text-white font-bold text-sm">How can we help you?</span>
-                     {/* Intelligently hidden hotline: Reveals on hover by expanding width/opacity */}
                      <span className="text-white/80 text-xs font-mono max-h-0 opacity-0 group-hover:max-h-10 group-hover:opacity-100 group-hover:mt-1 transition-all duration-300">
                         +254 112 696 334
                      </span>
@@ -376,7 +367,6 @@ export default function Navbar() {
         </div>
       </header>
 
-      {/* ---------------- MOBILE DRAWER NAVIGATION ---------------- */}
       <div
         className={`lg:hidden fixed inset-0 z-50 transition-opacity duration-300 ease-out ${
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -397,15 +387,16 @@ export default function Navbar() {
           </div>
 
           <nav className="flex-1 overflow-y-auto px-5 py-6 flex flex-col gap-2 text-xs font-semibold tracking-[0.12em] uppercase">
-            {/* Core Links */}
             <Link href="/" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Feed</Link>
+            <Link href="/videos" onClick={closeDrawer} className="flex items-center gap-2 min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">
+              <Play size={16} fill="currentColor" /> Videos
+            </Link>
             <Link href="/?type=story" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Stories</Link>
             <Link href="/?type=documentary" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Documentaries</Link>
             <Link href="/campuses" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Campus Editions</Link>
             
             <div className="border-t border-white/10 my-2" />
             
-            {/* Mobile Roll Down Services Accordion */}
             <button 
               onClick={() => setMobileServicesOpen(!mobileServicesOpen)}
               className="flex items-center justify-between min-h-[44px] px-3 rounded-sm text-signal font-bold hover:bg-white/10 w-full"
@@ -431,7 +422,6 @@ export default function Navbar() {
               <Link href="/admin" onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-signal hover:bg-white/10 mt-2"><ShieldCheck size={16} /> Admin Dashboard</Link>
             )}
 
-            {/* Support Action Mobile */}
             <div className="mt-6">
               <a 
                 href="https://wa.me/254112696334"

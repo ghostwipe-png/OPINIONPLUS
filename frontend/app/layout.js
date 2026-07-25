@@ -4,6 +4,7 @@ import Providers from '../components/Providers';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import InstallPrompt from '../components/InstallPrompt';
+import Sidebar from '../components/Sidebar';
 
 const display = Playfair_Display({
   subsets: ['latin'],
@@ -139,7 +140,10 @@ export default function RootLayout({ children }) {
       <body className="font-body bg-paper text-ink min-h-screen flex flex-col antialiased selection:bg-signal selection:text-white">
         <Providers>
           <Navbar />
-          <main className="flex-1">{children}</main>
+          <div className="flex flex-1">
+            <Sidebar />
+            <main className="flex-1 min-w-0 lg:ml-0">{children}</main>
+          </div>
           <Footer />
           <InstallPrompt />
         </Providers>

@@ -4,7 +4,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Image as ImageIcon, Paperclip, X, FileText, Film, Save, Send, CheckCircle, ArrowRight } from 'lucide-react';
+import { Image as ImageIcon, Paperclip, X, FileText, Film, GraduationCap, Megaphone, Newspaper, Save, Send, CheckCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore } from '../../lib/store';
 import RichTextEditor from '../../components/RichTextEditor';
@@ -157,24 +157,27 @@ function PublishForm() {
 
         <div className="space-y-8">
           
-          {/* Format Type Selector */}
+          {/* Format Type & Category Selector */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mb-2">Content Format</p>
-            <div className="flex gap-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-ink-400 mb-2">Content Format & Category</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
                 { id: 'story', label: 'Story', icon: FileText },
                 { id: 'documentary', label: 'Documentary', icon: Film },
+                { id: 'campus', label: 'Campus', icon: GraduationCap },
+                { id: 'sponsored', label: 'Sponsored', icon: Megaphone },
+                { id: 'press_release', label: 'Press Release', icon: Newspaper },
               ].map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => set({ type: id })}
-                  className={`flex-1 py-3 px-4 rounded-sm border font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-colors ${
+                  className={`py-3 px-3 rounded-sm border font-bold text-[11px] uppercase tracking-wider flex flex-col sm:flex-row items-center justify-center gap-2 transition-colors text-center ${
                     draft.type === id 
                       ? 'bg-ink text-white border-ink shadow-sm' 
                       : 'border-wire bg-white text-ink-600 hover:border-ink'
                   }`}
                 >
-                  <Icon size={14} /> {label}
+                  <Icon size={14} className="shrink-0" /> <span>{label}</span>
                 </button>
               ))}
             </div>

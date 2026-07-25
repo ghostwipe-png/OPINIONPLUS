@@ -1,9 +1,10 @@
+// app/campuses/page.js
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { GraduationCap, School, Plus, CheckCircle2, Globe, Mail, User, X, DollarSign } from 'lucide-react';
+import { GraduationCap, School, Plus, CheckCircle2, Globe, Mail, User, X } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -70,11 +71,11 @@ function CampusContent() {
       });
       const data = await res.json();
       if (res.ok && data.ok) {
-        setSuccessMsg('Annual licensing fee confirmed! Campus edition is now active.');
+        setSuccessMsg('Campus edition is now active.');
         fetchCampuses();
         window.history.replaceState({}, '', '/campuses');
       } else {
-        alert(data.error || 'Payment verification failed.');
+        alert(data.error || 'Verification failed.');
       }
     } catch (e) {
       alert('Error verifying transaction.');
@@ -83,29 +84,33 @@ function CampusContent() {
     }
   };
 
-  const handleInitLicensePayment = async (e) => {
+  const handleRegisterCampus = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     try {
       const token = await fetchCsrfToken();
-      // SECURITY UPGRADE: Idempotency check prevents database spam if user double-clicks checkout
-      const idempotencyKey = `camp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       
-      const res = await fetch(`${API_BASE}/campuses/initialize`, {
+      // Disabled payment initialization. Submitting directly to campus creation endpoint.
+      const res = await fetch(`${API_BASE}/campuses`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token || '' },
         credentials: 'include',
-        body: JSON.stringify({ ...form, idempotency_key: idempotencyKey }),
+        body: JSON.stringify(form),
       });
+      
       const data = await res.json();
-      if (res.ok && data.authorization_url) {
-        window.location.href = data.authorization_url;
+      
+      if (res.ok) {
+        setSuccessMsg('Campus registered successfully!');
+        setShowModal(false);
+        setForm({ university_name: '', representative_name: '', contact_email: '' });
+        fetchCampuses();
       } else {
-        alert(data.error || 'Failed to initialize Paystack licensing session.');
-        setSubmitting(false);
+        alert(data.error || 'Failed to register campus.');
       }
     } catch (e) {
-      alert('Network error connecting to payment gateway.');
+      alert('Network error connecting to server.');
+    } finally {
       setSubmitting(false);
     }
   };
@@ -116,7 +121,7 @@ function CampusContent() {
         <div className="fixed inset-0 z-50 bg-ink/80 backdrop-blur-sm grid place-items-center text-white p-4">
           <div className="text-center space-y-3">
             <div className="w-12 h-12 border-4 border-signal border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-lg font-black uppercase tracking-widest">Verifying Licensing Payment...</p>
+            <p className="text-lg font-black uppercase tracking-widest">Verifying Registration...</p>
           </div>
         </div>
       )}
@@ -140,7 +145,7 @@ function CampusContent() {
               Campus News & <span className="text-transparent bg-clip-text bg-gradient-to-r from-signal to-white">Student Voices</span>
             </h1>
             <p className="text-sm font-medium text-white/70 max-w-xl">
-              Empowering student journalists with professional publishing mastheads. Annual institutional licensing fee: KES 5,000.
+              Empowering student journalists with professional publishing mastheads. Free registration for a limited time.
             </p>
           </div>
           {isAuthenticated ? (
@@ -148,7 +153,7 @@ function CampusContent() {
               onClick={() => setShowModal(true)}
               className="bg-white text-ink font-bold uppercase text-xs tracking-widest px-8 py-4 rounded-sm hover:bg-signal hover:text-white transition-all shadow-xl flex items-center gap-2 shrink-0"
             >
-              <Plus size={16} /> Register Campus — KES 5,000
+              <Plus size={16} /> Register Campus
             </button>
           ) : (
             <Link 
@@ -178,7 +183,7 @@ function CampusContent() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-signal text-white">
-                      Active License
+                      Active Edition
                     </span>
                     <Globe size={16} className="text-ink-400" />
                   </div>
@@ -212,12 +217,12 @@ function CampusContent() {
             
             <div className="mb-6 border-b border-wire pb-4">
               <h2 className="text-2xl font-black uppercase tracking-tight text-ink flex items-center gap-2">
-                <GraduationCap className="text-signal" /> Campus Licensing
+                <GraduationCap className="text-signal" /> Campus Registration
               </h2>
-              <p className="text-xs font-medium text-ink-500 mt-1">Annual institutional licensing fee: KES 5,000.</p>
+              <p className="text-xs font-medium text-ink-500 mt-1">Register your official campus edition below.</p>
             </div>
 
-            <form onSubmit={handleInitLicensePayment} className="space-y-4">
+            <form onSubmit={handleRegisterCampus} className="space-y-4">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-ink-400 block mb-1">University Name</label>
                 <input 
@@ -250,20 +255,12 @@ function CampusContent() {
                 />
               </div>
 
-              <div className="bg-signal/5 border border-signal rounded-sm p-4 flex items-center justify-between mt-4">
-                <div>
-                  <p className="text-[11px] font-black uppercase tracking-widest text-signal">Annual Licensing Fee</p>
-                  <p className="text-xs font-medium text-ink-600 mt-0.5">Secure payment via Paystack</p>
-                </div>
-                <p className="text-2xl font-black text-ink">KES 5,000</p>
-              </div>
-
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-white border border-wire text-ink font-bold uppercase text-[11px] tracking-widest py-3.5 rounded-sm hover:bg-ink-50">
                   Cancel
                 </button>
                 <button type="submit" disabled={submitting} className="flex-[2] bg-ink text-white font-bold uppercase text-[11px] tracking-widest py-3.5 rounded-sm hover:bg-signal transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-50">
-                  <DollarSign size={16} /> {submitting ? 'Connecting Paystack...' : 'Pay KES 5,000 License'}
+                  <CheckCircle2 size={16} /> {submitting ? 'Registering...' : 'Register Campus'}
                 </button>
               </div>
             </form>

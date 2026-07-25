@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Clock, ArrowRight, Loader2 } from 'lucide-react';
+import { Search, X, Clock, ArrowRight, Loader2, PlayCircle } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
@@ -28,10 +28,11 @@ export default function SearchBar() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
+  const [videoResults, setVideoResults] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  
+
   const inputRef = useRef(null);
   const containerRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -59,10 +60,11 @@ export default function SearchBar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  // Debounced search with Request Cancellation
+  // Debounced search with Request Cancellation — searches stories and videos together
   useEffect(() => {
     if (query.trim().length < 2) {
       setResults([]);
+      setVideoResults([]);
       setLoading(false);
       if (abortControllerRef.current) abortControllerRef.current.abort();
       return;
@@ -77,15 +79,23 @@ export default function SearchBar() {
     abortControllerRef.current = new AbortController();
 
     const timer = setTimeout(async () => {
+      const signal = abortControllerRef.current.signal;
       try {
-        const res = await fetch(`${API_BASE}/stories/search?q=${encodeURIComponent(query.trim())}`, {
-          signal: abortControllerRef.current.signal
-        });
-        if (!res.ok) throw new Error('Search failed');
-        const data = await res.json();
-        setResults(data.results || []);
+        const [storyRes, videoRes] = await Promise.all([
+          fetch(`${API_BASE}/stories/search?q=${encodeURIComponent(query.trim())}`, { signal }).catch(() => null),
+          fetch(`${API_BASE}/videos/search?q=${encodeURIComponent(query.trim())}&limit=5`, { signal }).catch(() => null),
+        ]);
+
+        const storyData = storyRes && storyRes.ok ? await storyRes.json() : { results: [] };
+        const videoData = videoRes && videoRes.ok ? await videoRes.json() : { videos: [] };
+
+        setResults(storyData.results || []);
+        setVideoResults(Array.isArray(videoData.videos) ? videoData.videos : []);
       } catch (e) {
-        if (e.name !== 'AbortError') setResults([]);
+        if (e.name !== 'AbortError') {
+          setResults([]);
+          setVideoResults([]);
+        }
       } finally {
         setLoading(false);
       }
@@ -94,23 +104,25 @@ export default function SearchBar() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const handleSelect = useCallback((item) => {
+  const handleSelect = useCallback((item, isVideo = false) => {
     const term = item.id ? item.title : item;
     addToHistory(term);
     setOpen(false);
     setQuery('');
     if (item.id) {
-      window.location.href = `/story/${item.id}`;
+      window.location.href = isVideo ? `/videos/${item.id}` : `/story/${item.id}`;
     } else {
       setQuery(term);
       inputRef.current?.focus();
     }
   }, []);
 
+  const combinedItems = [...results, ...videoResults];
+
   const handleKeyDown = (e) => {
     if (!open) return;
-    const items = query.length >= 2 ? results : history;
-    
+    const items = query.length >= 2 ? combinedItems : history;
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex(prev => Math.min(prev + 1, items.length - 1));
@@ -120,7 +132,8 @@ export default function SearchBar() {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (selectedIndex >= 0 && items[selectedIndex]) {
-        handleSelect(items[selectedIndex]);
+        const isVideo = selectedIndex >= results.length;
+        handleSelect(items[selectedIndex], isVideo);
       } else if (query.trim().length >= 2) {
         addToHistory(query.trim());
       }
@@ -129,9 +142,11 @@ export default function SearchBar() {
     }
   };
 
+  const hasResults = results.length > 0 || videoResults.length > 0;
+
   return (
     <div ref={containerRef} className="relative z-50">
-      <button 
+      <button
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 100); }}
         className="text-ink-400 hover:text-ink transition-colors p-1.5 rounded-full hover:bg-wire/20 focus:outline-none focus:ring-2 focus:ring-ink focus:ring-offset-2"
         aria-label="Toggle Search"
@@ -142,23 +157,23 @@ export default function SearchBar() {
 
       {open && (
         <div className="absolute top-12 right-0 w-[90vw] sm:w-[420px] bg-paper border border-wire rounded-md shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          
+
           {/* Search Input Area */}
           <div className="flex items-center gap-3 p-3.5 border-b border-wire bg-ink-50/50">
             <Search size={16} className="text-ink-400 shrink-0" />
-            <input 
-              ref={inputRef} 
-              value={query} 
+            <input
+              ref={inputRef}
+              value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown} 
-              placeholder="Search stories, news, authors..."
-              className="flex-1 text-sm outline-none bg-transparent font-medium text-ink placeholder:text-ink-300 placeholder:font-normal" 
-              autoFocus 
+              onKeyDown={handleKeyDown}
+              placeholder="Search stories, videos, authors..."
+              className="flex-1 text-sm outline-none bg-transparent font-medium text-ink placeholder:text-ink-300 placeholder:font-normal"
+              autoFocus
               aria-autocomplete="list"
             />
             {query && (
-              <button 
-                onClick={() => { setQuery(''); inputRef.current?.focus(); }} 
+              <button
+                onClick={() => { setQuery(''); inputRef.current?.focus(); }}
                 className="text-ink-400 hover:text-ink-600 bg-wire/30 p-1 rounded-full transition-colors"
                 aria-label="Clear search"
               >
@@ -175,38 +190,84 @@ export default function SearchBar() {
             </div>
           )}
 
-          {/* Results Array */}
-          {!loading && query.length >= 2 && results.length > 0 && (
+          {/* Results Array (stories + videos) */}
+          {!loading && query.length >= 2 && hasResults && (
             <div className="max-h-[60vh] overflow-y-auto" role="listbox">
-              {results.map((item, i) => (
-                <button 
-                  key={item.id} 
-                  role="option"
-                  aria-selected={i === selectedIndex}
-                  onClick={() => handleSelect(item)}
-                  className={`w-full text-left px-4 py-3 flex items-start gap-4 border-b border-wire/50 last:border-0 transition-colors ${i === selectedIndex ? 'bg-ink/5' : 'hover:bg-ink-50'}`}
-                >
-                  {item.cover_image ? (
-                    <img src={item.cover_image} alt="" className="w-12 h-12 rounded-sm object-cover shrink-0 shadow-sm border border-wire" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-sm bg-wire/20 shrink-0 flex items-center justify-center border border-wire">
-                      <Search size={16} className="text-ink-300" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-ink truncate group-hover:text-signal transition-colors">{item.title}</p>
-                    <p className="text-[11px] text-ink-500 capitalize tracking-wide font-medium mt-0.5">
-                      {item.type || 'Story'} · {item.author_id === 'u_newsdesk' ? 'Opinion+ News' : 'Community'}
-                    </p>
-                  </div>
-                  <ArrowRight size={14} className="text-ink-300 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
-              ))}
+              {results.length > 0 && (
+                <div>
+                  <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-ink-400">Stories</p>
+                  {results.map((item, i) => (
+                    <button
+                      key={item.id}
+                      role="option"
+                      aria-selected={i === selectedIndex}
+                      onClick={() => handleSelect(item, false)}
+                      className={`w-full text-left px-4 py-3 flex items-start gap-4 border-b border-wire/50 last:border-0 transition-colors ${i === selectedIndex ? 'bg-ink/5' : 'hover:bg-ink-50'}`}
+                    >
+                      {item.cover_image ? (
+                        <img src={item.cover_image} alt="" className="w-12 h-12 rounded-sm object-cover shrink-0 shadow-sm border border-wire" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-sm bg-wire/20 shrink-0 flex items-center justify-center border border-wire">
+                          <Search size={16} className="text-ink-300" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-ink truncate group-hover:text-signal transition-colors">{item.title}</p>
+                        <p className="text-[11px] text-ink-500 capitalize tracking-wide font-medium mt-0.5">
+                          {item.type || 'Story'} · {item.author_id === 'u_newsdesk' ? 'Opinion+ News' : 'Community'}
+                        </p>
+                      </div>
+                      <ArrowRight size={14} className="text-ink-300 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {videoResults.length > 0 && (
+                <div>
+                  <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-ink-400">Videos</p>
+                  {videoResults.map((item, i) => {
+                    const globalIndex = results.length + i;
+                    return (
+                      <button
+                        key={item.id}
+                        role="option"
+                        aria-selected={globalIndex === selectedIndex}
+                        onClick={() => handleSelect(item, true)}
+                        className={`w-full text-left px-4 py-3 flex items-start gap-4 border-b border-wire/50 last:border-0 transition-colors ${globalIndex === selectedIndex ? 'bg-ink/5' : 'hover:bg-ink-50'}`}
+                      >
+                        {item.thumbnail_url ? (
+                          <img src={item.thumbnail_url} alt="" className="w-16 h-9 rounded-sm object-cover shrink-0 shadow-sm border border-wire" />
+                        ) : (
+                          <div className="w-16 h-9 rounded-sm bg-wire/20 shrink-0 flex items-center justify-center border border-wire">
+                            <PlayCircle size={16} className="text-ink-300" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-ink truncate">{item.title}</p>
+                          <p className="text-[11px] text-ink-500 capitalize tracking-wide font-medium mt-0.5">
+                            {item.category || 'Video'} · {item.user_name || 'Creator'}
+                          </p>
+                        </div>
+                        <ArrowRight size={14} className="text-ink-300 shrink-0 self-center opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <Link
+                href={`/videos?q=${encodeURIComponent(query.trim())}`}
+                onClick={() => { addToHistory(query.trim()); setOpen(false); }}
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-3 text-xs font-bold uppercase tracking-wider text-ink hover:text-signal transition-colors border-t border-wire/50"
+              >
+                See all results <ArrowRight size={12} />
+              </Link>
             </div>
           )}
 
           {/* Empty State */}
-          {!loading && query.length >= 2 && results.length === 0 && (
+          {!loading && query.length >= 2 && !hasResults && (
             <div className="p-8 text-center flex flex-col items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-ink-50 flex items-center justify-center">
                 <Search size={18} className="text-ink-300" />
@@ -225,22 +286,22 @@ export default function SearchBar() {
                 <span className="text-[10px] font-bold uppercase tracking-widest text-ink-400 flex items-center gap-1.5">
                   <Clock size={12} /> Recent Searches
                 </span>
-                <button 
-                  onClick={() => { clearHistory(); setHistory([]); }} 
+                <button
+                  onClick={() => { clearHistory(); setHistory([]); }}
                   className="text-[10px] font-bold uppercase tracking-widest text-ink-400 hover:text-signal transition-colors"
                 >
                   Clear All
                 </button>
               </div>
               {history.map((item, i) => (
-                <button 
-                  key={i} 
+                <button
+                  key={i}
                   role="option"
                   aria-selected={i === selectedIndex}
                   onClick={() => handleSelect(item)}
                   className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${i === selectedIndex ? 'bg-ink/5' : 'hover:bg-ink-50'}`}
                 >
-                  <Clock size={14} className="text-ink-300" /> 
+                  <Clock size={14} className="text-ink-300" />
                   <span className="font-medium text-ink-600 truncate flex-1">{item}</span>
                 </button>
               ))}

@@ -3,11 +3,12 @@
 import { useParams } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity, Film, Radio, Play, Lock, ShieldCheck, Loader2 } from 'lucide-react';
+import { Camera, Check, UserPlus, UserMinus, Key, Copy, Trash2, Plus, Terminal, Zap, BarChart3, Newspaper, QrCode, X, Download, LayoutDashboard, ChevronDown, ChevronUp, CreditCard, MessageSquare, Activity, Film, Radio, Play, Lock, ShieldCheck, Loader2, GraduationCap, Briefcase, Globe, Mail, User } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useStore } from '../../../lib/store';
 import { useAuth } from '../../../lib/auth';
 import StoryCard from '../../../components/StoryCard';
+import VideoCard from '../../../components/VideoCard';
 import ApiGuideModal from '../../../components/ApiGuideModal';
 import SmsDashboard from '../../../components/SmsDashboard';
 import { openCloudinaryWidget } from '../../../lib/mediaUpload';
@@ -16,9 +17,8 @@ import WalletDashboard from '../../../components/WalletDashboard';
 import MastheadNewsletter from '../../../components/MastheadNewsletter';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
-const PAYSTACK_PUBLIC_KEY = process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '';
-
 let csrfToken = null;
+
 async function fetchCsrfToken() {
   if (csrfToken) return csrfToken;
   try {
@@ -47,35 +47,44 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+const SectionHeader = ({ title, icon: Icon, rightAction, description }) => (
+  <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-wire pb-4 mb-6">
+    <div>
+      <h2 className="text-lg font-black text-ink uppercase tracking-tight flex items-center gap-2">
+        {Icon && <Icon size={18} className="text-signal" />}
+        {title}
+      </h2>
+      {description && <p className="text-xs font-medium text-ink-500 mt-1">{description}</p>}
+    </div>
+    {rightAction && <div className="mt-3 sm:mt-0">{rightAction}</div>}
+  </div>
+);
+
 export default function ProfilePage() {
   const { id } = useParams();
   const { users, stories, upsertUser, toggleFollow, follows } = useStore();
   const { user, updateProfile } = useAuth();
-
   const profile = users.find((u) => u.id === id);
   const isOwner = user?.id === id;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(profile || {});
-
-  const [profileTab, setProfileTab] = useState('stories'); // 'stories' | 'documentaries' | 'rooms'
+  const [profileTab, setProfileTab] = useState('stories');
   const [publisherRooms, setPublisherRooms] = useState([]);
-
-  // Secure Room Creation State (100 KES Paystack Fee)
+  const [publisherCampuses, setPublisherCampuses] = useState([]);
+  const [publisherJobs, setPublisherJobs] = useState([]);
+  const [publisherVideos, setPublisherVideos] = useState([]);
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [roomTitle, setRoomTitle] = useState('');
   const [roomDesc, setRoomDesc] = useState('');
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [roomModalError, setRoomModalError] = useState('');
-
   const [apiKeys, setApiKeys] = useState([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKey, setNewKey] = useState(null);
   const [showKeys, setShowKeys] = useState(false);
   const [showApiGuide, setShowApiGuide] = useState(false);
-
   const [qrStory, setQrStory] = useState(null);
   const qrRef = useRef();
-
   const [apiUsage, setApiUsage] = useState(null);
   const [upgrading, setUpgrading] = useState(false);
 
@@ -101,6 +110,29 @@ export default function ProfilePage() {
       const data = await api('/rooms');
       const rooms = data.rooms || [];
       setPublisherRooms(rooms.filter((r) => r.host_id === id));
+    } catch (e) {}
+  };
+
+  const fetchPublisherCampuses = async () => {
+    try {
+      const data = await api('/campuses');
+      const allCampuses = data.campuses || [];
+      setPublisherCampuses(allCampuses.filter((c) => c.user_id === id || c.author_id === id));
+    } catch (e) {}
+  };
+
+  const fetchPublisherJobs = async () => {
+    try {
+      const data = await api('/jobs');
+      const allJobs = data.jobs || data || [];
+      setPublisherJobs(allJobs.filter((j) => j.user_id === id || j.author_id === id));
+    } catch (e) {}
+  };
+
+  const fetchPublisherVideos = async () => {
+    try {
+      const data = await api(`/videos?userId=${id}&limit=50`);
+      setPublisherVideos(data.videos || []);
     } catch (e) {}
   };
 
@@ -147,79 +179,61 @@ export default function ProfilePage() {
     }
   };
 
-  // Load Paystack script dynamically
-  const loadPaystackScript = () => new Promise((resolve) => {
-    if (window.PaystackPop) return resolve(true);
-    const script = document.createElement('script');
-    script.src = 'https://js.paystack.co/v1/inline.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-
-  // Secure 100 KES Room Hosting Payment & Creation
-  const handleHostRoomPayment = async (e) => {
+  const handleCreateFreeRoom = async (e) => {
     e.preventDefault();
     if (!roomTitle.trim()) {
       setRoomModalError('Please enter a room title.');
       return;
     }
-
-    setIsProcessingPayment(true);
+    setIsCreatingRoom(true);
     setRoomModalError('');
-
-    const loaded = await loadPaystackScript();
-    if (!loaded) {
-      setRoomModalError('Failed to load Paystack payment gateway.');
-      setIsProcessingPayment(false);
-      return;
-    }
-
-    const handler = window.PaystackPop.setup({
-      key: PAYSTACK_PUBLIC_KEY,
-      email: user?.email || profile?.email || 'host@opinionplus.online',
-      amount: 10000, // 100 KES in subunits (cents)
-      currency: 'KES',
-      ref: 'host_room_' + Math.random().toString(36).substring(2, 15) + Date.now(),
-      callback: async (response) => {
-        try {
-          const data = await api('/rooms', {
-            method: 'POST',
-            body: JSON.stringify({
-              title: roomTitle.trim(),
-              description: roomDesc.trim(),
-              reference: response.reference
-            })
-          });
-
-          if (data.ok && data.room) {
-            window.location.href = `/rooms/${data.room.id}`;
-          } else {
-            setRoomModalError(data.error || 'Room creation verification failed.');
-            setIsProcessingPayment(false);
-          }
-        } catch (err) {
-          setRoomModalError(err.message || 'Secure payment verification error.');
-          setIsProcessingPayment(false);
-        }
-      },
-      onClose: () => {
-        setIsProcessingPayment(false);
-        setRoomModalError('Payment window closed.');
+    try {
+      const data = await api('/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: roomTitle.trim(),
+          description: roomDesc.trim(),
+        })
+      });
+      if (data.ok && data.room) {
+        window.location.href = `/rooms/${data.room.id}`;
+      } else {
+        setRoomModalError(data.error || 'Failed to create room.');
+        setIsCreatingRoom(false);
       }
-    });
-
-    handler.openIframe();
+    } catch (err) {
+      setRoomModalError(err.message || 'Error creating room.');
+      setIsCreatingRoom(false);
+    }
   };
 
-  // Secure Room Deletion (Host & Admin Only)
   const handleDeleteRoom = async (roomId) => {
-    if (!confirm('Are you sure you want to permanently delete this room? This action cannot be undone.')) return;
+    if (!confirm('Are you sure you want to permanently delete this room?')) return;
     try {
       await api(`/rooms/${roomId}`, { method: 'DELETE' });
       setPublisherRooms((prev) => prev.filter((r) => r.id !== roomId));
     } catch (e) {
-      alert(e.message || 'Failed to delete room securely.');
+      alert(e.message || 'Failed to delete room.');
+    }
+  };
+
+  const handleDeleteCampus = async (campusId) => {
+    if (!confirm('Are you sure you want to delete this registered campus?')) return;
+    try {
+      await api(`/campuses/${campusId}`, { method: 'DELETE' });
+      setPublisherCampuses((prev) => prev.filter((c) => c.id !== campusId));
+    } catch (e) {
+      alert(e.message || 'Failed to delete campus.');
+    }
+  };
+
+  const handleDeleteJob = async (jobId) => {
+    if (!confirm('Are you sure you want to delete this job posting?')) return;
+    try {
+      await api(`/jobs/${jobId}`, { method: 'DELETE' });
+      setPublisherJobs((prev) => prev.filter((j) => j.id !== jobId));
+    } catch (e) {
+      alert(e.message || 'Failed to delete job.');
     }
   };
 
@@ -230,7 +244,6 @@ export default function ProfilePage() {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
-
     img.onload = () => {
       canvas.width = 300;
       canvas.height = 300;
@@ -253,6 +266,9 @@ export default function ProfilePage() {
     }
     if (id) {
       fetchPublisherRooms();
+      fetchPublisherCampuses();
+      fetchPublisherJobs();
+      fetchPublisherVideos();
     }
   }, [isOwner, id]);
 
@@ -267,7 +283,6 @@ export default function ProfilePage() {
     );
   }
 
-  // Normalized filtering and sorting
   const userStories = stories
     .filter((s) => (s.authorId === id || s.author_id === id) && !s.deleted)
     .filter((s) => (s.type === 'story' || !s.type) && (s.privacy === 'public' || isOwner))
@@ -291,25 +306,13 @@ export default function ProfilePage() {
     openCloudinaryWidget({ onSuccess: (r) => setForm((f) => ({ ...f, logoUrl: r.url })) });
   };
 
-  const SectionHeader = ({ title, icon: Icon, rightAction, description }) => (
-    <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-wire pb-4 mb-6">
-      <div>
-        <h2 className="text-lg font-black text-ink uppercase tracking-tight flex items-center gap-2">
-          {Icon && <Icon size={18} className="text-signal" />} {title}
-        </h2>
-        {description && <p className="text-xs font-medium text-ink-500 mt-1">{description}</p>}
-      </div>
-      {rightAction && <div className="mt-3 sm:mt-0">{rightAction}</div>}
-    </div>
-  );
-
   const publisherName = profile.publisherName || profile.publisher_name;
   const logoUrl = profile.logoUrl || profile.logo_url;
 
   return (
     <div className="bg-paper min-h-screen pb-24 relative selection:bg-signal selection:text-white">
       {showApiGuide && <ApiGuideModal onClose={() => setShowApiGuide(false)} />}
-
+      
       {/* QR Code Modal */}
       {qrStory && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
@@ -338,29 +341,20 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Secure Room Creation Modal (100 KES via Paystack) */}
+      {/* Free Live Room Creation Modal */}
       {showRoomModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="bg-white border-2 border-ink rounded-md max-w-md w-full p-8 relative shadow-2xl animate-in zoom-in-95 duration-300">
-            <button onClick={() => setShowRoomModal(false)} disabled={isProcessingPayment} className="absolute top-4 right-4 text-ink-400 hover:text-signal transition-colors bg-ink-50 hover:bg-red-50 p-1.5 rounded-full">
+            <button onClick={() => setShowRoomModal(false)} disabled={isCreatingRoom} className="absolute top-4 right-4 text-ink-400 hover:text-signal transition-colors bg-ink-50 hover:bg-red-50 p-1.5 rounded-full">
               <X size={18} />
             </button>
-            
             <div className="mb-6">
               <h3 className="text-xl font-black text-ink uppercase tracking-tight flex items-center gap-2">
                 <Radio className="text-signal" size={22} /> Host Live Space
               </h3>
-              <p className="text-xs text-ink-500 mt-1">Broadcast real-time audio and video sessions to your audience securely.</p>
+              <p className="text-xs text-ink-500 mt-1">Broadcast real-time audio and video sessions to your audience for free.</p>
             </div>
-
-            <div className="mb-5 bg-signal/5 border border-signal/20 p-3.5 rounded-sm flex items-center gap-3">
-              <ShieldCheck className="text-signal shrink-0" size={24} />
-              <p className="text-xs text-ink-700 font-medium">
-                Hosting a broadcast requires a secure one-time verification fee of <strong className="text-ink">100 KES</strong> via Paystack.
-              </p>
-            </div>
-
-            <form onSubmit={handleHostRoomPayment} className="space-y-4">
+            <form onSubmit={handleCreateFreeRoom} className="space-y-4">
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-widest text-ink-600 mb-1.5">Space Title *</label>
                 <input 
@@ -369,43 +363,40 @@ export default function ProfilePage() {
                   value={roomTitle}
                   onChange={(e) => setRoomTitle(e.target.value)}
                   placeholder="e.g., Evening Political Debate"
-                  disabled={isProcessingPayment}
+                  disabled={isCreatingRoom}
                   className="w-full bg-white border-2 border-wire rounded-sm px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-ink transition-colors"
                 />
               </div>
-
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-widest text-ink-600 mb-1.5">Description (Optional)</label>
                 <textarea 
                   value={roomDesc}
                   onChange={(e) => setRoomDesc(e.target.value)}
                   placeholder="Brief summary of the discussion..."
-                  disabled={isProcessingPayment}
+                  disabled={isCreatingRoom}
                   className="w-full bg-white border-2 border-wire rounded-sm px-3 py-2.5 text-sm font-medium focus:outline-none focus:border-ink transition-colors resize-none h-20"
                 />
               </div>
-
               {roomModalError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-sm text-red-600 text-xs font-bold">
                   {roomModalError}
                 </div>
               )}
-
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowRoomModal(false)}
-                  disabled={isProcessingPayment}
+                  disabled={isCreatingRoom}
                   className="flex-1 bg-ink-50 border border-wire text-ink font-bold uppercase text-xs tracking-widest py-3 rounded-sm hover:bg-ink-100 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessingPayment || !roomTitle.trim()}
+                  disabled={isCreatingRoom || !roomTitle.trim()}
                   className="flex-1 bg-signal text-white font-bold uppercase text-xs tracking-widest py-3 rounded-sm hover:bg-signal/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shadow-md"
                 >
-                  {isProcessingPayment ? <><Loader2 size={16} className="animate-spin" /> Processing...</> : 'Pay 100 KES & Launch'}
+                  {isCreatingRoom ? <><Loader2 size={16} className="animate-spin" /> Launching...</> : 'Launch Space'}
                 </button>
               </div>
             </form>
@@ -417,7 +408,6 @@ export default function ProfilePage() {
       <div className="bg-ink text-white relative overflow-hidden border-b-4 border-signal">
         <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] mix-blend-overlay"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-ink via-transparent to-transparent"></div>
-        
         <div className="max-w-6xl mx-auto px-5 pt-20 pb-20 relative z-10">
           <div className="flex flex-col md:flex-row items-center md:items-start gap-8">
             <div className="relative shrink-0 group">
@@ -430,7 +420,6 @@ export default function ProfilePage() {
                 </button>
               )}
             </div>
-
             <div className="flex-1 min-w-0 text-center md:text-left w-full flex flex-col justify-center mt-2">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-5">
                 <div className="flex-1">
@@ -451,7 +440,6 @@ export default function ProfilePage() {
                     </span>
                   )}
                 </div>
-
                 <div className="shrink-0 flex items-center justify-center">
                   {isOwner ? (
                     editing ? (
@@ -470,15 +458,19 @@ export default function ProfilePage() {
                   ) : null}
                 </div>
               </div>
-
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-[11px] font-black uppercase tracking-widest text-white/60 mb-5 bg-white/5 inline-flex px-4 py-2 rounded-sm border border-white/10 backdrop-blur-sm w-fit mx-auto md:mx-0">
                 <span className="flex items-center gap-1.5"><Newspaper size={14} className="text-signal" /> {userStories.length + userDocumentaries.length} Published</span>
                 <span className="opacity-30">•</span>
                 <span className="flex items-center gap-1.5"><UserPlus size={14} className="text-signal" /> {followerCount} Followers</span>
                 <span className="opacity-30">•</span>
                 <span className="flex items-center gap-1.5"><Radio size={14} className="text-signal" /> {publisherRooms.length} Live Rooms</span>
+                <span className="opacity-30">•</span>
+                <span className="flex items-center gap-1.5"><GraduationCap size={14} className="text-signal" /> {publisherCampuses.length} Campuses</span>
+                <span className="opacity-30">•</span>
+                <span className="flex items-center gap-1.5"><Briefcase size={14} className="text-signal" /> {publisherJobs.length} Jobs</span>
+                <span className="opacity-30">•</span>
+                <span className="flex items-center gap-1.5"><Play size={14} className="text-signal" /> {publisherVideos.length} Videos</span>
               </div>
-
               {editing ? (
                 <textarea 
                   value={form.bio || ''} 
@@ -497,15 +489,13 @@ export default function ProfilePage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-5 pt-10 pb-12 space-y-12">
-        
-        {/* 🌟 2. DASHBOARD / COMMAND CENTER (Horizontal Architecture for Owners) */}
+        {/* 🌟 2. DASHBOARD / COMMAND CENTER */}
         {isOwner && (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="flex items-center gap-2 text-ink mb-2">
               <LayoutDashboard size={20} className="text-signal" />
               <h2 className="text-xl font-black uppercase tracking-tight">Command Center</h2>
             </div>
-
             {/* ROW 1: Essentials (Wallet & SMS) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white p-6 rounded-md shadow-sm border border-wire/60 hover:shadow-md transition-shadow flex flex-col h-full">
@@ -517,7 +507,6 @@ export default function ProfilePage() {
                 <div className="flex-1"><SmsDashboard /></div>
               </div>
             </div>
-
             {/* ROW 2: Developer Hub (API Usage & Keys) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* API Access Details */}
@@ -555,7 +544,6 @@ export default function ProfilePage() {
                   )}
                 </div>
               </div>
-
               {/* API Keys Manager */}
               <div className="bg-white p-6 rounded-md shadow-sm border border-wire/60 hover:shadow-md transition-shadow flex flex-col h-full">
                 <SectionHeader 
@@ -573,7 +561,6 @@ export default function ProfilePage() {
                     </div>
                   } 
                 />
-                
                 <div className="flex-1">
                   {!showKeys ? (
                      <div className="h-full flex items-center justify-center border-2 border-dashed border-wire rounded-sm p-6 cursor-pointer hover:border-ink-300 hover:bg-ink-50 transition-colors" onClick={() => { setShowKeys(true); fetchKeys(); }}>
@@ -594,7 +581,6 @@ export default function ProfilePage() {
                           <Plus size={14} /> Create
                         </button>
                       </div>
-                      
                       {newKey && (
                         <div className="bg-signal/5 border border-signal text-ink rounded-sm p-4 shadow-inner">
                           <p className="text-[11px] font-black text-signal uppercase tracking-widest mb-2 flex items-center gap-1.5">
@@ -608,7 +594,6 @@ export default function ProfilePage() {
                           </div>
                         </div>
                       )}
-                      
                       <div className="space-y-3 pt-1">
                         {apiKeys.length === 0 ? (
                            <p className="text-xs text-ink-400 font-medium italic text-center py-4 bg-ink-50 rounded-sm border border-wire/50">No API keys generated yet.</p>
@@ -633,7 +618,6 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
-
             {/* ROW 3: Analytics (Timeline) */}
             <section className="bg-white p-6 rounded-md shadow-sm border border-wire/60 hover:shadow-md transition-shadow">
               <SectionHeader title="Publishing Analytics" icon={Activity} description="Your story momentum over the last year" />
@@ -647,7 +631,7 @@ export default function ProfilePage() {
           <MastheadNewsletter publisherId={id} publisherName={publisherName} />
         </section>
 
-        {/* 🌟 4. PORTFOLIO TABS (Stories, Documentaries, Live Audio Rooms) */}
+        {/* 🌟 4. PORTFOLIO TABS */}
         <section className="animate-in fade-in slide-in-from-bottom-4 duration-700">
           <div className="flex items-center gap-3 border-b-2 border-wire pb-4 mb-8 flex-wrap">
             <button
@@ -674,6 +658,30 @@ export default function ProfilePage() {
             >
               <Radio size={14} className={publisherRooms.length > 0 ? 'animate-pulse text-signal' : ''} /> Live Audio Rooms ({publisherRooms.length})
             </button>
+            <button
+              onClick={() => setProfileTab('campuses')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'campuses' ? 'bg-ink text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <GraduationCap size={14} /> Campuses ({publisherCampuses.length})
+            </button>
+            <button
+              onClick={() => setProfileTab('jobs')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'jobs' ? 'bg-ink text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <Briefcase size={14} /> Jobs ({publisherJobs.length})
+            </button>
+            <button
+              onClick={() => setProfileTab('videos')}
+              className={`text-xs font-bold uppercase tracking-wider px-5 py-2.5 rounded-sm transition-colors flex items-center gap-2 ${
+                profileTab === 'videos' ? 'bg-ink text-white' : 'bg-ink-50 text-ink hover:bg-ink-100'
+              }`}
+            >
+              <Play size={14} /> Videos ({publisherVideos.length})
+            </button>
           </div>
 
           {/* Tab 1: Stories */}
@@ -692,7 +700,6 @@ export default function ProfilePage() {
                   {userStories.map((s) => (
                     <div key={s.id} className="bg-white border border-wire rounded-md flex flex-col justify-between shadow-sm hover:shadow-xl transition-all duration-300 group overflow-hidden">
                       <StoryCard story={s} />
-                      
                       {isOwner && (
                         <div className="px-4 py-3 border-t border-wire bg-ink-50/50 flex justify-end">
                           <button 
@@ -733,7 +740,7 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Tab 3: Live Audio Rooms (Secure Host Management & Deletion) */}
+          {/* Tab 3: Live Audio Rooms */}
           {profileTab === 'rooms' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
@@ -745,11 +752,10 @@ export default function ProfilePage() {
                     onClick={() => { setRoomTitle(''); setRoomDesc(''); setRoomModalError(''); setShowRoomModal(true); }}
                     className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
                   >
-                    <Plus size={14} /> Host New Space (100 KES)
+                    <Plus size={14} /> Host New Space (Free)
                   </button>
                 )}
               </div>
-
               {publisherRooms.length === 0 ? (
                 <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
                   <Radio size={32} className="mx-auto text-ink-300 mb-3" />
@@ -780,7 +786,6 @@ export default function ProfilePage() {
                         <h3 className="text-lg font-black text-ink leading-snug">{room.title}</h3>
                         <p className="text-xs text-ink-600 line-clamp-2 font-medium">{room.description || 'Live audio briefing session.'}</p>
                       </div>
-
                       <div className="pt-4 border-t border-wire flex items-center justify-between gap-2">
                         <Link
                           href={`/rooms/${room.id}`}
@@ -788,7 +793,6 @@ export default function ProfilePage() {
                         >
                           <Play size={13} fill="currentColor" /> Join Space
                         </Link>
-
                         {isOwner && (
                           <button
                             onClick={() => handleDeleteRoom(room.id)}
@@ -805,8 +809,183 @@ export default function ProfilePage() {
               )}
             </div>
           )}
-        </section>
 
+          {/* Tab 4: Campuses */}
+          {profileTab === 'campuses' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Registered University & Campus Editions
+                </p>
+                <Link
+                  href="/campuses"
+                  className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                >
+                  <Plus size={14} /> Register New Campus
+                </Link>
+              </div>
+              {publisherCampuses.length === 0 ? (
+                <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
+                  <GraduationCap size={32} className="mx-auto text-ink-300 mb-3" />
+                  <p className="text-lg font-bold text-ink mb-1">No registered campuses.</p>
+                  <p className="text-xs text-ink-500 mb-4">You haven&apos;t registered any university campus editions yet.</p>
+                  <Link
+                    href="/campuses"
+                    className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Register Campus Edition
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {publisherCampuses.map((campus) => (
+                    <div key={campus.id} className="border-2 border-ink bg-white p-6 rounded-sm shadow-sm flex flex-col justify-between space-y-4 relative group">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-signal text-white">
+                            Active Edition
+                          </span>
+                          <Globe size={16} className="text-ink-400" />
+                        </div>
+                        <h3 className="text-xl font-black text-ink uppercase tracking-tight">{campus.university_name}</h3>
+                        <p className="text-xs text-ink-600 font-medium flex items-center gap-1.5">
+                          <User size={14} className="text-signal" /> Rep: {campus.representative_name}
+                        </p>
+                        <p className="text-xs text-ink-600 font-medium flex items-center gap-1.5">
+                          <Mail size={14} className="text-signal" /> {campus.contact_email}
+                        </p>
+                      </div>
+                      <div className="pt-4 border-t border-wire flex items-center justify-between gap-2">
+                        <Link
+                          href="/campuses"
+                          className="flex-1 bg-ink text-white font-bold uppercase text-[10px] tracking-wider py-2.5 rounded-sm hover:bg-signal transition-colors text-center"
+                        >
+                          View Campuses
+                        </Link>
+                        {isOwner && (
+                          <button
+                            onClick={() => handleDeleteCampus(campus.id)}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white p-2.5 rounded-sm transition-colors border border-red-200"
+                            title="Delete Campus Edition"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 5: Jobs */}
+          {profileTab === 'jobs' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Job Listings Posted by {publisherName}
+                </p>
+                <Link
+                  href="/jobs"
+                  className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                >
+                  <Plus size={14} /> Post New Job
+                </Link>
+              </div>
+              {publisherJobs.length === 0 ? (
+                <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
+                  <Briefcase size={32} className="mx-auto text-ink-300 mb-3" />
+                  <p className="text-lg font-bold text-ink mb-1">No job listings.</p>
+                  <p className="text-xs text-ink-500 mb-4">You haven&apos;t posted any job openings yet.</p>
+                  <Link
+                    href="/jobs"
+                    className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Post Job
+                  </Link>
+                </div>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {publisherJobs.map((job) => (
+                    <div key={job.id} className="border-2 border-ink bg-white p-6 rounded-sm shadow-sm flex flex-col justify-between space-y-4 relative group">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm bg-signal text-white">
+                            Job Listing
+                          </span>
+                          <Briefcase size={16} className="text-ink-400" />
+                        </div>
+                        <h3 className="text-lg font-black text-ink uppercase tracking-tight">{job.title}</h3>
+                        <p className="text-xs font-bold text-ink-600">{job.company}</p>
+                        <p className="text-xs text-ink-500 line-clamp-2 font-medium">{job.description || job.snippet}</p>
+                      </div>
+                      <div className="pt-4 border-t border-wire flex items-center justify-between gap-2">
+                        <Link
+                          href="/jobs"
+                          className="flex-1 bg-ink text-white font-bold uppercase text-[10px] tracking-wider py-2.5 rounded-sm hover:bg-signal transition-colors text-center"
+                        >
+                          View Job Board
+                        </Link>
+                        {isOwner && (
+                          <button
+                            onClick={() => handleDeleteJob(job.id)}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white p-2.5 rounded-sm transition-colors border border-red-200"
+                            title="Delete Job Posting"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 6: Videos */}
+          {profileTab === 'videos' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4 bg-ink-50 p-4 border border-wire rounded-sm">
+                <p className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Video Broadcasts by {publisherName}
+                </p>
+                {isOwner && (
+                  <Link
+                    href="/upload/video"
+                    className="bg-signal text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal/90 transition-colors shadow-sm inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Upload Video
+                  </Link>
+                )}
+              </div>
+              {publisherVideos.length === 0 ? (
+                <div className="border border-dashed border-wire rounded-sm p-16 text-center bg-white">
+                  <Film size={32} className="mx-auto text-ink-300 mb-3" />
+                  <p className="text-lg font-bold text-ink mb-1">No videos uploaded.</p>
+                  <p className="text-xs text-ink-500 mb-4">
+                    {isOwner ? "You haven't uploaded any video broadcasts yet." : "This publisher hasn't uploaded any videos yet."}
+                  </p>
+                  {isOwner && (
+                    <Link
+                      href="/upload/video"
+                      className="bg-ink text-white font-bold uppercase text-xs tracking-wider px-5 py-2.5 rounded-sm hover:bg-signal transition-colors inline-flex items-center gap-1.5"
+                    >
+                      <Plus size={14} /> Upload Video Broadcast
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {publisherVideos.map((video) => (
+                    <VideoCard key={video.id} video={video} showPublisher={false} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

@@ -21,8 +21,8 @@ const PREFERENCES = [
 
 // Supports JPG and PNG images in public/footer_images/ with automatic fallback
 const FOOTER_IMAGES = [
-  '/footer_images/footer-bg.png',
   '/footer_images/footer-bg.jpg',
+  '/footer_images/footer-bg.png',
   '/footer_images/image1.jpg',
   '/footer_images/image1.png',
   '/footer_images/image2.jpg',

@@ -1,4 +1,4 @@
-// backend/src/index.js
+// backend/src/index.js[cite: 2]
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { attachUser, csrfProtection } from './middleware/auth.js';
@@ -25,6 +25,13 @@ import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services from './routes/services.js';
+import videos, {
+  channels as videoChannels,
+  subscriptionsFeed as videoSubscriptionsFeed,
+  history as watchHistory,
+  playlists as videoPlaylists,
+  watchLater as videoWatchLater,
+} from './routes/videos.js';
 
 const app = new Hono();
 
@@ -73,8 +80,8 @@ app.use('*', async (c, next) => {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "media-src 'self' https:",
-      "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com https://checkout.paystack.com",
-      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss: https://api.paystack.co",
+      "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com https://checkout.paystack.com https://iframe.mediadelivery.net",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss: https://api.paystack.co https://video.bunnycdn.com",
       "frame-ancestors 'none'",
     ].join('; ')
   );
@@ -88,15 +95,15 @@ app.use('*', async (c, next) => {
 app.use('*', cors({
   origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : null,
   credentials: true,
-  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Pin', 'X-CSRF-Token', 'X-Request-ID', 'AccessKey'],
 }));
 
 app.use('*', async (c, next) => {
   await next();
   const contentType = c.res.headers.get('Content-Type') || '';
   const path = c.req.path;
-  
+
   if (/application\/json/.test(contentType) && (path.includes('/trending') || path.includes('/feed'))) {
     c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
     c.res.headers.set('CDN-Cache-Control', 'max-age=300');
@@ -169,7 +176,7 @@ app.use('/sms/*', async (c, next) => {
 app.get('/', async (c) => {
   let dbStatus = 'unknown';
   const dbStart = Date.now();
-  try { await c.env.DB.prepare('SELECT 1').first(); dbStatus = 'ok'; } 
+  try { await c.env.DB.prepare('SELECT 1').first(); dbStatus = 'ok'; }
   catch (e) { dbStatus = 'error'; }
   return c.json({ ok: dbStatus === 'ok', service: 'opinionplus-api', db: dbStatus, dbLatencyMs: Date.now() - dbStart, requestId: c.get('requestId') });
 });
@@ -205,18 +212,15 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
   return c.json({ publisher: user.publisher_name, stories: results });
 });
 
-// =========================================================================
-// MAXIMUM SECURITY WEBSOCKET UPGRADE ROUTE
-// =========================================================================
 app.get('/rooms/:roomId/ws', async (c) => {
   const user = c.get('user');
-  
+
   if (!user) {
     return c.json({ error: 'Unauthorized: Valid secure session required.' }, 401);
   }
 
   const roomId = c.req.param('roomId');
-  
+
   const secureHeaders = new Headers(c.req.raw.headers);
   secureHeaders.set('X-Secure-User-Id', user.id);
   secureHeaders.set('X-Secure-User-Name', user.publisherName || user.name || 'User');
@@ -250,6 +254,14 @@ app.route('/rooms', rooms);
 app.route('/jobs', jobs);
 app.route('/campuses', campuses);
 app.route('/services', services);
+app.route('/videos', videos);
+
+// NEW: YouTube-style feature routes (additive, do not affect existing routes above)
+app.route('/channels', videoChannels);
+app.route('/subs', videoSubscriptionsFeed); // adds GET /subscriptions/videos alongside existing subscription-billing routes
+app.route('/history', watchHistory);
+app.route('/playlists', videoPlaylists);
+app.route('/watch-later', videoWatchLater);
 
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
@@ -281,7 +293,6 @@ app.get('/admin-cleanup', async (c) => {
   } catch (e) { return c.json({ ok: false, error: 'Cleanup failed' }, 500); }
 });
 
-// Safely handle orphaned or legacy presence requests without throwing 403s
 app.all('/presence/*', (c) => c.json({ online: 0, status: 'disabled' }));
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

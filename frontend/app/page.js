@@ -10,11 +10,12 @@ import FilterBar from '../components/FilterBar';
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const PAGE_SIZE = 20;
 
-const FILTERS = ['all', 'story', 'documentary', 'press_release', 'sponsored'];
+const FILTERS = ['all', 'story', 'documentary', 'campus', 'press_release', 'sponsored'];
 const FILTER_LABELS = {
   all: 'All Content',
   story: 'Stories',
   documentary: 'Documentaries',
+  campus: 'Campus',
   press_release: 'Press Releases',
   sponsored: 'Sponsored',
 };
@@ -101,7 +102,7 @@ export default function HomePage() {
               Anything’s possible when you have the narrative.
             </h1>
             <p className="text-white/80 text-base sm:text-lg font-medium leading-relaxed max-w-2xl">
-              Find compelling independent stories, in-depth documentaries, official press releases, sponsored features, and masthead solutions.
+              Find compelling independent stories, in-depth documentaries, official campus news, press releases, sponsored features, and masthead solutions.
             </p>
           </div>
 
