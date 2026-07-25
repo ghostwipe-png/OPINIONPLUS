@@ -3247,7 +3247,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-      "bytes": 315988,
+      "bytes": 315990,
       "imports": [
         {
           "path": "path",
@@ -4186,7 +4186,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/upload/video/page.js": {
-      "bytes": 26442,
+      "bytes": 26558,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4911,8 +4911,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/publish/page.js": {
-      "bytes": 67655,
+    ".open-next/server-functions/default/.next/server/app/pricing/page.js": {
+      "bytes": 22812,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4977,8 +4977,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/pricing/page.js": {
-      "bytes": 22812,
+    ".open-next/server-functions/default/.next/server/app/publish/page.js": {
+      "bytes": 67655,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -6099,14 +6099,14 @@
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\library\\page.js"
         },
         {
-          "path": ".open-next/server-functions/default/.next/server/app/publish/page.js",
-          "kind": "require-call",
-          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\publish\\page.js"
-        },
-        {
           "path": ".open-next/server-functions/default/.next/server/app/pricing/page.js",
           "kind": "require-call",
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\pricing\\page.js"
+        },
+        {
+          "path": ".open-next/server-functions/default/.next/server/app/publish/page.js",
+          "kind": "require-call",
+          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\publish\\page.js"
         },
         {
           "path": ".open-next/server-functions/default/.next/server/app/privacy/page.js",
@@ -8413,7 +8413,7 @@
           "bytesInOutput": 586
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-          "bytesInOutput": 279920
+          "bytesInOutput": 279922
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/app-render/action-async-storage-instance.js": {
           "bytesInOutput": 501
@@ -8518,7 +8518,7 @@
           "bytesInOutput": 26109
         },
         ".open-next/server-functions/default/.next/server/app/upload/video/page.js": {
-          "bytesInOutput": 26707
+          "bytesInOutput": 26827
         },
         ".open-next/server-functions/default/.next/server/app/leaderboard/page.js": {
           "bytesInOutput": 24109
@@ -8550,11 +8550,11 @@
         ".open-next/server-functions/default/.next/server/app/library/page.js": {
           "bytesInOutput": 32104
         },
-        ".open-next/server-functions/default/.next/server/app/publish/page.js": {
-          "bytesInOutput": 68816
-        },
         ".open-next/server-functions/default/.next/server/app/pricing/page.js": {
           "bytesInOutput": 22993
+        },
+        ".open-next/server-functions/default/.next/server/app/publish/page.js": {
+          "bytesInOutput": 68816
         },
         ".open-next/server-functions/default/.next/server/app/privacy/page.js": {
           "bytesInOutput": 18243
@@ -8740,7 +8740,7 @@
           "bytesInOutput": 68137
         }
       },
-      "bytes": 3669322
+      "bytes": 3669444
     }
   }
 }

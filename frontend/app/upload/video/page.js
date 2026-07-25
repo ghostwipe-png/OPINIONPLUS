@@ -8,6 +8,17 @@ import { useAuth } from '../../../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
+const CATEGORIES = [
+  { value: 'news', label: 'News' },
+  { value: 'documentary', label: 'Documentary' },
+  { value: 'entertainment', label: 'Entertainment' },
+  { value: 'educational', label: 'Educational' },
+  { value: 'music', label: 'Music' },
+  { value: 'sports', label: 'Sports' },
+  { value: 'technology', label: 'Technology' },
+  { value: 'general', label: 'General' },
+];
+
 export default function VideoUploadPage() {
   const { user, isAuthenticated, ready } = useAuth();
   const router = useRouter();
@@ -290,10 +301,9 @@ export default function VideoUploadPage() {
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full border border-wire rounded-sm px-4 py-3 text-xs font-bold uppercase tracking-wider bg-white focus:outline-none focus:border-ink"
               >
-                <option value="news">News</option>
-                <option value="documentary">Documentary</option>
-                <option value="entertainment">Entertainment</option>
-                <option value="educational">Educational</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>{cat.label}</option>
+                ))}
               </select>
             </div>
             <div className="space-y-2">
