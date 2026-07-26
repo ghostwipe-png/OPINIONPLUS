@@ -37,7 +37,7 @@ function ShortPlayer({ short, isActive, shouldMount, csrfToken, isLast }) {
   const { user } = useAuth();
 
   const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(short.likes_count || 0);
   const [showHeart, setShowHeart] = useState(false);

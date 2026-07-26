@@ -5441,8 +5441,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/videos/page.js": {
-      "bytes": 27836,
+    ".open-next/server-functions/default/.next/server/app/signup/page.js": {
+      "bytes": 19700,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5507,8 +5507,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/signup/page.js": {
-      "bytes": 19700,
+    ".open-next/server-functions/default/.next/server/app/videos/page.js": {
+      "bytes": 27836,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -6190,14 +6190,14 @@
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\shorts\\page.js"
         },
         {
-          "path": ".open-next/server-functions/default/.next/server/app/videos/page.js",
-          "kind": "require-call",
-          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\videos\\page.js"
-        },
-        {
           "path": ".open-next/server-functions/default/.next/server/app/signup/page.js",
           "kind": "require-call",
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\signup\\page.js"
+        },
+        {
+          "path": ".open-next/server-functions/default/.next/server/app/videos/page.js",
+          "kind": "require-call",
+          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\videos\\page.js"
         },
         {
           "path": ".open-next/server-functions/default/.next/server/app/admin/page.js",
@@ -8682,11 +8682,11 @@
         ".open-next/server-functions/default/.next/server/app/shorts/page.js": {
           "bytesInOutput": 32109
         },
-        ".open-next/server-functions/default/.next/server/app/videos/page.js": {
-          "bytesInOutput": 28181
-        },
         ".open-next/server-functions/default/.next/server/app/signup/page.js": {
           "bytesInOutput": 19890
+        },
+        ".open-next/server-functions/default/.next/server/app/videos/page.js": {
+          "bytesInOutput": 28181
         },
         ".open-next/server-functions/default/.next/server/app/admin/page.js": {
           "bytesInOutput": 109735
