@@ -160,20 +160,17 @@ export default function VideoUploadPage() {
     startUploadProcess();
   };
 
-  // ── Direct TUS upload to Bunny (for files > 100 MB) ──
-  const uploadDirectToBunny = async (videoId, bunnyVideoId, libraryId, apiKey) => {
-    const tusEndpoint = `https://video.bunnycdn.com/library/${libraryId}/videos/${bunnyVideoId}`;
+  // ── Direct upload for large files (>100MB) ──
+  const uploadDirect = async (videoId, bunnyVideoId, libraryId, apiKey) => {
+    const endpoint = `https://video.bunnycdn.com/library/${libraryId}/videos/${bunnyVideoId}`;
     
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       tusUploadRef.current = xhr;
       
-      xhr.open('PUT', tusEndpoint, true);
-      xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
-      xhr.setRequestHeader('LibraryId', String(libraryId));
-      xhr.setRequestHeader('VideoId', bunnyVideoId);
+      xhr.open('PUT', endpoint, true);
+      xhr.setRequestHeader('AccessKey', apiKey);
       xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-      
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -188,7 +185,7 @@ export default function VideoUploadPage() {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
         } else {
-          let errText = 'Direct upload failed';
+          let errText = 'Upload failed. Please try again.';
           try {
             const resJson = JSON.parse(xhr.responseText);
             if (resJson.error) errText = resJson.error;
@@ -199,15 +196,15 @@ export default function VideoUploadPage() {
 
       xhr.onerror = () => {
         tusUploadRef.current = null;
-        reject(new Error('Network error during direct upload'));
+        reject(new Error('Network error during upload. Please check your connection.'));
       };
 
       xhr.send(file);
     });
   };
 
-  // ── Proxied upload through Worker (for files ≤ 100 MB) ──
-  const uploadViaWorker = async (videoId, csrfToken) => {
+  // ── Standard upload for smaller files (≤100MB) ──
+  const uploadStandard = async (videoId, csrfToken) => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
@@ -229,7 +226,7 @@ export default function VideoUploadPage() {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
         } else {
-          let errText = 'Upload failed';
+          let errText = 'Upload failed. Please try again.';
           try {
             const resJson = JSON.parse(xhr.responseText);
             if (resJson.error) errText = resJson.error;
@@ -240,7 +237,7 @@ export default function VideoUploadPage() {
 
       xhr.onerror = () => {
         xhrRef.current = null;
-        reject(new Error('Network error during video upload'));
+        reject(new Error('Network error during upload. Please check your connection.'));
       };
       xhr.send(file);
     });
@@ -261,7 +258,7 @@ export default function VideoUploadPage() {
     const isLargeFile = file.size > DIRECT_UPLOAD_THRESHOLD;
 
     try {
-      setStatusMessage('Initializing video entry...');
+      setStatusMessage('Preparing your video...');
       const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
       const csrfData = await csrfRes.json().catch(() => ({}));
       const csrfToken = csrfData.token || '';
@@ -289,27 +286,24 @@ export default function VideoUploadPage() {
       const bunnyVideoId = createData.video.bunny_video_id;
 
       if (isLargeFile) {
-        // Direct upload to Bunny for large files
-        setStatusMessage(`Uploading directly (large file: ${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        setStatusMessage(`Uploading your video (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
         
-        // Fetch Bunny API key from backend
-        const bunnyKeyRes = await fetch(`${API_BASE}/videos/upload-key`, {
+        const keyRes = await fetch(`${API_BASE}/videos/upload-key`, {
           credentials: 'include',
           headers: { 'X-CSRF-Token': csrfToken },
         });
-        const bunnyKeyData = await bunnyKeyRes.json().catch(() => ({}));
-        const bunnyApiKey = bunnyKeyData.apiKey || '';
+        const keyData = await keyRes.json().catch(() => ({}));
+        const apiKey = keyData.apiKey || '';
 
-        if (!bunnyApiKey) throw new Error('Could not get upload credentials');
+        if (!apiKey) throw new Error('Could not initialize upload. Please try again.');
 
-        await uploadDirectToBunny(videoId, bunnyVideoId, bunnyKeyData.libraryId || '713291', bunnyApiKey);
+        await uploadDirect(videoId, bunnyVideoId, keyData.libraryId || '713291', apiKey);
       } else {
-        // Proxied upload through Worker for smaller files
-        setStatusMessage(`Uploading video (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
-        await uploadViaWorker(videoId, csrfToken);
+        setStatusMessage(`Uploading your video (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        await uploadStandard(videoId, csrfToken);
       }
 
-      setStatusMessage('Finalizing upload...');
+      setStatusMessage('Finalizing...');
       await fetch(`${API_BASE}/videos/${videoId}/upload-complete`, {
         method: 'POST',
         credentials: 'include',
@@ -319,7 +313,7 @@ export default function VideoUploadPage() {
         },
       });
 
-      setStatusMessage('Processing & encoding video...');
+      setStatusMessage('Processing your video...');
       let isReady = false;
       let attempts = 0;
       while (!isReady && attempts < 60) {
@@ -330,7 +324,7 @@ export default function VideoUploadPage() {
         if (statusData.status === 'ready') {
           isReady = true;
         } else if (statusData.status === 'failed') {
-          throw new Error('Video encoding failed on server.');
+          throw new Error('Video processing failed. Please try uploading again.');
         }
         if (statusData.progress) setProgress(statusData.progress);
       }
@@ -340,7 +334,7 @@ export default function VideoUploadPage() {
       setUploading(false);
     } catch (e) {
       console.error(e);
-      setErrorMsg(e.message || 'Upload process failed');
+      setErrorMsg(e.message || 'Upload failed. Please try again.');
       setUploading(false);
     }
   };
@@ -361,7 +355,7 @@ export default function VideoUploadPage() {
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-black text-ink uppercase tracking-wider">Ready to Broadcast!</h2>
-            <p className="text-xs font-bold text-emerald-700 uppercase">Your video is successfully encoded and live.</p>
+            <p className="text-xs font-bold text-emerald-700 uppercase">Your video is now live and ready to share.</p>
           </div>
           <div className="pt-2 flex flex-col sm:flex-row gap-3">
             <Link
@@ -381,8 +375,6 @@ export default function VideoUploadPage() {
       </div>
     );
   }
-
-  const isLargeFile = file && file.size > DIRECT_UPLOAD_THRESHOLD;
 
   return (
     <div className="bg-paper min-h-screen py-12 pb-24">
@@ -406,7 +398,7 @@ export default function VideoUploadPage() {
           {/* File Drop Zone */}
           <div className="space-y-2">
             <label className="text-xs font-bold uppercase tracking-widest text-ink-400 block">
-              Video File (Max 5GB{isLargeFile ? ' — Direct upload' : ''})
+              Video File (Max 5GB)
             </label>
             <div
               onDragOver={(e) => e.preventDefault()}
@@ -425,7 +417,6 @@ export default function VideoUploadPage() {
                         <p className="text-xs font-bold text-ink truncate max-w-xs">{file.name}</p>
                         <p className="text-[10px] text-ink-400 font-mono">
                           {(file.size / (1024 * 1024)).toFixed(2)} MB
-                          {isLargeFile && <span className="text-signal font-bold ml-1">· Direct Bunny upload</span>}
                         </p>
                       </div>
                     </div>
@@ -453,7 +444,7 @@ export default function VideoUploadPage() {
                     <Upload size={24} />
                   </div>
                   <span className="text-xs font-bold uppercase tracking-wider text-ink">Click to browse or drag & drop video</span>
-                  <span className="text-[11px] text-ink-400">MP4, MOV, WEBM, AVI, MKV supported · Files over 100MB upload directly to Bunny</span>
+                  <span className="text-[11px] text-ink-400">MP4, MOV, WEBM, AVI, MKV supported</span>
                 </div>
               )}
               <input
@@ -614,7 +605,7 @@ export default function VideoUploadPage() {
               className="w-full bg-signal text-white font-bold uppercase text-xs tracking-wider py-4 rounded-sm hover:bg-signal/90 transition-colors shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {uploading ? (
-                <><Loader2 size={16} className="animate-spin" /> Processing Broadcast...</>
+                <><Loader2 size={16} className="animate-spin" /> Uploading...</>
               ) : paused ? (
                 <><Play size={16} /> Resume Upload</>
               ) : (
