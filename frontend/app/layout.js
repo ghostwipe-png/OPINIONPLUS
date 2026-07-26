@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import InstallPrompt from '../components/InstallPrompt';
 import Sidebar from '../components/Sidebar';
+import SidebarWrapper from '../components/SidebarWrapper';
 
 const display = Playfair_Display({
   subsets: ['latin'],
@@ -141,8 +142,8 @@ export default function RootLayout({ children }) {
         <Providers>
           <Navbar />
           <div className="flex flex-1">
-            <Sidebar />
-            <main className="flex-1 min-w-0 lg:ml-0">{children}</main>
+            <SidebarWrapper />
+            <main className="flex-1 min-w-0">{children}</main>
           </div>
           <Footer />
           <InstallPrompt />

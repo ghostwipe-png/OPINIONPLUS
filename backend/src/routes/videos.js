@@ -3,7 +3,6 @@ import { requireAuth } from '../middleware/auth.js';
 
 const videos = new Hono();
 
-// Sub-routers for new top-level paths (mounted separately in index.js)
 const channels = new Hono();
 const subscriptionsFeed = new Hono();
 const history = new Hono();
@@ -24,6 +23,22 @@ async function bunnyRequest(endpoint, options = {}, env) {
   if (!res.ok) throw new Error(data.message || 'Bunny API request failed');
   return data;
 }
+
+// ═══════════════════════════════════════════════════════
+// SHORTS — must be registered BEFORE '/:id' catch-all
+// ═══════════════════════════════════════════════════════
+
+videos.get('/shorts', async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(
+      `SELECT * FROM videos WHERE status = 'ready' AND privacy = 'public' AND duration_seconds <= 60 AND duration_seconds > 0 ORDER BY views DESC LIMIT 20`
+    ).all();
+    return c.json({ shorts: results || [] });
+  } catch (e) {
+    console.error('Shorts error:', e);
+    return c.json({ error: 'Failed to fetch shorts' }, 500);
+  }
+});
 
 // ═══════════════════════════════════════════════════════
 // EXISTING ROUTES (unchanged)
@@ -92,8 +107,6 @@ videos.get('/user/videos', requireAuth, async (c) => {
     return c.json({ error: 'Failed to fetch user videos' }, 500);
   }
 });
-
-// ── NEW: recommendations & search must be registered BEFORE the '/:id' catch-all ──
 
 videos.get('/recommendations', async (c) => {
   try {
@@ -385,7 +398,7 @@ videos.get('/:id/embed', async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// NEW: ENGAGEMENT ROUTES (like / dislike / like-status)
+// ENGAGEMENT ROUTES
 // ═══════════════════════════════════════════════════════
 
 videos.post('/:id/like', requireAuth, async (c) => {
@@ -416,9 +429,7 @@ videos.post('/:id/like', requireAuth, async (c) => {
 
     try {
       await c.env.DB.prepare('UPDATE videos SET likes_count = ? WHERE id = ?').bind(likesCount, id).run();
-    } catch (e) {
-      // likes_count column may not exist yet on older schemas — non-fatal
-    }
+    } catch (e) {}
 
     return c.json({ likesCount, userLiked: liked });
   } catch (e) {
@@ -474,7 +485,7 @@ videos.get('/:id/like-status', async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════
-// NEW: CHANNEL SUBSCRIPTION ROUTES (mounted at /channels)
+// CHANNEL SUBSCRIPTION ROUTES
 // ═══════════════════════════════════════════════════════
 
 channels.post('/:channelId/subscribe', requireAuth, async (c) => {
@@ -545,10 +556,6 @@ channels.get('/:channelId/is-subscribed', requireAuth, async (c) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════
-// NEW: SUBSCRIPTIONS FEED (mounted at /subscriptions, alongside existing payment routes)
-// ═══════════════════════════════════════════════════════
-
 subscriptionsFeed.get('/videos', requireAuth, async (c) => {
   try {
     const user = c.get('user');
@@ -564,10 +571,6 @@ subscriptionsFeed.get('/videos', requireAuth, async (c) => {
     return c.json({ error: 'Failed to fetch subscriptions feed' }, 500);
   }
 });
-
-// ═══════════════════════════════════════════════════════
-// NEW: WATCH HISTORY ROUTES (mounted at /history)
-// ═══════════════════════════════════════════════════════
 
 history.post('/:videoId', requireAuth, async (c) => {
   try {
@@ -626,10 +629,6 @@ history.delete('/:videoId', requireAuth, async (c) => {
     return c.json({ error: 'Failed to delete watch history item' }, 500);
   }
 });
-
-// ═══════════════════════════════════════════════════════
-// NEW: PLAYLIST ROUTES (mounted at /playlists)
-// ═══════════════════════════════════════════════════════
 
 playlists.post('/', requireAuth, async (c) => {
   try {
@@ -817,10 +816,6 @@ playlists.post('/:id/reorder', requireAuth, async (c) => {
     return c.json({ error: 'Failed to reorder playlist' }, 500);
   }
 });
-
-// ═══════════════════════════════════════════════════════
-// NEW: WATCH LATER ROUTES (mounted at /watch-later)
-// ═══════════════════════════════════════════════════════
 
 watchLater.get('/contains/:videoId', requireAuth, async (c) => {
   try {

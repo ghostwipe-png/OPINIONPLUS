@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { Play, Film, Loader2, ChevronDown } from 'lucide-react';
 import VideoCard from '../../components/VideoCard';
 import BreakingTicker from '../../components/BreakingTicker';
@@ -27,12 +28,21 @@ export default function VideosPage() {
   const [sort, setSort] = useState('latest');
   const [sortOpen, setSortOpen] = useState(false);
   const [videos, setVideos] = useState([]);
+  const [shorts, setShorts] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const sentinelRef = useRef(null);
+
+  // Fetch shorts on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/videos/shorts`)
+      .then(r => r.ok ? r.json() : { shorts: [] })
+      .then(d => setShorts(Array.isArray(d.shorts) ? d.shorts : []))
+      .catch(() => setShorts([]));
+  }, []);
 
   const fetchVideos = useCallback(async (selectedFilter, pageNum, selectedSort, isReset = false) => {
     if (isReset) {
@@ -88,7 +98,6 @@ export default function VideosPage() {
     });
   }, [totalPages, loadingMore, filter, sort, fetchVideos]);
 
-  // Infinite scroll: observe a sentinel near the bottom of the grid
   useEffect(() => {
     if (!sentinelRef.current) return;
     const observer = new IntersectionObserver(
@@ -102,6 +111,14 @@ export default function VideosPage() {
   }, [loadMore]);
 
   const safeVideos = Array.isArray(videos) ? videos : [];
+  const safeShorts = Array.isArray(shorts) ? shorts : [];
+
+  function formatCount(n) {
+    if (!n) return '0';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
 
   return (
     <div className="bg-paper min-h-screen pb-20 flex flex-col">
@@ -125,6 +142,51 @@ export default function VideosPage() {
       </section>
 
       <div className="max-w-7xl mx-auto px-5 w-full pt-10 flex-1">
+        {/* Shorts Section */}
+        {safeShorts.length > 0 && (
+          <div className="mb-10">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1 h-5 bg-signal rounded-full" />
+              <h2 className="text-lg font-black text-ink uppercase tracking-tight">Shorts</h2>
+              <span className="text-xs text-ink-400 font-medium ml-1">{safeShorts.length} videos</span>
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-none">
+              {safeShorts.map((s) => (
+                <Link
+                  key={s.id}
+                  href={`/videos/${s.id}`}
+                  className="shrink-0 w-40 sm:w-56 rounded-xl overflow-hidden bg-black relative group shadow-md hover:shadow-xl transition-shadow"
+                >
+                  <div className="aspect-[9/16]">
+                    {s.thumbnail_url ? (
+                      <img
+                        src={s.thumbnail_url}
+                        alt={s.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-ink-800">
+                        <Play size={24} className="text-white/40" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <p className="text-white text-xs font-semibold line-clamp-2 leading-snug">{s.title}</p>
+                    <p className="text-white/60 text-[10px] mt-1 font-medium">{formatCount(s.views)} views</p>
+                  </div>
+                  {s.duration_seconds > 0 && (
+                    <span className="absolute top-2 right-2 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded-sm">
+                      {Math.floor(s.duration_seconds / 60)}:{String(s.duration_seconds % 60).padStart(2, '0')}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Filter & Sort Bar */}
         <div className="flex items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-2 overflow-x-auto pb-4 scrollbar-none flex-1">
             {FILTERS.map((f) => (
@@ -188,7 +250,6 @@ export default function VideosPage() {
               ))}
             </div>
 
-            {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="h-1" />
 
             {page < totalPages && (
