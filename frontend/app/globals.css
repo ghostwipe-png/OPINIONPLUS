@@ -202,3 +202,10 @@ textarea, input {
     max-width: 100% !important;
   }
 }
+@keyframes ping-once {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+}
+.animate-ping-once {
+  animation: ping-once 0.8s ease-out forwards;
+}
