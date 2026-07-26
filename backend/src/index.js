@@ -1,4 +1,3 @@
-// backend/src/index.js[cite: 2]
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { attachUser, csrfProtection } from './middleware/auth.js';
@@ -25,6 +24,7 @@ import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services from './routes/services.js';
+import health from './routes/health.js';
 import videos, {
   channels as videoChannels,
   subscriptionsFeed as videoSubscriptionsFeed,
@@ -47,6 +47,44 @@ function log(level, message, meta = {}) {
   else console.log(JSON.stringify(entry));
 }
 
+// ── Health check helpers (used by cron too) ──────────
+async function checkBunny(env) {
+  const start = Date.now();
+  try {
+    const res = await fetch(
+      `https://video.bunnycdn.com/library/${env.BUNNY_LIBRARY_ID}/videos?page=1&limit=1`,
+      { headers: { 'AccessKey': env.BUNNY_API_KEY, 'Content-Type': 'application/json' } }
+    );
+    return { provider: 'bunny_stream', status: res.ok ? 'ok' : 'degraded', latencyMs: Date.now() - start, statusCode: res.status };
+  } catch (e) {
+    return { provider: 'bunny_stream', status: 'down', latencyMs: Date.now() - start, message: e.message };
+  }
+}
+
+async function checkD1(env) {
+  const start = Date.now();
+  try {
+    await env.DB.prepare('SELECT 1').first();
+    return { provider: 'd1_database', status: 'ok', latencyMs: Date.now() - start };
+  } catch (e) {
+    return { provider: 'd1_database', status: 'down', latencyMs: Date.now() - start, message: e.message };
+  }
+}
+
+async function checkPaystack(env) {
+  const start = Date.now();
+  try {
+    const res = await fetch('https://api.paystack.co', {
+      headers: { Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY || ''}` },
+    });
+    return { provider: 'paystack', status: res.status < 500 ? 'ok' : 'degraded', latencyMs: Date.now() - start, statusCode: res.status };
+  } catch (e) {
+    return { provider: 'paystack', status: 'down', latencyMs: Date.now() - start, message: e.message };
+  }
+}
+
+// ── Middleware ────────────────────────────────────────
+
 app.use('*', async (c, next) => {
   const requestId = c.req.header('X-Request-ID') || crypto.randomUUID();
   c.set('requestId', requestId);
@@ -68,10 +106,7 @@ app.use('*', async (c, next) => {
   c.res.headers.set('X-Frame-Options', 'DENY');
   c.res.headers.set('X-XSS-Protection', '1; mode=block');
   c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  c.res.headers.set(
-    'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()'
-  );
+  c.res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   c.res.headers.set(
     'Content-Security-Policy',
     [
@@ -103,7 +138,6 @@ app.use('*', async (c, next) => {
   await next();
   const contentType = c.res.headers.get('Content-Type') || '';
   const path = c.req.path;
-
   if (/application\/json/.test(contentType) && (path.includes('/trending') || path.includes('/feed'))) {
     c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
     c.res.headers.set('CDN-Cache-Control', 'max-age=300');
@@ -214,28 +248,20 @@ app.get('/api/feed', apiKeyAuth, apiLimit, async (c) => {
 
 app.get('/rooms/:roomId/ws', async (c) => {
   const user = c.get('user');
-
-  if (!user) {
-    return c.json({ error: 'Unauthorized: Valid secure session required.' }, 401);
-  }
-
+  if (!user) return c.json({ error: 'Unauthorized: Valid secure session required.' }, 401);
   const roomId = c.req.param('roomId');
-
   const secureHeaders = new Headers(c.req.raw.headers);
   secureHeaders.set('X-Secure-User-Id', user.id);
   secureHeaders.set('X-Secure-User-Name', user.publisherName || user.name || 'User');
   secureHeaders.set('X-Secure-User-Avatar', user.logoUrl || '');
   secureHeaders.set('X-Secure-User-Role', user.role || 'user');
-
-  const secureRequest = new Request(c.req.url, {
-    method: c.req.method,
-    headers: secureHeaders,
-  });
-
+  const secureRequest = new Request(c.req.url, { method: c.req.method, headers: secureHeaders });
   const id = c.env.AUDIO_ROOM_DO.idFromName(roomId);
   const stub = c.env.AUDIO_ROOM_DO.get(id);
   return stub.fetch(secureRequest);
 });
+
+// ── Routes ────────────────────────────────────────────
 
 app.route('/auth', auth);
 app.route('/stories', stories);
@@ -255,13 +281,14 @@ app.route('/jobs', jobs);
 app.route('/campuses', campuses);
 app.route('/services', services);
 app.route('/videos', videos);
-
-// NEW: YouTube-style feature routes (additive, do not affect existing routes above)
 app.route('/channels', videoChannels);
-app.route('/subs', videoSubscriptionsFeed); // adds GET /subscriptions/videos alongside existing subscription-billing routes
+app.route('/subs', videoSubscriptionsFeed);
 app.route('/history', watchHistory);
 app.route('/playlists', videoPlaylists);
 app.route('/watch-later', videoWatchLater);
+app.route('/health', health);
+
+// ── Cleanup ───────────────────────────────────────────
 
 async function runRetentionCleanup(env) {
   const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
@@ -310,11 +337,29 @@ async function runCronJob(name, fn) {
   try { await fn(); } catch (e) {}
 }
 
+// ── Worker ────────────────────────────────────────────
+
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
     const jobs = [];
+
+    // Health check — every 5 minutes
     if (event.cron === '*/5 * * * *') {
+      jobs.push(runCronJob('health-check', async () => {
+        const results = await Promise.all([
+          checkBunny(env),
+          checkD1(env),
+          checkPaystack(env),
+        ]);
+        const failures = results.filter(r => r.status !== 'ok');
+        if (failures.length > 0) {
+          log('error', 'HEALTH_CHECK_FAILED', {
+            failures: failures.map(f => f.provider),
+            details: failures,
+          });
+        }
+      }));
       jobs.push(runCronJob('publish-scheduled-stories', async () => {
         const storiesModule = await import('./routes/stories.js');
         if (typeof storiesModule.publishScheduledStories === 'function') {
@@ -323,9 +368,11 @@ const worker = {
         return null;
       }));
     }
+
     if (event.cron === '0 3 * * *') {
       jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
     }
+
     await Promise.allSettled(jobs);
   },
 };

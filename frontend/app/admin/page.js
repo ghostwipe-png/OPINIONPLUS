@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
+import VideoManagement from '../../components/admin/VideoManagement';
+import HealthMonitor from '../../components/admin/HealthMonitor';
+import PlatformAnalytics from '../../components/admin/PlatformAnalytics';
 
 const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -556,6 +559,9 @@ export default function AdminPage() {
     { id: 'search', label: 'Search Analytics', icon: TrendingUp },
     { id: 'export', label: 'Export Center', icon: FileDown },
     ...(isRoot ? [{ id: 'services', label: 'Services', icon: Briefcase }] : []),
+    ...(isRoot ? [{ id: 'videos-admin', label: 'Videos', icon: Film }] : []),
+    ...(isRoot ? [{ id: 'analytics', label: 'Analytics', icon: BarChart3 }] : []),
+    ...(isRoot ? [{ id: 'health-monitor', label: 'Health', icon: Activity }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
@@ -1461,6 +1467,17 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+            {tab === 'videos-admin' && isRoot && (
+  <VideoManagement showToast={showToast} runGated={runGated} />
+)}
+
+{tab === 'analytics' && isRoot && (
+  <PlatformAnalytics />
+)}
+
+{tab === 'health-monitor' && isRoot && (
+  <HealthMonitor />
+)}
           </main>
         </div>
       </div>
