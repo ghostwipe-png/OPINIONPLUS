@@ -162,18 +162,18 @@ export default function VideoUploadPage() {
 
   // ── Direct TUS upload to Bunny (for files > 100 MB) ──
   const uploadDirectToBunny = async (videoId, bunnyVideoId, libraryId, apiKey) => {
-    const tusEndpoint = `https://video.bunnycdn.com/tusupload`;
+    const tusEndpoint = `https://video.bunnycdn.com/library/${libraryId}/videos/${bunnyVideoId}`;
     
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       tusUploadRef.current = xhr;
       
-      xhr.open('POST', tusEndpoint, true);
+      xhr.open('PUT', tusEndpoint, true);
       xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
       xhr.setRequestHeader('LibraryId', String(libraryId));
       xhr.setRequestHeader('VideoId', bunnyVideoId);
-      xhr.setRequestHeader('Content-Length', file.size);
-      xhr.setRequestHeader('Content-Type', 'application/offset+octet-stream');
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
