@@ -41,6 +41,17 @@ videos.get('/shorts', async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════
+// UPLOAD KEY — returns Bunny credentials for direct upload
+// ═══════════════════════════════════════════════════════
+
+videos.get('/upload-key', requireAuth, async (c) => {
+  return c.json({
+    apiKey: c.env.BUNNY_API_KEY,
+    libraryId: c.env.BUNNY_LIBRARY_ID,
+  });
+});
+
+// ═══════════════════════════════════════════════════════
 // EXISTING ROUTES (unchanged)
 // ═══════════════════════════════════════════════════════
 

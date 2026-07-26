@@ -5,11 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Upload, Film, CheckCircle, AlertCircle, Loader2, X, ArrowRight,
-  Clock, Eye, EyeOff, Globe, Lock, Tag, Calendar, Monitor, Play, Pause,
+  Clock, Eye, EyeOff, Globe, Lock, Tag, Monitor, Play, Pause,
 } from 'lucide-react';
 import { useAuth } from '../../../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+const DIRECT_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 
 const CATEGORIES = [
   { value: 'news', label: 'News' },
@@ -19,6 +20,8 @@ const CATEGORIES = [
   { value: 'music', label: 'Music' },
   { value: 'sports', label: 'Sports' },
   { value: 'technology', label: 'Technology' },
+  { value: 'movies', label: 'Movies' },
+  { value: 'series', label: 'Series' },
   { value: 'general', label: 'General' },
 ];
 
@@ -53,6 +56,7 @@ export default function VideoUploadPage() {
   const uploadStartRef = useRef(0);
   const lastLoadedRef = useRef(0);
   const speedIntervalRef = useRef(null);
+  const tusUploadRef = useRef(null);
 
   useEffect(() => {
     if (ready && !isAuthenticated) {
@@ -60,7 +64,6 @@ export default function VideoUploadPage() {
     }
   }, [ready, isAuthenticated, router]);
 
-  // Hide footer on this page
   useEffect(() => {
     const footer = document.querySelector('footer');
     const prevDisplay = footer ? footer.style.display : null;
@@ -70,7 +73,6 @@ export default function VideoUploadPage() {
     };
   }, []);
 
-  // Calculate upload speed and ETA
   useEffect(() => {
     if (!uploading || paused) {
       if (speedIntervalRef.current) clearInterval(speedIntervalRef.current);
@@ -98,8 +100,8 @@ export default function VideoUploadPage() {
     const selected = e.target.files?.[0];
     if (!selected) return;
 
-    if (selected.size > 2 * 1024 * 1024 * 1024) {
-      setErrorMsg('File size exceeds 2GB limit.');
+    if (selected.size > 5 * 1024 * 1024 * 1024) {
+      setErrorMsg('File size exceeds 5GB limit.');
       return;
     }
 
@@ -139,18 +141,109 @@ export default function VideoUploadPage() {
   };
 
   const pauseUpload = () => {
+    if (tusUploadRef.current) {
+      tusUploadRef.current.abort();
+      tusUploadRef.current = null;
+    }
     if (xhrRef.current) {
       xhrRef.current.abort();
-      setPaused(true);
-      setUploading(false);
-      setStatusMessage('Upload paused');
+      xhrRef.current = null;
     }
+    setPaused(true);
+    setUploading(false);
+    setStatusMessage('Upload paused');
   };
 
   const resumeUpload = () => {
     setPaused(false);
     setUploading(true);
     startUploadProcess();
+  };
+
+  // ── Direct TUS upload to Bunny (for files > 100 MB) ──
+  const uploadDirectToBunny = async (videoId, bunnyVideoId, libraryId, apiKey) => {
+    const tusEndpoint = `https://video.bunnycdn.com/tusupload`;
+    
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      tusUploadRef.current = xhr;
+      
+      xhr.open('POST', tusEndpoint, true);
+      xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+      xhr.setRequestHeader('LibraryId', String(libraryId));
+      xhr.setRequestHeader('VideoId', bunnyVideoId);
+      xhr.setRequestHeader('Content-Length', file.size);
+      xhr.setRequestHeader('Content-Type', 'application/offset+octet-stream');
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setProgress(percent);
+          lastLoadedRef.current = event.loaded;
+        }
+      };
+
+      xhr.onload = () => {
+        tusUploadRef.current = null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          let errText = 'Direct upload failed';
+          try {
+            const resJson = JSON.parse(xhr.responseText);
+            if (resJson.error) errText = resJson.error;
+          } catch (e) {}
+          reject(new Error(errText));
+        }
+      };
+
+      xhr.onerror = () => {
+        tusUploadRef.current = null;
+        reject(new Error('Network error during direct upload'));
+      };
+
+      xhr.send(file);
+    });
+  };
+
+  // ── Proxied upload through Worker (for files ≤ 100 MB) ──
+  const uploadViaWorker = async (videoId, csrfToken) => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
+      xhr.open('PUT', `${API_BASE}/videos/${videoId}/upload`, true);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setProgress(percent);
+          lastLoadedRef.current = event.loaded;
+        }
+      };
+
+      xhr.onload = () => {
+        xhrRef.current = null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          let errText = 'Upload failed';
+          try {
+            const resJson = JSON.parse(xhr.responseText);
+            if (resJson.error) errText = resJson.error;
+          } catch (e) {}
+          reject(new Error(errText));
+        }
+      };
+
+      xhr.onerror = () => {
+        xhrRef.current = null;
+        reject(new Error('Network error during video upload'));
+      };
+      xhr.send(file);
+    });
   };
 
   const startUploadProcess = async () => {
@@ -164,6 +257,8 @@ export default function VideoUploadPage() {
     setProgress(0);
     uploadStartRef.current = Date.now();
     lastLoadedRef.current = 0;
+
+    const isLargeFile = file.size > DIRECT_UPLOAD_THRESHOLD;
 
     try {
       setStatusMessage('Initializing video entry...');
@@ -191,45 +286,28 @@ export default function VideoUploadPage() {
       if (!createRes.ok) throw new Error(createData.error || 'Failed to initialize video upload');
 
       const videoId = createData.video.id;
+      const bunnyVideoId = createData.video.bunny_video_id;
 
-      setStatusMessage('Uploading video...');
+      if (isLargeFile) {
+        // Direct upload to Bunny for large files
+        setStatusMessage(`Uploading directly (large file: ${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        
+        // Fetch Bunny API key from backend
+        const bunnyKeyRes = await fetch(`${API_BASE}/videos/upload-key`, {
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': csrfToken },
+        });
+        const bunnyKeyData = await bunnyKeyRes.json().catch(() => ({}));
+        const bunnyApiKey = bunnyKeyData.apiKey || '';
 
-      await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhrRef.current = xhr;
-        xhr.open('PUT', `${API_BASE}/videos/${videoId}/upload`, true);
-        xhr.withCredentials = true;
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-        if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+        if (!bunnyApiKey) throw new Error('Could not get upload credentials');
 
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            setProgress(percent);
-            lastLoadedRef.current = event.loaded;
-          }
-        };
-
-        xhr.onload = async () => {
-          xhrRef.current = null;
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            let errText = 'Upload failed';
-            try {
-              const resJson = JSON.parse(xhr.responseText);
-              if (resJson.error) errText = resJson.error;
-            } catch (e) {}
-            reject(new Error(errText));
-          }
-        };
-
-        xhr.onerror = () => {
-          xhrRef.current = null;
-          reject(new Error('Network error during video upload'));
-        };
-        xhr.send(file);
-      });
+        await uploadDirectToBunny(videoId, bunnyVideoId, bunnyKeyData.libraryId || '713291', bunnyApiKey);
+      } else {
+        // Proxied upload through Worker for smaller files
+        setStatusMessage(`Uploading video (${(file.size / (1024 * 1024)).toFixed(0)} MB)...`);
+        await uploadViaWorker(videoId, csrfToken);
+      }
 
       setStatusMessage('Finalizing upload...');
       await fetch(`${API_BASE}/videos/${videoId}/upload-complete`, {
@@ -293,12 +371,6 @@ export default function VideoUploadPage() {
               <Monitor size={14} /> Watch Video
             </Link>
             <Link
-              href={`/videos/${completedVideoId}/edit`}
-              className="flex-1 border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider py-3.5 rounded-sm hover:border-ink transition-colors text-center"
-            >
-              Edit Details
-            </Link>
-            <Link
               href="/videos"
               className="flex-1 border border-wire bg-white text-ink font-bold uppercase text-xs tracking-wider py-3.5 rounded-sm hover:border-ink transition-colors text-center"
             >
@@ -309,6 +381,8 @@ export default function VideoUploadPage() {
       </div>
     );
   }
+
+  const isLargeFile = file && file.size > DIRECT_UPLOAD_THRESHOLD;
 
   return (
     <div className="bg-paper min-h-screen py-12 pb-24">
@@ -331,7 +405,9 @@ export default function VideoUploadPage() {
         <form onSubmit={startUpload} className="space-y-6">
           {/* File Drop Zone */}
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-widest text-ink-400 block">Video File (Max 2GB)</label>
+            <label className="text-xs font-bold uppercase tracking-widest text-ink-400 block">
+              Video File (Max 5GB{isLargeFile ? ' — Direct upload' : ''})
+            </label>
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
@@ -347,7 +423,10 @@ export default function VideoUploadPage() {
                       <Film className="text-signal shrink-0" size={24} />
                       <div>
                         <p className="text-xs font-bold text-ink truncate max-w-xs">{file.name}</p>
-                        <p className="text-[10px] text-ink-400 font-mono">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                        <p className="text-[10px] text-ink-400 font-mono">
+                          {(file.size / (1024 * 1024)).toFixed(2)} MB
+                          {isLargeFile && <span className="text-signal font-bold ml-1">· Direct Bunny upload</span>}
+                        </p>
                       </div>
                     </div>
                     {!uploading && (
@@ -374,7 +453,7 @@ export default function VideoUploadPage() {
                     <Upload size={24} />
                   </div>
                   <span className="text-xs font-bold uppercase tracking-wider text-ink">Click to browse or drag & drop video</span>
-                  <span className="text-[11px] text-ink-400">MP4, MOV, WEBM, AVI, MKV supported</span>
+                  <span className="text-[11px] text-ink-400">MP4, MOV, WEBM, AVI, MKV supported · Files over 100MB upload directly to Bunny</span>
                 </div>
               )}
               <input
@@ -484,21 +563,11 @@ export default function VideoUploadPage() {
                 {thumbnail ? thumbnail.name : 'Upload thumbnail image'}
               </button>
               {thumbnail && (
-                <button
-                  type="button"
-                  onClick={() => setThumbnail(null)}
-                  className="text-ink-400 hover:text-signal p-1"
-                >
+                <button type="button" onClick={() => setThumbnail(null)} className="text-ink-400 hover:text-signal p-1">
                   <X size={16} />
                 </button>
               )}
-              <input
-                ref={thumbInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleThumbnailSelect}
-                className="hidden"
-              />
+              <input ref={thumbInputRef} type="file" accept="image/*" onChange={handleThumbnailSelect} className="hidden" />
             </div>
             <p className="text-[10px] text-ink-400">JPEG or PNG, max 5MB. Auto-generated if not provided.</p>
           </div>
@@ -519,28 +588,19 @@ export default function VideoUploadPage() {
                 <span>{uploadSpeed > 0 ? `${uploadSpeed.toFixed(1)} MB/s` : 'Starting...'}</span>
                 <span className="flex items-center gap-1"><Clock size={10} /> {uploadEta || 'Calculating...'}</span>
               </div>
-              <button
-                type="button"
-                onClick={pauseUpload}
-                className="flex items-center gap-1.5 text-xs font-bold text-ink-500 hover:text-signal transition-colors"
-              >
+              <button type="button" onClick={pauseUpload} className="flex items-center gap-1.5 text-xs font-bold text-ink-500 hover:text-signal transition-colors">
                 <Pause size={14} /> Pause Upload
               </button>
             </div>
           )}
 
-          {/* Paused state */}
           {paused && !uploading && (
             <div className="bg-amber-50 border border-amber-200 p-6 rounded-sm space-y-3">
               <div className="flex items-center gap-2 text-amber-700">
                 <Pause size={16} />
                 <span className="text-xs font-bold uppercase tracking-wider">Upload paused — {progress}% complete</span>
               </div>
-              <button
-                type="button"
-                onClick={resumeUpload}
-                className="flex items-center gap-1.5 bg-ink text-white text-xs font-bold uppercase px-4 py-2 rounded-sm hover:bg-signal transition-colors"
-              >
+              <button type="button" onClick={resumeUpload} className="flex items-center gap-1.5 bg-ink text-white text-xs font-bold uppercase px-4 py-2 rounded-sm hover:bg-signal transition-colors">
                 <Play size={14} /> Resume Upload
               </button>
             </div>
