@@ -262,6 +262,15 @@ export default function Navbar() {
                   Sign In
                 </Link>
               )}
+
+              {isMasterAdmin && (
+  <Link
+    href="/admin"
+    className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-signal hover:text-white transition-colors focus-visible:outline-none flex items-center gap-1.5"
+  >
+    <ShieldCheck size={14} /> Admin
+  </Link>
+)}
               
               <Link
                 href="/publish"

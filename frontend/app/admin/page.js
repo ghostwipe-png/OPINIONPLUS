@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  Users as UsersIcon, FileText, Flag, ShieldPlus, Activity, ScrollText, Lock, CreditCard,
+  Users as UsersIcon, FileText, Flag, ShieldPlus, Activity, Film, BarChart3, ScrollText, Lock, CreditCard,
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
