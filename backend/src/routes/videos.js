@@ -306,7 +306,7 @@ videos.get('/:id/status', requireAuth, async (c) => {
       status = 'ready';
       progress = 100;
       const cdnHostname = c.env.BUNNY_CDN_HOSTNAME || 'iframe.mediadelivery.net';
-      thumbnailUrl = `https://${cdnHostname}/${video.bunny_library_id}/${video.bunny_video_id}/${bunnyData.thumbnailFileName || 'thumbnail.jpg'}`;
+      thumbnailUrl = `https://${cdnHostname}/${video.bunny_video_id}/${bunnyData.thumbnailFileName || 'thumbnail.jpg'}`;
 
       await c.env.DB.prepare(`
         UPDATE videos SET status = 'ready', duration_seconds = ?, thumbnail_url = ?, updated_at = datetime('now') WHERE id = ?
