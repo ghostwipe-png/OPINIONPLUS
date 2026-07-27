@@ -29,23 +29,22 @@ async function isCampusMember(db, campusId, userId) {
 
 // ── Helper: Update campus stats ────────────────────────
 async function updateCampusStats(db, campusId) {
-  const [stories, students, subscribers, views, likes, comments] = await Promise.all([
-    db.prepare('SELECT COUNT(*) as count FROM stories WHERE campus_id = ? AND deleted = 0').bind(campusId).first(),
-    db.prepare("SELECT COUNT(*) as count FROM campus_students WHERE campus_id = ? AND status = 'active'").bind(campusId).first(),
-    db.prepare('SELECT COUNT(*) as count FROM campus_subscriptions WHERE campus_id = ?').bind(campusId).first(),
-    db.prepare('SELECT COALESCE(SUM(view_count), 0) as total FROM stories WHERE campus_id = ? AND deleted = 0').bind(campusId).first(),
-    db.prepare('SELECT COALESCE(SUM(json_array_length(likes)), 0) as total FROM stories WHERE campus_id = ? AND deleted = 0').bind(campusId).first(),
-    db.prepare('SELECT COALESCE(SUM(json_array_length(comments)), 0) as total FROM stories WHERE campus_id = ? AND deleted = 0').bind(campusId).first(),
-  ]);
-  await db.prepare(
-    `INSERT INTO campus_stats (campus_id, total_stories, total_students, total_subscribers, total_views, total_likes, total_comments, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(campus_id) DO UPDATE SET
-     total_stories = excluded.total_stories, total_students = excluded.total_students,
-     total_subscribers = excluded.total_subscribers, total_views = excluded.total_views,
-     total_likes = excluded.total_likes, total_comments = excluded.total_comments,
-     updated_at = datetime('now')`
-  ).bind(campusId, stories?.count || 0, students?.count || 0, subscribers?.count || 0, views?.total || 0, likes?.total || 0, comments?.total || 0).run();
+  try {
+    const [stories, students, subscribers] = await Promise.all([
+      db.prepare('SELECT COUNT(*) as count FROM stories WHERE campus_id = ? AND deleted = 0').bind(campusId).first(),
+      db.prepare("SELECT COUNT(*) as count FROM campus_students WHERE campus_id = ? AND status = 'active'").bind(campusId).first(),
+      db.prepare('SELECT COUNT(*) as count FROM campus_subscriptions WHERE campus_id = ?').bind(campusId).first(),
+    ]);
+    await db.prepare(
+      `INSERT INTO campus_stats (campus_id, total_stories, total_students, total_subscribers, total_views, total_likes, total_comments, updated_at)
+       VALUES (?, ?, ?, ?, 0, 0, 0, datetime('now'))
+       ON CONFLICT(campus_id) DO UPDATE SET
+       total_stories = excluded.total_stories, total_students = excluded.total_students,
+       total_subscribers = excluded.total_subscribers, updated_at = datetime('now')`
+    ).bind(campusId, stories?.count || 0, students?.count || 0, subscribers?.count || 0).run();
+  } catch (e) {
+    console.error('updateCampusStats error:', e);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -277,11 +276,12 @@ campuses.post('/:id/students', requireAuth, async (c) => {
   try {
     const user = c.get('user');
     const id = c.req.param('id');
-    const isAdmin = await isCampusAdmin(c.env.DB, id, user.id);
-    if (!isAdmin) return c.json({ error: 'Unauthorized' }, 403);
-
     const { userId } = await c.req.json();
     if (!userId) return c.json({ error: 'userId is required' }, 400);
+
+    // Allow self-join, or admin adding others
+    const isAdmin = await isCampusAdmin(c.env.DB, id, user.id);
+    if (!isAdmin && userId !== user.id) return c.json({ error: 'Unauthorized' }, 403);
 
     await c.env.DB.prepare(
       "INSERT OR IGNORE INTO campus_students (campus_id, user_id, role, status) VALUES (?, ?, 'journalist', 'active')"
@@ -645,5 +645,31 @@ campuses.get('/:id/stats', async (c) => {
 //   
 //   return c.json({ campusId, ok: true });
 // });
+
+// ═══════════════════════════════════════════════════════
+// ADMIN: DELETE CAMPUS (platform admin or campus creator)
+// ═══════════════════════════════════════════════════════
+
+campuses.delete('/:id', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const id = c.req.param('id');
+    const campus = await c.env.DB.prepare('SELECT * FROM campus_editions WHERE id = ?').bind(id).first();
+    if (!campus) return c.json({ error: 'Campus not found' }, 404);
+
+    // Allow platform admin/root OR the campus creator (user_id on campus_editions)
+    const isPlatformAdmin = user.role === 'admin' || user.role === 'root';
+    const isCreator = campus.user_id === user.id;
+    if (!isPlatformAdmin && !isCreator) return c.json({ error: 'Unauthorized' }, 403);
+
+    // Soft delete — set status to 'deleted'
+    await c.env.DB.prepare("UPDATE campus_editions SET status = 'deleted' WHERE id = ?").bind(id).run();
+
+    await logEvent(c, 'campus_deleted', { campusId: id, deletedBy: user.email });
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to delete campus' }, 500);
+  }
+});
 
 export default campuses;

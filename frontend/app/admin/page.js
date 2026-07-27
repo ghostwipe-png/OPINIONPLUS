@@ -1565,10 +1565,25 @@ export default function AdminPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <Link href={`/campuses/${c.id}`} target="_blank" className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink transition-colors">
-                  View
-                </Link>
-              </div>
+  <Link href={`/campuses/${c.id}`} target="_blank" className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink transition-colors">
+    View
+  </Link>
+  <button
+    onClick={() => runGated(`Delete ${c.university_name}? This cannot be undone.`, async () => {
+      const token = getCsrfToken();
+      await fetch(`${API_BASE}/campuses/${c.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': token }
+      });
+      showToast('Campus deleted');
+      loadCampuses();
+    })}
+    className="border border-red-200 bg-red-50 hover:bg-signal text-signal hover:text-white px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider transition-colors"
+  >
+    Delete
+  </button>
+</div>
             </div>
           ))
         )}
