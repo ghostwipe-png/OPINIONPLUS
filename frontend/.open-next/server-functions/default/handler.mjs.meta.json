@@ -3247,7 +3247,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-      "bytes": 351672,
+      "bytes": 351477,
       "imports": [
         {
           "path": "path",
@@ -3724,7 +3724,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/services/press-release/page.js": {
-      "bytes": 54341,
+      "bytes": 54408,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4120,7 +4120,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/services/api/page.js": {
-      "bytes": 29416,
+      "bytes": 79434,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5640,7 +5640,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-      "bytes": 144744,
+      "bytes": 144823,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -8575,7 +8575,7 @@
           "bytesInOutput": 586
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-          "bytesInOutput": 312523
+          "bytesInOutput": 312342
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/app-render/action-async-storage-instance.js": {
           "bytesInOutput": 501
@@ -8659,7 +8659,7 @@
           "bytesInOutput": 1869
         },
         ".open-next/server-functions/default/.next/server/app/services/press-release/page.js": {
-          "bytesInOutput": 55154
+          "bytesInOutput": 55228
         },
         ".open-next/server-functions/default/.next/server/app/services/sponsored/page.js": {
           "bytesInOutput": 27837
@@ -8677,7 +8677,7 @@
           "bytesInOutput": 123730
         },
         ".open-next/server-functions/default/.next/server/app/services/api/page.js": {
-          "bytesInOutput": 29716
+          "bytesInOutput": 80792
         },
         ".open-next/server-functions/default/.next/server/app/services/sms/page.js": {
           "bytesInOutput": 26109
@@ -8773,7 +8773,7 @@
           "bytesInOutput": 28181
         },
         ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-          "bytesInOutput": 147286
+          "bytesInOutput": 147372
         },
         ".open-next/server-functions/default/.next/server/app/rooms/page.js": {
           "bytesInOutput": 20127
@@ -8908,7 +8908,7 @@
           "bytesInOutput": 68784
         }
       },
-      "bytes": 3890956
+      "bytes": 3942011
     }
   }
 }
