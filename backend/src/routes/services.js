@@ -1,4 +1,8 @@
 // backend/src/routes/services.js
+// NOTE: API service routes have been extracted to ./api-service.js
+// API packages, keys, webhooks, logs, etc. are now handled there.
+// The shared payment routes below are still used by SMS, Press Release, and Sponsored Content.
+
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { verifyPaystackWebhook } from '../middleware/paystackWebhook.js';
@@ -8,8 +12,7 @@ const services = new Hono();
 const SERVICE_TABLES = {
   sms: 'sms_packages',
   press_release: 'press_release_packages',
-  sponsored: 'sponsored_packages',
-  api: 'api_packages'
+  sponsored: 'sponsored_packages'
 };
 
 // ---------------------------------------------------------------------------
@@ -114,19 +117,8 @@ async function provisionService(db, order) {
         .bind(pkg.duration_days, pkg.impressions_goal, order.id).run();
       console.log(`Sponsored content package activated for ${pkg.duration_days} days for user ${user_email}`);
     }
-  } else if (service_type === 'api') {
-    const pkg = await db.prepare(`SELECT requests_per_day FROM api_packages WHERE id = ?`).bind(package_id).first();
-    const tier = package_id || (pkg ? package_id : 'pro');
-    const existingKey = await db.prepare('SELECT id FROM api_keys WHERE user_id = ?').bind(user_id).first();
-    if (!existingKey) {
-      const newKey = `op_${crypto.randomUUID().replace(/-/g, '')}`;
-      await db.prepare('INSERT INTO api_keys (id, user_id, key, name, tier, requests_today) VALUES (?, ?, ?, ?, ?, 0)')
-        .bind(crypto.randomUUID(), user_id, newKey, 'Default Production Key', tier).run();
-    } else {
-      await db.prepare('UPDATE api_keys SET tier = ?, requests_today = 0 WHERE user_id = ?').bind(tier, user_id).run();
-    }
-    console.log(`API access upgraded to ${tier} for user ${user_email}`);
   }
+  // NOTE: API service provisioning moved to ./api-service.js
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +262,11 @@ services.get('/check/:serviceType', requireAuth, async (c) => {
   const user = c.get('user');
   const serviceType = c.req.param('serviceType');
 
+  // API check moved to /api-service/check — redirect if called here
+  if (serviceType === 'api') {
+    return c.json({ active: false, message: 'API service check moved to /api-service/check' });
+  }
+
   try {
     const activeOrder = await c.env.DB.prepare(
       "SELECT * FROM service_orders WHERE (user_id = ? OR user_email = ?) AND service_type = ? AND (paystack_status = 'success' OR paystack_status = 'admin_grant') AND status = 'active' ORDER BY created_at DESC LIMIT 1"
@@ -338,7 +335,7 @@ services.get('/orders/:id', requireAuth, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Execution & Content Dispatch Endpoints (Restored + Dual Checked)
+// Execution & Content Dispatch Endpoints
 // ---------------------------------------------------------------------------
 
 services.get('/user/sms-credits', requireAuth, async (c) => {
@@ -387,7 +384,7 @@ services.post('/sms/send', requireAuth, async (c) => {
   }
 });
 
-// PRESS RELEASE DISPATCH ENDPOINT: Uses user_id OR user_email to safely verify Root Admins
+// PRESS RELEASE DISPATCH ENDPOINT
 services.post('/content/press-release', requireAuth, async (c) => {
   const user = c.get('user');
   let body;
@@ -395,7 +392,6 @@ services.post('/content/press-release', requireAuth, async (c) => {
 
   const {
     title, content, company,
-    // NEW (all optional — existing callers that only send title/content/company keep working exactly as before)
     media_contact_name, media_contact_email, media_contact_phone,
     company_logo_url, company_website,
     meta_title, meta_description, meta_keywords,
@@ -414,13 +410,6 @@ services.post('/content/press-release', requireAuth, async (c) => {
     return c.json({ error: 'Company website URL is invalid.' }, 400);
   }
 
-  //const order = await c.env.DB.prepare(
-  //  "SELECT id FROM service_orders WHERE (user_id = ? OR user_email = ?) AND service_type = 'press_release' AND status = 'active' AND (paystack_status = 'success' OR paystack_status = 'admin_grant') ORDER BY created_at DESC LIMIT 1"
-  //).bind(user.id, user.email).first();
-
-  //if (!order) return c.json({ error: 'No active press release order found. Please purchase or renew a package.' }, 403);
-
-  // If the release is scheduled for the future, don't publish to the public feed yet.
   const isScheduled = scheduled_at && new Date(scheduled_at).getTime() > Date.now();
 
   try {
@@ -432,12 +421,8 @@ services.post('/content/press-release', requireAuth, async (c) => {
       await c.env.DB.prepare(
         'INSERT INTO stories (id, author_id, title, body, type, privacy, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))'
       ).bind(storyId, user.id, fullTitle, content, 'press_release', 'public').run();
-
-      //await c.env.DB.prepare("UPDATE service_orders SET status = 'completed', updated_at = datetime('now') WHERE id = ?").bind(order.id).run();
     }
 
-    // NEW: also record the release in the dedicated press_releases table so it can be
-    // tracked, scheduled, edited, boosted, and measured via the new endpoints below.
     const releaseId = crypto.randomUUID();
     try {
       await c.env.DB.prepare(
@@ -451,7 +436,7 @@ services.post('/content/press-release', requireAuth, async (c) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         releaseId, storyId, null, user.id, user.email, title, company, content,
-        isScheduled ? 'scheduled' : 'published',  //REplace null with 'order.id' if scheduled_at is in the future, else 'published'
+        isScheduled ? 'scheduled' : 'published',
         scheduled_at || null, isScheduled ? null : new Date().toISOString(), embargo_until || null,
         meta_title || null, meta_description || null, meta_keywords || null,
         media_contact_name || null, media_contact_email || null, media_contact_phone || null,
@@ -459,7 +444,6 @@ services.post('/content/press-release', requireAuth, async (c) => {
         target_category || null, target_region || null, target_county || null
       ).run();
     } catch (innerErr) {
-      // Never let the new tracking table break the original submission flow.
       await logEvent(c, 'press_release_record_create_failed', { message: innerErr.message });
     }
 
@@ -472,7 +456,7 @@ services.post('/content/press-release', requireAuth, async (c) => {
   }
 });
 
-// SPONSORED DISPATCH ENDPOINT: Uses user_id OR user_email to safely verify Root Admins
+// SPONSORED DISPATCH ENDPOINT
 services.post('/content/sponsored', requireAuth, async (c) => {
   const user = c.get('user');
   let body;
@@ -495,14 +479,12 @@ services.post('/content/sponsored', requireAuth, async (c) => {
 
     if (!order) return c.json({ error: 'No active sponsored placement order found.' }, 403);
 
-    // 1. Update order metadata
     const metadata = JSON.parse(order.metadata || '{}');
     metadata.campaign = { headline, body: content, ctaUrl, updatedAt: new Date().toISOString() };
 
     await c.env.DB.prepare('UPDATE service_orders SET metadata = ? WHERE id = ?')
       .bind(JSON.stringify(metadata), order.id).run();
 
-    // 2. Insert or update entry in the stories table so it appears on the homepage feed
     const existingStory = await c.env.DB.prepare('SELECT id FROM stories WHERE author_id = ? AND type = ? AND title = ?').bind(user.id, 'sponsored', headline).first();
     
     if (!existingStory) {
@@ -525,7 +507,6 @@ services.post('/content/sponsored', requireAuth, async (c) => {
 // Press Release: History, Detail, Edit, Delete
 // ---------------------------------------------------------------------------
 
-// NOTE: placed before '/press-release/:id' so it isn't captured by the :id param
 services.get('/press-release/history', requireAuth, async (c) => {
   const user = c.get('user');
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10) || 1);
@@ -586,7 +567,6 @@ export async function publishScheduledPressReleases(env) {
   return published;
 }
 
-// ADMIN: list/search/stat all press releases across all users, for the admin dashboard tab.
 services.get('/press-release/admin/list', requireAuth, async (c) => {
   const user = c.get('user');
   if (user.role !== 'admin' && user.role !== 'root') return c.json({ error: 'Forbidden' }, 403);
@@ -649,8 +629,6 @@ services.get('/press-release/admin/list', requireAuth, async (c) => {
 });
 
 services.post('/press-release/publish-scheduled', async (c) => {
-  // Cron/admin helper. Protected by a shared secret rather than user auth since it
-  // may be invoked by a scheduled worker without a logged-in session.
   const token = c.req.query('token') || c.req.header('X-Cron-Secret');
   if (!c.env.CRON_SECRET || token !== c.env.CRON_SECRET) {
     const user = c.get('user');
@@ -695,7 +673,6 @@ services.patch('/press-release/:id', requireAuth, async (c) => {
   const { release, error, status } = await loadOwnedRelease(c, id);
   if (error) return c.json({ error }, status);
 
-  // Allow edits within 24 hours of publishing (or any time before publishing).
   if (release.published_at) {
     const publishedMs = new Date(release.published_at).getTime();
     if (Date.now() - publishedMs > 24 * 60 * 60 * 1000) {
@@ -739,7 +716,6 @@ services.patch('/press-release/:id', requireAuth, async (c) => {
   try {
     await c.env.DB.prepare(`UPDATE press_releases SET ${updates.join(', ')}, updated_at = datetime('now') WHERE id = ?`).bind(...values).run();
 
-    // Keep the published story in sync if title/content/company changed post-publish.
     if (release.story_id && (body.title || body.content || body.company)) {
       const newTitle = `${body.company || release.company}: ${body.title || release.title}`;
       await c.env.DB.prepare('UPDATE stories SET title = ?, body = ? WHERE id = ?')
@@ -974,13 +950,13 @@ services.post('/press-release/:id/boost', requireAuth, async (c) => {
   // - Auth: release owner
   // - Body: { duration_days }
   // - Calculate amount: KES 500/day
-  // - Initialize Paystack transaction (see services.post('/pay', ...) above for the pattern)
+  // - Initialize Paystack transaction
   // - Return: { authorization_url, reference }
   //
   // POST /services/press-release/:id/boost/verify
   // - Auth: release owner
   // - Body: { reference }
-  // - Verify Paystack payment (see services.get('/verify/:reference', ...) above for the pattern)
+  // - Verify Paystack payment
   // - Create boost record
   // - Return: { boost }
 
@@ -988,7 +964,6 @@ services.post('/press-release/:id/boost', requireAuth, async (c) => {
     const boostId = crypto.randomUUID();
     const endsAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
 
-    // For now (FREE): insert directly with amount_paid = 0.
     await c.env.DB.prepare(
       'INSERT INTO press_release_boosts (id, release_id, user_id, duration_days, ends_at, status, amount_paid) VALUES (?, ?, ?, ?, ?, ?, 0)'
     ).bind(boostId, id, user.id, durationDays, endsAt, 'active').run();

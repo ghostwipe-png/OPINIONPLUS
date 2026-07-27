@@ -24,6 +24,7 @@ import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services, { publishScheduledPressReleases } from './routes/services.js';
+import apiService from './routes/api-service.js'; // NEW: Standalone API service
 import health from './routes/health.js';
 import videos, {
   channels as videoChannels,
@@ -190,6 +191,8 @@ app.use('*', async (c, next) => {
   if (c.req.path === '/services/webhook') return await next();
   // Public, unauthenticated view-tracking pixel for press releases — no session/CSRF cookie to check.
   if (/^\/services\/press-release\/[^/]+\/track-view$/.test(c.req.path)) return await next();
+  // Public API v1 endpoints — authenticated via API key, not session cookie
+  if (c.req.path.startsWith('/api-service/v1/')) return await next();
   return csrfProtection(c, next);
 });
 
@@ -283,6 +286,8 @@ app.route('/rooms', rooms);
 app.route('/jobs', jobs);
 app.route('/campuses', campuses);
 app.route('/services', services);
+app.route('/api-service', apiService); // NEW: Standalone API service
+app.route('/services/api', apiService); // NEW: Backward compat — /services/api/* still works
 app.route('/videos', videos);
 app.route('/channels', videoChannels);
 app.route('/subs', videoSubscriptionsFeed);
@@ -372,6 +377,43 @@ const worker = {
       }));
       jobs.push(runCronJob('publish-scheduled-press-releases', async () => {
         return await publishScheduledPressReleases(env);
+      }));
+      // NEW: API log cleanup (90-day retention) + webhook retries
+      jobs.push(runCronJob('api-log-cleanup', async () => {
+        await env.DB.prepare("DELETE FROM api_request_logs WHERE created_at < datetime('now', '-90 days')").run();
+      }));
+      jobs.push(runCronJob('api-webhook-retries', async () => {
+        // Retry failed webhook deliveries from last 24h (up to 3 attempts total)
+        try {
+          const { results } = await env.DB.prepare(
+            "SELECT w.*, l.id as log_id FROM api_webhook_logs l JOIN api_webhooks w ON l.webhook_id = w.id WHERE l.success = 0 AND l.created_at >= datetime('now', '-24 hours') AND w.is_active = 1"
+          ).all();
+          
+          for (const row of results) {
+            const attempts = await env.DB.prepare(
+              "SELECT COUNT(*) as count FROM api_webhook_logs WHERE webhook_id = ? AND event_type = ? AND created_at >= datetime('now', '-24 hours')"
+            ).bind(row.webhook_id, row.event_type).first();
+            
+            if ((attempts?.count || 0) < 3) {
+              try {
+                const start = Date.now();
+                const res = await fetch(row.webhook_url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-OP-Event': row.event_type },
+                  body: row.payload,
+                });
+                const responseTime = Date.now() - start;
+                await env.DB.prepare(
+                  'INSERT INTO api_webhook_logs (id, webhook_id, event_type, payload, response_status, response_time_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                ).bind(crypto.randomUUID(), row.webhook_id, row.event_type, row.payload, res.status, responseTime, res.ok ? 1 : 0).run();
+              } catch (e) {
+                await env.DB.prepare(
+                  'INSERT INTO api_webhook_logs (id, webhook_id, event_type, payload, response_status, response_time_ms, success) VALUES (?, ?, ?, ?, 0, 0, 0)'
+                ).bind(crypto.randomUUID(), row.webhook_id, row.event_type, row.payload).run();
+              }
+            }
+          }
+        } catch (e) { /* silently fail — webhook retries are best-effort */ }
       }));
     }
 

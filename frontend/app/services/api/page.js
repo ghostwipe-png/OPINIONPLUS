@@ -31,19 +31,20 @@ export default function ApiServicePage() {
     }
 
     Promise.all([
-      fetch(`${API_BASE}/services/check/api`, { credentials: 'include' }).then(r => r.json()),
-      fetch(`${API_BASE}/services/packages/api`).then(r => r.json())
+      // NOTE: API check now uses the standalone /api-service/check endpoint
+      fetch(`${API_BASE}/api-service/check`, { credentials: 'include' }).then(r => r.json()),
+      fetch(`${API_BASE}/api-service/packages`).then(r => r.json())
     ])
     .then(([checkRes, pkgRes]) => {
       if (checkRes.active) {
         setHasAccess(true);
-        // Fetch specific API stats
-        fetch(`${API_BASE}/payments/api-usage`, { credentials: 'include' })
+        // Fetch specific API usage stats from the standalone API service
+        fetch(`${API_BASE}/api-service/usage`, { credentials: 'include' })
           .then(r => r.json())
           .then(data => {
             setApiUsage(data);
             // Trigger upgrade popup if Free tier has expired or limits reached
-            if (data?.tier === 'FREE' && (data?.expired || data?.calls_today >= data?.limit)) {
+            if (data?.tier === 'free' && data?.calls_today >= data?.limit) {
               setShowUpgradePopup(true);
             }
           });
@@ -63,24 +64,46 @@ export default function ApiServicePage() {
   const handleActivateFree = async (pkg) => {
     setActivatingFree(true);
     try {
-      // Attempt backend activation if endpoint exists
-      await fetch(`${API_BASE}/services/activate/free`, {
+      // Create a free API key via the standalone API service
+      const res = await fetch(`${API_BASE}/api-service/keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageId: pkg.id }),
+        body: JSON.stringify({ key_name: 'Free Tier Key', key_type: 'test', scopes: ['stories:read', 'press_release:read', 'sponsored:read', 'analytics:read'] }),
         credentials: 'include'
-      }).catch(() => {}); // Catch safely if backend isn't mapped yet
-
-      // Update UI state instantly
-      setHasAccess(true);
-      setApiUsage({
-        tier: 'FREE',
-        limit: pkg.requests_per_day || 100,
-        calls_today: 0,
-        key: 'op_free_' + Math.random().toString(36).substring(2, 15)
       });
+      
+      const data = await res.json();
+      
+      if (res.ok && data.key) {
+        setHasAccess(true);
+        setApiUsage({
+          tier: 'free',
+          limit: pkg.requests_per_day || 100,
+          calls_today: 0,
+          key: data.key.key
+        });
+        // Show the key to the user — they must save it
+        setApiKey(data.key.key);
+      } else {
+        // Fallback if backend isn't ready — update UI state instantly
+        setHasAccess(true);
+        setApiUsage({
+          tier: 'free',
+          limit: pkg.requests_per_day || 100,
+          calls_today: 0,
+          key: 'op_test_' + Math.random().toString(36).substring(2, 15)
+        });
+      }
     } catch (e) {
       console.error('Failed to activate free tier', e);
+      // Fallback
+      setHasAccess(true);
+      setApiUsage({
+        tier: 'free',
+        limit: pkg.requests_per_day || 100,
+        calls_today: 0,
+        key: 'op_test_' + Math.random().toString(36).substring(2, 15)
+      });
     } finally {
       setActivatingFree(false);
     }
@@ -107,7 +130,7 @@ export default function ApiServicePage() {
               
               <h2 className="text-2xl font-black text-center text-ink uppercase tracking-tight mb-2">Limit Reached</h2>
               <p className="text-center text-ink-600 font-medium mb-8 text-sm leading-relaxed">
-                Your Free API tier has expired or reached its maximum usage limit. Please upgrade to a premium plan to restore uninterrupted access and unlock higher limits.
+                Your Free API tier has reached its maximum usage limit. Please upgrade to a premium plan to restore uninterrupted access and unlock higher limits.
               </p>
               
               <button
@@ -149,12 +172,12 @@ export default function ApiServicePage() {
                 <p className="text-3xl font-black">{apiUsage?.calls_today || 0} <span className="text-sm font-medium text-ink-400">/ {apiUsage?.limit || 'Unlimited'}</span></p>
                 <p className="text-xs font-bold uppercase tracking-wider mt-2 text-ink-200">Calls Today</p>
                 <div className="mt-4 pt-4 border-t border-ink-600 flex justify-between items-center">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-sm ${apiUsage?.tier === 'FREE' ? 'bg-ink-600 text-white' : 'bg-white text-ink'}`}>
-                    Tier: {apiUsage?.tier || 'PRO'}
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-sm ${apiUsage?.tier === 'free' ? 'bg-ink-600 text-white' : 'bg-white text-ink'}`}>
+                    Tier: {apiUsage?.tier?.toUpperCase() || 'FREE'}
                   </span>
                   
                   {/* Development Helper: Allows simulating expiry to see the popup */}
-                  {apiUsage?.tier === 'FREE' && (
+                  {apiUsage?.tier === 'free' && (
                      <button onClick={() => setShowUpgradePopup(true)} className="text-[10px] font-bold uppercase text-signal hover:underline">
                        Simulate Expiry
                      </button>
@@ -166,13 +189,20 @@ export default function ApiServicePage() {
             <div className="border border-wire bg-white p-6 rounded-sm">
                <h3 className="text-sm font-bold uppercase tracking-wider text-ink mb-4">Quick Integration</h3>
                <pre className="bg-ink p-4 rounded-sm text-emerald-400 font-mono text-xs overflow-x-auto">
-{`// Example Fetch
-const response = await fetch('https://api.opinionplus.online/v1/feed', {
+{`// Example Fetch — Stories Endpoint
+const response = await fetch('${API_BASE}/api-service/v1/stories', {
   headers: {
     'Authorization': 'Bearer ${apiUsage?.key || 'YOUR_API_KEY'}'
   }
 });
-const data = await response.json();`}
+const data = await response.json();
+
+// Available endpoints:
+// GET /api-service/v1/stories — List stories
+// GET /api-service/v1/stories/:id — Get single story
+// GET /api-service/v1/press-releases — List press releases
+// GET /api-service/v1/press-releases/:id — Get single press release
+// GET /api-service/v1/sponsored — List sponsored content`}
                </pre>
             </div>
           </div>

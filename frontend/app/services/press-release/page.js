@@ -3,8 +3,9 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../lib/auth';
-import ServicePaymentButton from '../../../components/ServicePaymentButton';
-import ServicePaymentVerify from '../../../components/ServicePaymentVerify';
+// PAYMENT: Uncomment when ready to charge for press release packages
+// import ServicePaymentButton from '../../../components/ServicePaymentButton';
+// import ServicePaymentVerify from '../../../components/ServicePaymentVerify';
 import PressReleaseCard from '../../../components/PressReleaseCard';
 import PressReleaseAnalytics from '../../../components/PressReleaseAnalytics';
 import PressKitUploader from '../../../components/PressKitUploader';
@@ -40,7 +41,10 @@ const emptyForm = {
 export default function PressReleasePage() {
   const { user, ready } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [hasAccess, setHasAccess] = useState(false);
+  // PAYMENT: default is `true` because the platform is currently free.
+  // When payments are re-enabled, flip this back to `false` and let the
+  // effect below (and ServicePaymentVerify) set it once an order is active.
+  const [hasAccess, setHasAccess] = useState(true);
   const [packages, setPackages] = useState([]);
 
   const [activeTab, setActiveTab] = useState('purchase');
@@ -72,16 +76,23 @@ export default function PressReleasePage() {
       return;
     }
 
-    Promise.all([
-      fetch(`${API_BASE}/services/check/press_release`, { credentials: 'include' }).then(r => r.json()),
-      fetch(`${API_BASE}/services/packages/press_release`).then(r => r.json())
-    ])
-      .then(([checkRes, pkgRes]) => {
-        if (checkRes.active) setHasAccess(true);
-        if (pkgRes.packages) setPackages(pkgRes.packages);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    // PAYMENT: Uncomment when ready to charge for press release packages.
+    // This used to gate `hasAccess` on an active paid order; for now the
+    // platform is free, so `hasAccess` stays true (see initial state above)
+    // and we skip the network round-trip entirely.
+    //
+    // Promise.all([
+    //   fetch(`${API_BASE}/services/check/press_release`, { credentials: 'include' }).then(r => r.json()),
+    //   fetch(`${API_BASE}/services/packages/press_release`).then(r => r.json())
+    // ])
+    //   .then(([checkRes, pkgRes]) => {
+    //     if (checkRes.active) setHasAccess(true);
+    //     if (pkgRes.packages) setPackages(pkgRes.packages);
+    //   })
+    //   .catch(() => {})
+    //   .finally(() => setLoading(false));
+
+    setLoading(false);
   }, [ready, user]);
 
   const loadHistory = useCallback(async (pageNum = 1) => {
@@ -234,7 +245,7 @@ export default function PressReleasePage() {
   if (!ready || loading) return <div className="min-h-screen grid place-items-center"><Loader2 className="animate-spin text-ink" /></div>;
 
   const TABS = [
-    { id: 'purchase', label: 'Purchase Packages', icon: ShoppingBag, visible: true },
+    { id: 'purchase', label: 'Purchase Packages', icon: ShoppingBag, visible: false },
     { id: 'submit', label: 'Submit Release', icon: UploadCloud, visible: true },
     { id: 'history', label: 'Release History', icon: History, visible: true },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, visible: true },
@@ -243,7 +254,9 @@ export default function PressReleasePage() {
   return (
     <div className="min-h-screen bg-paper py-12 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto">
+        {/* PAYMENT: Uncomment when ready to charge for press release packages
         <ServicePaymentVerify serviceType="press_release" onVerified={() => setHasAccess(true)} />
+        */}
 
         <div className="mb-8 border-b-2 border-wire pb-6">
           <h1 className="text-3xl font-black text-ink flex items-center gap-3 uppercase tracking-tight">
@@ -274,6 +287,9 @@ export default function PressReleasePage() {
           </div>
         )}
 
+        {/* PAYMENT: Uncomment when ready to charge for press release packages.
+        The platform is currently free, so this purchase panel never renders
+        (hasAccess is always true and the "purchase" tab is hidden above).
         {(!hasAccess || activeTab === 'purchase') && (
           <div className="grid md:grid-cols-2 gap-6">
             {packages.length === 0 && (
@@ -293,6 +309,7 @@ export default function PressReleasePage() {
             ))}
           </div>
         )}
+        */}
 
         {hasAccess && activeTab === 'submit' && (
           success ? (
