@@ -23,7 +23,7 @@ import polls from './routes/polls.js';
 import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
-import services from './routes/services.js';
+import services, { publishScheduledPressReleases } from './routes/services.js';
 import health from './routes/health.js';
 import videos, {
   channels as videoChannels,
@@ -188,6 +188,8 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/campuses/')) return await next();
   if (c.req.path === '/payments/webhook') return await next();
   if (c.req.path === '/services/webhook') return await next();
+  // Public, unauthenticated view-tracking pixel for press releases — no session/CSRF cookie to check.
+  if (/^\/services\/press-release\/[^/]+\/track-view$/.test(c.req.path)) return await next();
   return csrfProtection(c, next);
 });
 
@@ -367,6 +369,9 @@ const worker = {
           return await storiesModule.publishScheduledStories(env);
         }
         return null;
+      }));
+      jobs.push(runCronJob('publish-scheduled-press-releases', async () => {
+        return await publishScheduledPressReleases(env);
       }));
     }
 

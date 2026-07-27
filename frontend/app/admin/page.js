@@ -7,7 +7,7 @@ import {
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
-  KeyRound, Server, FileDown, UserCog, GraduationCap, Clock, UserX, Briefcase
+  KeyRound, Server, FileDown, UserCog, GraduationCap, Megaphone, Clock, UserX, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -15,6 +15,7 @@ import VideoManagement from '../../components/admin/VideoManagement';
 import HealthMonitor from '../../components/admin/HealthMonitor';
 import PlatformAnalytics from '../../components/admin/PlatformAnalytics';
 import CampusLeaderboard from '../../components/CampusLeaderboard';
+import PressReleaseAdminTab from './PressReleaseAdminTab';
 
 const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -582,6 +583,7 @@ export default function AdminPage() {
     ...(isRoot ? [{ id: 'analytics', label: 'Analytics', icon: BarChart3 }] : []),
     ...(isRoot ? [{ id: 'health-monitor', label: 'Health', icon: Activity }] : []),
     ...(isRoot ? [{ id: 'campuses-admin', label: 'Campuses', icon: GraduationCap }] : []),
+    ...(isRoot ? [{ id: 'press-releases', label: 'Press Releases', icon: Megaphone }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
@@ -1591,6 +1593,7 @@ export default function AdminPage() {
     )}
   </div>
 )}
+{tab === 'press-releases' && isRoot && <PressReleaseAdminTab />}
           </main>
         </div>
       </div>

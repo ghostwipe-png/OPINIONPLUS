@@ -3247,7 +3247,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-      "bytes": 351646,
+      "bytes": 351327,
       "imports": [
         {
           "path": "path",
@@ -3724,7 +3724,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/services/press-release/page.js": {
-      "bytes": 26305,
+      "bytes": 59079,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -3856,7 +3856,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/campuses/[id]/page.js": {
-      "bytes": 42836,
+      "bytes": 42892,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4648,7 +4648,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/story/[id]/page.js": {
-      "bytes": 50312,
+      "bytes": 50375,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5044,7 +5044,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/publish/page.js": {
-      "bytes": 67529,
+      "bytes": 67594,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5640,7 +5640,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-      "bytes": 112783,
+      "bytes": 120337,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -8575,7 +8575,7 @@
           "bytesInOutput": 586
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-          "bytesInOutput": 312497
+          "bytesInOutput": 312199
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/app-render/action-async-storage-instance.js": {
           "bytesInOutput": 501
@@ -8659,13 +8659,13 @@
           "bytesInOutput": 1869
         },
         ".open-next/server-functions/default/.next/server/app/services/press-release/page.js": {
-          "bytesInOutput": 26550
+          "bytesInOutput": 59964
         },
         ".open-next/server-functions/default/.next/server/app/services/sponsored/page.js": {
           "bytesInOutput": 27837
         },
         ".open-next/server-functions/default/.next/server/app/campuses/[id]/page.js": {
-          "bytesInOutput": 43268
+          "bytesInOutput": 43330
         },
         ".open-next/server-functions/default/.next/server/app/playlist/[id]/page.js": {
           "bytesInOutput": 24381
@@ -8701,7 +8701,7 @@
           "bytesInOutput": 46289
         },
         ".open-next/server-functions/default/.next/server/app/story/[id]/page.js": {
-          "bytesInOutput": 51253
+          "bytesInOutput": 51323
         },
         ".open-next/server-functions/default/.next/server/app/campuses/page.js": {
           "bytesInOutput": 31246
@@ -8719,7 +8719,7 @@
           "bytesInOutput": 22993
         },
         ".open-next/server-functions/default/.next/server/app/publish/page.js": {
-          "bytesInOutput": 68705
+          "bytesInOutput": 68777
         },
         ".open-next/server-functions/default/.next/server/app/privacy/page.js": {
           "bytesInOutput": 18243
@@ -8773,7 +8773,7 @@
           "bytesInOutput": 28181
         },
         ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-          "bytesInOutput": 114723
+          "bytesInOutput": 122444
         },
         ".open-next/server-functions/default/.next/server/app/rooms/page.js": {
           "bytesInOutput": 20127
@@ -8908,7 +8908,7 @@
           "bytesInOutput": 68784
         }
       },
-      "bytes": 3828840
+      "bytes": 3869881
     }
   }
 }
