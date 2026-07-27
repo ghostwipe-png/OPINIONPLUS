@@ -3,14 +3,13 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { Film, FileText, Heart, Clock } from 'lucide-react';
+import CampusBadge from './CampusBadge';
 
 export default function StoryCard({ story }) {
   const [imgError, setImgError] = useState(false);
 
-  // Safety check: Return null if story is invalid
   if (!story || typeof story !== 'object') return null;
 
-  // Hybrid property mappings to prevent undefined errors
   const id = story.id || '#';
   const title = story.title || 'Untitled Story';
   const excerpt = story.excerpt || '';
@@ -21,7 +20,6 @@ export default function StoryCard({ story }) {
   const createdAt = story.createdAt || story.created_at;
   const authorName = story.authorName || story.publisherName || story.publisher_name || '';
 
-  // Safe Date Formatter with error trap
   let formattedDate = '';
   try {
     if (createdAt) {
@@ -34,7 +32,6 @@ export default function StoryCard({ story }) {
     formattedDate = '';
   }
 
-  // Safe Likes Counter supporting arrays or numbers
   let likesCount = 0;
   if (Array.isArray(story.likes)) {
     likesCount = story.likes.length;
@@ -51,7 +48,6 @@ export default function StoryCard({ story }) {
     >
       <div className="flex flex-col gap-4 items-start">
         
-        {/* Thumbnail Image on Top */}
         {coverImage && !story.mediaBlocked && !imgError && (
           <div className="w-full h-48 sm:h-56 shrink-0 rounded-sm overflow-hidden border border-wire bg-ink-50 shadow-sm">
             <img 
@@ -63,7 +59,6 @@ export default function StoryCard({ story }) {
           </div>
         )}
 
-        {/* Text Content Below */}
         <div className="w-full min-w-0 space-y-2">
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-ink-400 flex-wrap">
             <span className="flex items-center gap-1 text-ink-600 bg-ink-50 px-2 py-0.5 rounded-sm border border-wire">
@@ -82,6 +77,7 @@ export default function StoryCard({ story }) {
                 <span className="truncate">{authorName}</span>
               </>
             )}
+            {story.campus_id && <CampusBadge campusId={story.campus_id} campusName={story.campus_name} />}
           </div>
 
           <h3 className="text-lg sm:text-xl font-bold text-ink group-hover:text-signal transition-colors line-clamp-2 tracking-tight">

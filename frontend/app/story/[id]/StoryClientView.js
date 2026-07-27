@@ -16,6 +16,7 @@ import StoryAudioPlayer from '../../../components/StoryAudioPlayer';
 import LanguageToggle from '../../../components/LanguageToggle';
 import StoryQRCodeModal from '../../../components/StoryQRCodeModal';
 import DOMPurify from 'dompurify';
+import CampusBadge from '../../../components/CampusBadge';
 
 function wordCount(html) {
   const text = (html || '').replace(/<[^>]*>/g, ' ');
@@ -182,6 +183,7 @@ export default function StoryClientView() {
                       <img src={authorLogo} alt={authorName} className="w-12 h-12 rounded-full object-cover shadow-sm bg-gray-200" />
                       <div>
                         <span className="block text-sm font-bold text-gray-900 group-hover:text-signal transition-colors">{authorName}</span>
+                        {story.campus_id && <CampusBadge campusId={story.campus_id} campusName={story.campus_name} />}
                         <span className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mt-0.5">{followerCount} followers</span>
                       </div>
                     </Link>

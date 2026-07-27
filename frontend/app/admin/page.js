@@ -7,13 +7,14 @@ import {
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
-  KeyRound, Server, FileDown, UserCog, Clock, UserX, Briefcase
+  KeyRound, Server, FileDown, UserCog, GraduationCap, Clock, UserX, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
 import VideoManagement from '../../components/admin/VideoManagement';
 import HealthMonitor from '../../components/admin/HealthMonitor';
 import PlatformAnalytics from '../../components/admin/PlatformAnalytics';
+import CampusLeaderboard from '../../components/CampusLeaderboard';
 
 const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -227,6 +228,9 @@ export default function AdminPage() {
   // Guards financial/service mutation buttons (grant, adjust, fulfill,
   // cancel, refund) against double-submission from rapid double-clicks.
   const [actionInFlight, setActionInFlight] = useState(false);
+  const [campusList, setCampusList] = useState([]);
+  const [campusSearch, setCampusSearch] = useState('');
+  const [campusLoading, setCampusLoading] = useState(false);
 
   // UI / God-mode state
   const [darkMode, setDarkMode] = useState(false);
@@ -339,6 +343,21 @@ export default function AdminPage() {
       setServiceStats(data);
     } catch (e) {}
   };
+
+  const loadCampuses = async () => {
+  setCampusLoading(true);
+  try {
+    const res = await fetch(`${API_BASE}/campuses`, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      setCampusList(data.campuses || []);
+    }
+  } catch (e) {
+    setCampusList([]);
+  } finally {
+    setCampusLoading(false);
+  }
+};
 
   const fulfillOrder = async (id) => {
     if (actionInFlight) return;
@@ -562,6 +581,7 @@ export default function AdminPage() {
     ...(isRoot ? [{ id: 'videos-admin', label: 'Videos', icon: Film }] : []),
     ...(isRoot ? [{ id: 'analytics', label: 'Analytics', icon: BarChart3 }] : []),
     ...(isRoot ? [{ id: 'health-monitor', label: 'Health', icon: Activity }] : []),
+    ...(isRoot ? [{ id: 'campuses-admin', label: 'Campuses', icon: GraduationCap }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
@@ -707,7 +727,7 @@ export default function AdminPage() {
               {TABS.map((t, i) => (
                 <button 
                   key={t.id} 
-                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } }}
+                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } }}
                   title={`Ctrl+${i + 1}`}
                   className={`px-4 py-2.5 rounded-sm border flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-left transition-colors ${
                     tab === t.id ? 'bg-ink text-white border-ink shadow-sm' : `${darkCard} hover:border-ink`
@@ -725,7 +745,7 @@ export default function AdminPage() {
             {TABS.map(t => (
               <button 
                 key={t.id} 
-                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } }}
+                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } }}
                 className={`px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
                   tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire bg-white text-ink-600'
                 }`}
@@ -1477,6 +1497,84 @@ export default function AdminPage() {
 
 {tab === 'health-monitor' && isRoot && (
   <HealthMonitor />
+)}
+
+{tab === 'campuses-admin' && isRoot && (
+  <div className="space-y-6">
+    <div className="flex items-center justify-between">
+      <div>
+        <h2 className="text-xl font-black text-ink">Campus Editions</h2>
+        <p className="text-xs text-ink-500 mt-0.5">Manage all registered university campus editions.</p>
+      </div>
+    </div>
+
+    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="border border-wire rounded-sm p-5 bg-paper">
+        <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Campuses</p>
+        <p className="text-2xl font-black text-ink">{campusList.length}</p>
+      </div>
+      <div className="border border-wire rounded-sm p-5 bg-paper">
+        <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Campus Stories</p>
+        <p className="text-2xl font-black text-ink">{campusList.reduce((sum, c) => sum + (c.total_stories || 0), 0)}</p>
+      </div>
+      <div className="border border-wire rounded-sm p-5 bg-paper">
+        <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Students</p>
+        <p className="text-2xl font-black text-ink">{campusList.reduce((sum, c) => sum + (c.total_students || 0), 0)}</p>
+      </div>
+      <div className="border border-wire rounded-sm p-5 bg-paper">
+        <p className="text-xs font-bold uppercase tracking-wider text-ink-400 mb-1">Total Subscribers</p>
+        <p className="text-2xl font-black text-ink">{campusList.reduce((sum, c) => sum + (c.total_subscribers || 0), 0)}</p>
+      </div>
+    </div>
+
+    <div className="relative">
+      <Search size={14} className="absolute left-3 top-2.5 text-ink-400" />
+      <input
+        value={campusSearch}
+        onChange={(e) => setCampusSearch(e.target.value)}
+        placeholder="Search campuses by name..."
+        className="w-full border border-wire rounded-sm pl-9 pr-3 py-2 text-xs font-medium"
+      />
+    </div>
+
+    {campusLoading ? (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 size={24} className="animate-spin text-signal" />
+      </div>
+    ) : (
+      <div className="border border-wire rounded-sm divide-y divide-wire bg-paper">
+        {campusList.filter(c => c.university_name?.toLowerCase().includes(campusSearch.toLowerCase())).length === 0 ? (
+          <EmptyState icon={GraduationCap} label="No campuses found." />
+        ) : (
+          campusList.filter(c => c.university_name?.toLowerCase().includes(campusSearch.toLowerCase())).map(c => (
+            <div key={c.id} className="p-4 flex items-center justify-between gap-4 hover:bg-ink-50/30 transition-colors">
+              <div className="flex items-center gap-3 min-w-0">
+                {c.logo_url ? (
+                  <img src={c.logo_url} alt="" className="w-10 h-10 rounded-full object-cover border border-wire shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-ink text-white font-black text-xs flex items-center justify-center shrink-0">
+                    {(c.university_name || 'CU').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-ink truncate">{c.university_name}</p>
+                  <p className="text-xs text-ink-500">{c.representative_name} · {c.contact_email}</p>
+                  <p className="text-[11px] text-ink-400">
+                    {c.total_stories || 0} stories · {c.total_students || 0} students · {c.total_subscribers || 0} subscribers
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Link href={`/campuses/${c.id}`} target="_blank" className="border border-wire bg-white hover:border-ink px-3 py-1.5 rounded-sm text-xs font-bold uppercase tracking-wider text-ink transition-colors">
+                  View
+                </Link>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    )}
+  </div>
 )}
           </main>
         </div>

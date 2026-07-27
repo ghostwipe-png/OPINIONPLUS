@@ -816,7 +816,7 @@ export default function WatchVideoPage({ params }) {
         <div className={isMiniPlayer ? 'fixed bottom-4 right-4 w-[320px] h-[180px] z-40 rounded-lg overflow-hidden shadow-2xl transition-all duration-300 bg-black' : isTheaterMode ? 'max-w-full mx-auto aspect-video relative max-h-[85vh] transition-all duration-300' : 'max-w-7xl mx-auto aspect-video relative max-h-[75vh] transition-all duration-300'}>
           <iframe
             ref={iframeRef}
-            src={`https://iframe.mediadelivery.net/embed/${video.bunny_library_id}/${video.bunny_video_id}?autoplay=false&preload=true`}
+            src={`https://iframe.mediadelivery.net/embed/${video.bunny_library_id}/${video.bunny_video_id}`}
             loading="lazy"
             style={{ border: 'none', position: 'absolute', top: 0, left: 0, height: '100%', width: '100%' }}
             allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
