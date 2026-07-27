@@ -414,11 +414,11 @@ services.post('/content/press-release', requireAuth, async (c) => {
     return c.json({ error: 'Company website URL is invalid.' }, 400);
   }
 
-  const order = await c.env.DB.prepare(
-    "SELECT id FROM service_orders WHERE (user_id = ? OR user_email = ?) AND service_type = 'press_release' AND status = 'active' AND (paystack_status = 'success' OR paystack_status = 'admin_grant') ORDER BY created_at DESC LIMIT 1"
-  ).bind(user.id, user.email).first();
+  //const order = await c.env.DB.prepare(
+  //  "SELECT id FROM service_orders WHERE (user_id = ? OR user_email = ?) AND service_type = 'press_release' AND status = 'active' AND (paystack_status = 'success' OR paystack_status = 'admin_grant') ORDER BY created_at DESC LIMIT 1"
+  //).bind(user.id, user.email).first();
 
-  if (!order) return c.json({ error: 'No active press release order found. Please purchase or renew a package.' }, 403);
+  //if (!order) return c.json({ error: 'No active press release order found. Please purchase or renew a package.' }, 403);
 
   // If the release is scheduled for the future, don't publish to the public feed yet.
   const isScheduled = scheduled_at && new Date(scheduled_at).getTime() > Date.now();
@@ -433,7 +433,7 @@ services.post('/content/press-release', requireAuth, async (c) => {
         'INSERT INTO stories (id, author_id, title, body, type, privacy, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))'
       ).bind(storyId, user.id, fullTitle, content, 'press_release', 'public').run();
 
-      await c.env.DB.prepare("UPDATE service_orders SET status = 'completed', updated_at = datetime('now') WHERE id = ?").bind(order.id).run();
+      //await c.env.DB.prepare("UPDATE service_orders SET status = 'completed', updated_at = datetime('now') WHERE id = ?").bind(order.id).run();
     }
 
     // NEW: also record the release in the dedicated press_releases table so it can be
@@ -450,8 +450,8 @@ services.post('/content/press-release', requireAuth, async (c) => {
           target_category, target_region, target_county
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
-        releaseId, storyId, order.id, user.id, user.email, title, company, content,
-        isScheduled ? 'scheduled' : 'published',
+        releaseId, storyId, null, user.id, user.email, title, company, content,
+        isScheduled ? 'scheduled' : 'published',  //REplace null with 'order.id' if scheduled_at is in the future, else 'published'
         scheduled_at || null, isScheduled ? null : new Date().toISOString(), embargo_until || null,
         meta_title || null, meta_description || null, meta_keywords || null,
         media_contact_name || null, media_contact_email || null, media_contact_phone || null,

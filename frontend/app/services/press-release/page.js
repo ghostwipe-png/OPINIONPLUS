@@ -235,9 +235,9 @@ export default function PressReleasePage() {
 
   const TABS = [
     { id: 'purchase', label: 'Purchase Packages', icon: ShoppingBag, visible: true },
-    { id: 'submit', label: 'Submit Release', icon: UploadCloud, visible: hasAccess },
-    { id: 'history', label: 'Release History', icon: History, visible: hasAccess },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3, visible: hasAccess },
+    { id: 'submit', label: 'Submit Release', icon: UploadCloud, visible: true },
+    { id: 'history', label: 'Release History', icon: History, visible: true },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, visible: true },
   ];
 
   return (
