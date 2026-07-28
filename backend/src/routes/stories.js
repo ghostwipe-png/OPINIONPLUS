@@ -261,8 +261,16 @@ stories.post('/:id/translate', async (c) => {
 stories.get('/:id', async (c) => {
   const row = await c.env.DB.prepare('SELECT * FROM stories WHERE id = ? AND deleted = 0').bind(c.req.param('id')).first();
   if (!row) return c.json({ error: 'Not found' }, 404);
+  
   const user = c.get('user');
-  if (row.privacy === 'private' && row.author_id !== user?.id) return c.json({ error: 'Not found' }, 404);
+  const isOwner = row.author_id === user?.id;
+  const isPublic = row.privacy === 'public';
+  const isAdminUser = isAdmin(user);
+  
+  // WHITELIST: only serve if public, owned by current user, or user is admin
+  if (!isPublic && !isOwner && !isAdminUser) {
+    return c.json({ error: 'Not found' }, 404);
+  }
 
   try {
     const ip = c.req.header('CF-Connecting-IP') || 'unknown';
@@ -273,7 +281,7 @@ stories.get('/:id', async (c) => {
       await c.env.DB.prepare('UPDATE stories SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?').bind(row.id).run();
       row.view_count = (row.view_count || 0) + 1;
     }
-  } catch (e) { }
+  } catch (e) { /* view tracking is non-critical */ }
 
   const hydrated = await hydrateStory(c.env.DB, row);
   const quality = computeQualityScore(row);

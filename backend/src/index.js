@@ -391,6 +391,13 @@ const worker = {
       jobs.push(runCronJob('api-log-cleanup', async () => {
         await env.DB.prepare("DELETE FROM api_request_logs WHERE created_at < datetime('now', '-90 days')").run();
       }));
+      // NEW: partner engagement bonuses — checked every 5 min alongside the other health/publish jobs
+      jobs.push(runCronJob('partner-engagement-bonuses', async () => {
+        const partnerModule = await import('./routes/partner.js');
+        if (typeof partnerModule.checkEngagementBonuses === 'function') {
+          return await partnerModule.checkEngagementBonuses(env);
+        }
+      }));
       jobs.push(runCronJob('api-webhook-retries', async () => {
         // Retry failed webhook deliveries from last 24h (up to 3 attempts total)
         try {
@@ -428,6 +435,20 @@ const worker = {
 
     if (event.cron === '0 3 * * *') {
       jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
+      // NEW: recalculate partner tiers nightly
+      jobs.push(runCronJob('partner-tier-recalculation', async () => {
+        const partnerModule = await import('./routes/partner.js');
+        if (typeof partnerModule.recalculateAllTiers === 'function') {
+          return await partnerModule.recalculateAllTiers(env);
+        }
+      }));
+      // NEW: anomaly detection sweep nightly
+      jobs.push(runCronJob('partner-anomaly-detection', async () => {
+        const partnerModule = await import('./routes/partner.js');
+        if (typeof partnerModule.runAnomalyDetection === 'function') {
+          return await partnerModule.runAnomalyDetection(env);
+        }
+      }));
     }
 
     await Promise.allSettled(jobs);

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { cache } from 'hono/cache';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 
 const users = new Hono();
 
@@ -50,14 +51,21 @@ users.get('/:id', async (c) => {
 users.patch('/me', requireAuth, async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
+  
+  // Sanitize inputs — strip HTML, enforce length limits
+  const publisherName = String(body.publisherName ?? user.publisher_name ?? '').trim().slice(0, 100).replace(/<[^>]*>/g, '');
+  const bio = String(body.bio ?? user.bio ?? '').trim().slice(0, 500).replace(/<[^>]*>/g, '');
+  const socialLink = String(body.socialLink ?? user.social_link ?? '').trim().slice(0, 500);
+  const logoUrl = body.logoUrl ?? user.logo_url;
+  
   await c.env.DB.prepare(
     'UPDATE users SET publisher_name = ?, logo_url = ?, bio = ?, social_link = ? WHERE id = ?'
   )
     .bind(
-      body.publisherName ?? user.publisher_name,
-      body.logoUrl ?? user.logo_url,
-      body.bio ?? user.bio,
-      body.socialLink ?? user.social_link,
+      publisherName,
+      logoUrl,
+      bio,
+      socialLink,
       user.id
     )
     .run();
@@ -86,11 +94,18 @@ users.post('/:id/follow', requireAuth, async (c) => {
 
 // Masthead Newsletter Subscription Route
 users.post('/:id/subscribe', async (c) => {
+  // Rate limit: 10 subscriptions per hour per IP
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  const limiter = createRateLimiter(c.env.DB, 3600, 10);
+  const allowed = await limiter(ip, 'subscribe');
+  if (!allowed) return c.json({ error: 'Too many subscription attempts. Please try later.' }, 429);
+
   const publisherId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
   const email = (body.email || '').trim().toLowerCase();
 
-  if (!email || !email.includes('@') || email.length > 254) {
+  // Proper email validation
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return c.json({ error: 'Please provide a valid email address.' }, 400);
   }
 

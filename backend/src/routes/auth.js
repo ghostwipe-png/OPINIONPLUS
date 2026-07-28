@@ -2,10 +2,17 @@ import { Hono } from 'hono';
 import { verifyGoogleIdToken } from '../lib/google.js';
 import { createSessionToken, sessionCookieHeader, clearSessionCookieHeader } from '../lib/session.js';
 import { generateCsrfToken } from '../middleware/auth.js';
+import { createRateLimiter } from '../middleware/rateLimit.js';
 
 const auth = new Hono();
 
 auth.post('/google', async (c) => {
+  // Rate limit: 10 login attempts per minute per IP
+  const ip = c.req.header('CF-Connecting-IP') || 'unknown';
+  const limiter = createRateLimiter(c.env.DB, 60, 10);
+  const allowed = await limiter(ip, 'auth_google');
+  if (!allowed) return c.json({ error: 'Too many login attempts. Please try again later.' }, 429);
+
   const { id_token } = await c.req.json();
   if (!id_token) return c.json({ error: 'id_token is required.' }, 400);
 

@@ -165,7 +165,10 @@ async function handlePartnerSubscription(db, userId, tier, referralCode) {
   }
 }
 
-// SERVICE PROVISIONING HELPER (Supports admin grants & active statuses)
+// SERVICE PROVISIONING HELPER (Webhook-triggered)
+// NOTE: Sponsored and API service provisioning has been moved to their
+// respective standalone route modules (sponsored-service.js, api-service.js).
+// This helper now only handles SMS and press_release (legacy services).
 async function provisionServiceFromWebhook(db, order) {
   const { user_id, user_email, service_type, package_id } = order;
 
@@ -177,25 +180,9 @@ async function provisionServiceFromWebhook(db, order) {
     logEvent('webhook_service_provisioned', { service: 'sms', credits: count, user: user_email });
   } else if (service_type === 'press_release') {
     logEvent('webhook_service_provisioned', { service: 'press_release', package: package_id, user: user_email });
-  } else if (service_type === 'sponsored') {
-    const pkg = await db.prepare(`SELECT duration_days, impressions_goal FROM sponsored_packages WHERE id = ?`).bind(package_id).first();
-    if (pkg) {
-      await db.prepare('UPDATE service_orders SET metadata = json_insert(metadata, "$.duration_days", ?, "$.impressions_goal", ?) WHERE id = ?')
-        .bind(pkg.duration_days, pkg.impressions_goal, order.id).run();
-      logEvent('webhook_service_provisioned', { service: 'sponsored', days: pkg.duration_days, user: user_email });
-    }
-  } else if (service_type === 'api') {
-    const tier = package_id || 'pro';
-    const existingKey = await db.prepare('SELECT id FROM api_keys WHERE user_id = ?').bind(user_id).first();
-    if (!existingKey) {
-      const newKey = `op_${crypto.randomUUID().replace(/-/g, '')}`;
-      await db.prepare('INSERT INTO api_keys (id, user_id, key, name, tier, requests_today) VALUES (?, ?, ?, ?, ?, 0)')
-        .bind(crypto.randomUUID(), user_id, newKey, 'Default Production Key', tier).run();
-    } else {
-      await db.prepare('UPDATE api_keys SET tier = ?, requests_today = 0 WHERE user_id = ?').bind(tier, user_id).run();
-    }
-    logEvent('webhook_service_provisioned', { service: 'api', package: tier, user: user_email });
   }
+  // Sponsored and API orders are provisioned by their standalone services
+  // (sponsored-service.js and api-service.js) — not via this legacy path.
 }
 
 // MAXIMUM SECURITY: Constant-Time HMAC Signature Verification
@@ -600,7 +587,7 @@ payments.get('/stats', requireAuth, async (c) => {
   }
 });
 
-// UNIFIED PAYSTACK WEBHOOK HANDLER (Updated to support admin grants & active statuses)
+// UNIFIED PAYSTACK WEBHOOK HANDLER
 payments.post('/webhook', async (c) => {
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   if (!checkWebhookRateLimit(ip)) {
@@ -638,6 +625,7 @@ payments.post('/webhook', async (c) => {
     const userId = metadata.user_id || metadata.userId;
 
     try {
+      // Service orders (SMS, Press Release, and legacy Sponsored/API)
       if (metadata.serviceType || reference.startsWith('srv_') || reference.startsWith('admin_grant_')) {
         const order = await c.env.DB.prepare('SELECT * FROM service_orders WHERE paystack_reference = ?').bind(reference).first();
         if (order) {
@@ -656,6 +644,7 @@ payments.post('/webhook', async (c) => {
         }
         logEvent('webhook_processed', { event: body.event, reference: txn.reference, type: metadata.serviceType || 'service_order' });
       } else {
+        // Direct payment transactions (SMS credits, Pro subscription, Partner)
         if (type === 'api_pro_subscription') {
           await activateProSubscription(c.env.DB, userId);
         } else if (type === 'partner_subscription') {
