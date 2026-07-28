@@ -25,6 +25,7 @@ import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services, { publishScheduledPressReleases } from './routes/services.js';
 import apiService from './routes/api-service.js'; // NEW: Standalone API service
+import sponsoredService, { processSponsoredCampaigns, countSponsoredImpressions } from './routes/sponsored-service.js'; // NEW: Standalone Sponsored Content service
 import health from './routes/health.js';
 import videos, {
   channels as videoChannels,
@@ -193,6 +194,10 @@ app.use('*', async (c, next) => {
   if (/^\/services\/press-release\/[^/]+\/track-view$/.test(c.req.path)) return await next();
   // Public API v1 endpoints — authenticated via API key, not session cookie
   if (c.req.path.startsWith('/api-service/v1/')) return await next();
+  // Public, unauthenticated sponsored-content tracking pixels (impression/click/conversion) —
+  // no session/CSRF cookie to check. Covers both the canonical mount and the backward-compat alias.
+  if (c.req.path.startsWith('/sponsored-service/track/')) return await next();
+  if (c.req.path.startsWith('/services/sponsored/track/')) return await next();
   return csrfProtection(c, next);
 });
 
@@ -288,6 +293,8 @@ app.route('/campuses', campuses);
 app.route('/services', services);
 app.route('/api-service', apiService); // NEW: Standalone API service
 app.route('/services/api', apiService); // NEW: Backward compat — /services/api/* still works
+app.route('/sponsored-service', sponsoredService); // NEW: Standalone Sponsored Content service
+app.route('/services/sponsored', sponsoredService); // NEW: Backward compat — /services/sponsored/* still works
 app.route('/videos', videos);
 app.route('/channels', videoChannels);
 app.route('/subs', videoSubscriptionsFeed);
@@ -378,6 +385,8 @@ const worker = {
       jobs.push(runCronJob('publish-scheduled-press-releases', async () => {
         return await publishScheduledPressReleases(env);
       }));
+      jobs.push(runCronJob('process-sponsored-campaigns', () => processSponsoredCampaigns(env)));
+      jobs.push(runCronJob('count-sponsored-impressions', () => countSponsoredImpressions(env)));
       // NEW: API log cleanup (90-day retention) + webhook retries
       jobs.push(runCronJob('api-log-cleanup', async () => {
         await env.DB.prepare("DELETE FROM api_request_logs WHERE created_at < datetime('now', '-90 days')").run();

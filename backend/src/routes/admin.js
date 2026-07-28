@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requireAdmin, requireRoot, requirePin } from '../middleware/auth.js';
+import apiServiceAdmin from './api-service-admin.js';
 
 const admin = new Hono();
 admin.use('*', requireAdmin);
@@ -619,5 +620,5 @@ admin.post('/services/sms/adjust', requireRoot, requirePin, async (c) => {
   await log(c, 'adjust_sms_credits', email, `Adjusted SMS credits by ${credits}. Reason: ${reason}. New balance: ${newBalance}`);
   return c.json({ ok: true, newBalance });
 });
-
+admin.route('/api-service', apiServiceAdmin);
 export default admin;

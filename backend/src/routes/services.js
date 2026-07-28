@@ -1,7 +1,7 @@
 // backend/src/routes/services.js
 // NOTE: API service routes have been extracted to ./api-service.js
 // API packages, keys, webhooks, logs, etc. are now handled there.
-// The shared payment routes below are still used by SMS, Press Release, and Sponsored Content.
+// The shared payment routes below are still used by SMS and Press Release.
 
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
@@ -9,10 +9,10 @@ import { verifyPaystackWebhook } from '../middleware/paystackWebhook.js';
 
 const services = new Hono();
 
+// NOTE: Sponsored content routes extracted to ./sponsored-service.js
 const SERVICE_TABLES = {
   sms: 'sms_packages',
-  press_release: 'press_release_packages',
-  sponsored: 'sponsored_packages'
+  press_release: 'press_release_packages'
 };
 
 // ---------------------------------------------------------------------------
@@ -110,14 +110,8 @@ async function provisionService(db, order) {
     console.log(`SMS credits added: ${count} for user ${user_email}`);
   } else if (service_type === 'press_release') {
     console.log(`Press release package activated: ${package_id} for user ${user_email}`);
-  } else if (service_type === 'sponsored') {
-    const pkg = await db.prepare(`SELECT duration_days, impressions_goal FROM sponsored_packages WHERE id = ?`).bind(package_id).first();
-    if (pkg) {
-      await db.prepare('UPDATE service_orders SET metadata = json_insert(metadata, "$.duration_days", ?, "$.impressions_goal", ?) WHERE id = ?')
-        .bind(pkg.duration_days, pkg.impressions_goal, order.id).run();
-      console.log(`Sponsored content package activated for ${pkg.duration_days} days for user ${user_email}`);
-    }
   }
+  // NOTE: Sponsored content provisioning moved to ./sponsored-service.js
   // NOTE: API service provisioning moved to ./api-service.js
 }
 
@@ -265,6 +259,10 @@ services.get('/check/:serviceType', requireAuth, async (c) => {
   // API check moved to /api-service/check — redirect if called here
   if (serviceType === 'api') {
     return c.json({ active: false, message: 'API service check moved to /api-service/check' });
+  }
+  // Sponsored content check moved to /sponsored-service/check — redirect if called here
+  if (serviceType === 'sponsored') {
+    return c.json({ active: false, message: 'Sponsored content check moved to /sponsored-service/check' });
   }
 
   try {
@@ -456,52 +454,11 @@ services.post('/content/press-release', requireAuth, async (c) => {
   }
 });
 
-// SPONSORED DISPATCH ENDPOINT
-services.post('/content/sponsored', requireAuth, async (c) => {
-  const user = c.get('user');
-  let body;
-  try { body = await c.req.json(); } catch (e) { return c.json({ error: 'Invalid JSON body.' }, 400); }
-
-  const { headline, body: content, ctaUrl, orderId } = body || {};
-  if (!headline || !content || !ctaUrl) return c.json({ error: 'Headline, content body, and CTA URL are required.' }, 400);
-
-  try {
-    let order;
-    if (orderId) {
-      order = await c.env.DB.prepare(
-        "SELECT * FROM service_orders WHERE id = ? AND (user_id = ? OR user_email = ?) AND service_type = 'sponsored' AND status = 'active' AND (paystack_status = 'success' OR paystack_status = 'admin_grant')"
-      ).bind(orderId, user.id, user.email).first();
-    } else {
-      order = await c.env.DB.prepare(
-        "SELECT * FROM service_orders WHERE (user_id = ? OR user_email = ?) AND service_type = 'sponsored' AND status = 'active' AND (paystack_status = 'success' OR paystack_status = 'admin_grant') ORDER BY created_at DESC LIMIT 1"
-      ).bind(user.id, user.email).first();
-    }
-
-    if (!order) return c.json({ error: 'No active sponsored placement order found.' }, 403);
-
-    const metadata = JSON.parse(order.metadata || '{}');
-    metadata.campaign = { headline, body: content, ctaUrl, updatedAt: new Date().toISOString() };
-
-    await c.env.DB.prepare('UPDATE service_orders SET metadata = ? WHERE id = ?')
-      .bind(JSON.stringify(metadata), order.id).run();
-
-    const existingStory = await c.env.DB.prepare('SELECT id FROM stories WHERE author_id = ? AND type = ? AND title = ?').bind(user.id, 'sponsored', headline).first();
-    
-    if (!existingStory) {
-      const storyId = crypto.randomUUID();
-      const formattedBody = `${content}\n\n[Sponsored Link: ${ctaUrl}]`;
-      await c.env.DB.prepare(
-        'INSERT INTO stories (id, author_id, title, body, type, privacy, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))'
-      ).bind(storyId, user.id, headline, formattedBody, 'sponsored', 'public').run();
-    }
-
-    await logEvent(c, 'sponsored_campaign_updated', { orderId: order.id, user: user.email });
-    return c.json({ success: true, orderId: order.id });
-  } catch (e) {
-    await logEvent(c, 'sponsored_campaign_error', { message: e.message });
-    return c.json({ error: 'Failed to update sponsored campaign.' }, 500);
-  }
-});
+// NOTE: Sponsored content dispatch/campaign-management endpoints extracted to
+// ./sponsored-service.js (see POST /sponsored-service/campaigns). The legacy
+// service_orders-based sponsored flow this endpoint depended on has been
+// replaced by the sponsored_campaigns table, so this route is intentionally
+// no longer defined here.
 
 // ---------------------------------------------------------------------------
 // Press Release: History, Detail, Edit, Delete

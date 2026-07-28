@@ -17,6 +17,7 @@ import PlatformAnalytics from '../../components/admin/PlatformAnalytics';
 import CampusLeaderboard from '../../components/CampusLeaderboard';
 import PressReleaseAdminTab from './PressReleaseAdminTab';
 import ApiServiceAdminSection from './api-service-section';
+import SponsoredCampaignsAdminSection from './SponsoredCampaignsAdminSection';
 
 const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -585,6 +586,7 @@ export default function AdminPage() {
     ...(isRoot ? [{ id: 'health-monitor', label: 'Health', icon: Activity }] : []),
     ...(isRoot ? [{ id: 'campuses-admin', label: 'Campuses', icon: GraduationCap }] : []),
     ...(isRoot ? [{ id: 'press-releases', label: 'Press Releases', icon: Megaphone }] : []),
+    ...(isRoot ? [{ id: 'sponsored-admin', label: 'Sponsored Ads', icon: MonitorPlay, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'api-service', label: 'API Service', icon: Server }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
@@ -731,7 +733,7 @@ export default function AdminPage() {
               {TABS.map((t, i) => (
                 <button 
                   key={t.id} 
-                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } }}
+                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } }}
                   title={`Ctrl+${i + 1}`}
                   className={`px-4 py-2.5 rounded-sm border flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-left transition-colors ${
                     tab === t.id ? 'bg-ink text-white border-ink shadow-sm' : `${darkCard} hover:border-ink`
@@ -749,7 +751,7 @@ export default function AdminPage() {
             {TABS.map(t => (
               <button 
                 key={t.id} 
-                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } }}
+                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } }}
                 className={`px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
                   tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire bg-white text-ink-600'
                 }`}
@@ -1597,6 +1599,7 @@ export default function AdminPage() {
 )}
 {tab === 'press-releases' && isRoot && <PressReleaseAdminTab />}
 {tab === 'api-service' && isRoot && <ApiServiceAdminSection />}
+{tab === 'sponsored-admin' && isRoot && <SponsoredCampaignsAdminSection />}
           </main>
         </div>
       </div>
