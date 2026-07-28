@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { MessageSquare, FileText, TrendingUp, Terminal, ArrowRight } from 'lucide-react';
+import { MessageSquare, FileText, TrendingUp, Terminal, Users, ArrowRight } from 'lucide-react';
 
 const SERVICES = [
   {
@@ -44,6 +44,16 @@ const SERVICES = [
     color: 'text-purple-600',
     bg: 'bg-purple-50',
     link: '/services/api'
+  },
+  {
+    id: 'partner',
+    title: 'Partner Program',
+    description: 'Earn money by referring users to OpinionPlus. Tiered bonuses, engagement earnings, and weekly withdrawals via M-Pesa.',
+    price: 'Free to join',
+    icon: Users,
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50',
+    link: '/partner'
   }
 ];
 
