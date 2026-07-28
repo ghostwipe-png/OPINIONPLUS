@@ -3,7 +3,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../../../lib/auth';
-import ServicePaymentButton from '../../../components/ServicePaymentButton';
+// PAYMENT: Uncomment when ready to charge
+// import ServicePaymentButton from '../../../components/ServicePaymentButton';
 import ServicePaymentVerify from '../../../components/ServicePaymentVerify';
 import SponsoredCampaignDashboard from '../../../components/SponsoredCampaignDashboard';
 import SponsoredMediaUploader from '../../../components/SponsoredMediaUploader';
@@ -167,8 +168,10 @@ export default function SponsoredServicePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAccess, tab, campaignsStatusFilter]);
 
+  // PAYMENT: This currently grants ANY package (free or paid) for free via /sponsored-service/pay.
+  // Uncomment the ServicePaymentButton block further below and gate this function to
+  // free-tier packages only when ready to charge for paid packages.
   const handleActivateFree = async (pkg) => {
-    // PAYMENT: Uncomment when ready to charge
     setActivatingFreeId(pkg.id);
     try {
       const csrfToken = await getCsrfToken();
@@ -219,7 +222,7 @@ export default function SponsoredServicePage() {
         setBody(c.body || '');
         setCtaUrl(c.cta_url || c.ctaUrl || '');
         setBannerUrl(c.banner_url || c.bannerUrl || '');
-        
+
         // Convert backend targeting array to component format
         const rawTargeting = c.targeting || [];
         const targeting = { categories: [], regions: [], counties: [] };
@@ -231,7 +234,7 @@ export default function SponsoredServicePage() {
           });
         }
         setTargetingRules(targeting);
-        
+
         setScheduledStartAt(c.scheduled_start_at || c.scheduledStartAt || '');
         setEditingCampaignId(id);
         setTab('create');
@@ -349,18 +352,31 @@ export default function SponsoredServicePage() {
                           <p key={i} className="text-[10px] font-bold text-ink-500 flex items-center gap-2 uppercase tracking-wider"><CheckCircle size={12} className="text-ink-300" /> {feat}</p>
                         ))}
                       </div>
-                      {isFree ? (
-                        <button
-                          disabled={activatingFreeId === pkg.id}
-                          onClick={() => handleActivateFree(pkg)}
-                          className="bg-ink text-white py-4 font-bold uppercase text-xs tracking-wider rounded-sm hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-signal"
-                        >
-                          {activatingFreeId === pkg.id ? <Loader2 size={16} className="animate-spin" /> : 'Get Free Access'}
-                        </button>
-                      ) : (
-                        // PAYMENT: Uncomment when ready to charge
-                        <ServicePaymentButton serviceType="sponsored" packageId={pkg.id} packageName={pkg.name} className="bg-ink text-white py-4" />
-                      )}
+
+                      {/*
+                        PAYMENT: Uncomment when ready to charge for paid packages, and gate
+                        the "Get Free Access" button below so it only applies to isFree packages.
+
+                        {isFree ? (
+                          <button
+                            disabled={activatingFreeId === pkg.id}
+                            onClick={() => handleActivateFree(pkg)}
+                            className="bg-ink text-white py-4 font-bold uppercase text-xs tracking-wider rounded-sm hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-signal"
+                          >
+                            {activatingFreeId === pkg.id ? <Loader2 size={16} className="animate-spin" /> : 'Get Free Access'}
+                          </button>
+                        ) : (
+                          <ServicePaymentButton serviceType="sponsored" packageId={pkg.id} packageName={pkg.name} className="bg-ink text-white py-4" />
+                        )}
+                      */}
+
+                      <button
+                        disabled={activatingFreeId === pkg.id}
+                        onClick={() => handleActivateFree(pkg)}
+                        className="bg-ink text-white py-4 font-bold uppercase text-xs tracking-wider rounded-sm hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-signal"
+                      >
+                        {activatingFreeId === pkg.id ? <Loader2 size={16} className="animate-spin" /> : 'Get Free Access'}
+                      </button>
                     </div>
                   );
                 })}
