@@ -1,12 +1,13 @@
 // lib/auth.js
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 
 const AuthContext = createContext(null);
 export const ROOT_ADMIN_EMAIL = 'adipotech@gmail.com';
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 const STORAGE_KEY = 'op_auth_session';
+const FINGERPRINT_KEY = 'op_device_fp';
 const USE_API = !!API_BASE;
 
 const ROLE_RANK = { user: 1, admin: 2, root: 3 };
@@ -72,7 +73,7 @@ async function api(path, options = {}) {
       headers,
       ...options,
     });
-    
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Request failed' }));
       throw new Error(err.error || `API ${res.status}`);
@@ -99,41 +100,47 @@ function normalizeUser(u) {
   };
 }
 
+// --- device fingerprint ---------------------------------------------------
+// A best-effort client hint for the backend's device-trust bookkeeping.
+// This is NOT a security boundary by itself — the server is the source of
+// truth for whether a device/session is trusted.
+export async function getDeviceFingerprint() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = window.localStorage.getItem(FINGERPRINT_KEY);
+    if (cached) return cached;
+
+    const raw = [
+      navigator.userAgent,
+      navigator.platform,
+      `${window.screen.width}x${window.screen.height}`,
+    ].join('::');
+
+    let fingerprint = raw;
+    if (window.crypto?.subtle) {
+      const data = new TextEncoder().encode(raw);
+      const digest = await window.crypto.subtle.digest('SHA-256', data);
+      fingerprint = Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
+
+    window.localStorage.setItem(FINGERPRINT_KEY, fingerprint);
+    return fingerprint;
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- offline retry queue ---------------------------------------------------
+const MAX_OFFLINE_RETRIES = 3;
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (USE_API) {
-      api('/auth/me')
-        .then(data => {
-          if (data.user) {
-            setUser(normalizeUser(data.user));
-            try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeUser(data.user))); } catch(e){}
-          } else {
-            // Fallback to localStorage if cookie session is empty/invalid
-            try {
-              const raw = window.localStorage.getItem(STORAGE_KEY);
-              if (raw) setUser(JSON.parse(raw));
-            } catch (e) {}
-          }
-          setReady(true);
-        })
-        .catch(() => {
-          try {
-            const raw = window.localStorage.getItem(STORAGE_KEY);
-            if (raw) setUser(JSON.parse(raw));
-          } catch (e) { /* ignore */ }
-          setReady(true);
-        });
-    } else {
-      try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) setUser(JSON.parse(raw));
-      } catch (e) { /* ignore */ }
-      setReady(true);
-    }
-  }, []);
+  const [sessionMeta, setSessionMeta] = useState(null); // { loginHistory, trustedDeviceCount, ... }
+  const offlineRetries = useRef(0);
+  const pendingCredential = useRef(null);
 
   const persist = useCallback((next) => {
     setUser(next);
@@ -142,6 +149,56 @@ export function AuthProvider({ children }) {
       else window.localStorage.removeItem(STORAGE_KEY);
     } catch (e) { /* ignore */ }
   }, []);
+
+  const checkSession = useCallback(async () => {
+    if (!USE_API) {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) setUser(JSON.parse(raw));
+      } catch (e) { /* ignore */ }
+      setReady(true);
+      return;
+    }
+
+    try {
+      const data = await api('/auth/me');
+      if (data.user) {
+        setUser(normalizeUser(data.user));
+        setSessionMeta({
+          loginHistory: data.loginHistory || [],
+          trustedDeviceCount: data.trustedDeviceCount || 0,
+          unreadSecurityEventCount: data.unreadSecurityEventCount || 0,
+        });
+        try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeUser(data.user))); } catch (e) {}
+      } else {
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) setUser(JSON.parse(raw));
+        } catch (e) {}
+      }
+    } catch (e) {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) setUser(JSON.parse(raw));
+      } catch (e2) { /* ignore */ }
+    } finally {
+      setReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkSession();
+
+    // Cross-tab sync: if another tab logs in/out, mirror it here.
+    const onStorage = (e) => {
+      if (e.key !== STORAGE_KEY) return;
+      try {
+        setUser(e.newValue ? JSON.parse(e.newValue) : null);
+      } catch (err) { /* ignore */ }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [checkSession]);
 
   const redirectAfterLogin = useCallback(() => {
     const returnUrl = consumeReturnUrl();
@@ -160,12 +217,24 @@ export function AuthProvider({ children }) {
   const loginWithGoogle = useCallback(async (credential) => {
     if (USE_API) {
       try {
-        const data = await api('/auth/google', { method: 'POST', body: JSON.stringify({ id_token: credential }) });
+        const fingerprint = await getDeviceFingerprint();
+        const data = await api('/auth/google', {
+          method: 'POST',
+          body: JSON.stringify({ id_token: credential, device_fingerprint: fingerprint }),
+        });
         const normalized = normalizeUser(data.user);
         persist(normalized);
+        offlineRetries.current = 0;
+        pendingCredential.current = null;
         redirectAfterLogin();
         return normalized;
       } catch (e) {
+        // If we're offline, queue this credential for a silent retry once
+        // connectivity returns, instead of failing outright.
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          pendingCredential.current = credential;
+          throw new Error('You appear to be offline. We\'ll retry automatically once you\'re back online.');
+        }
         const decoded = decodeGoogleCredential(credential);
         return login(decoded);
       }
@@ -175,11 +244,25 @@ export function AuthProvider({ children }) {
     }
   }, [login, persist, redirectAfterLogin]);
 
+  useEffect(() => {
+    const onOnline = async () => {
+      if (!pendingCredential.current) return;
+      if (offlineRetries.current >= MAX_OFFLINE_RETRIES) return;
+      offlineRetries.current += 1;
+      const credential = pendingCredential.current;
+      try {
+        await loginWithGoogle(credential);
+      } catch (e) { /* leave queued for manual retry / next online event */ }
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [loginWithGoogle]);
+
   const updateProfile = useCallback((patch) => {
     setUser(prev => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e){}
+      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e) {}
       return next;
     });
   }, []);
@@ -190,6 +273,7 @@ export function AuthProvider({ children }) {
       try { await api('/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
     }
     persist(null);
+    setSessionMeta(null);
   }, [persist]);
 
   const can = useCallback((action, ownerId) => {
@@ -219,11 +303,11 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const value = {
-    user, ready,
+    user, ready, sessionMeta,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin' || user?.role === 'root',
     isRoot: user?.role === 'root',
-    login, loginWithGoogle, updateProfile, logout,
+    login, loginWithGoogle, updateProfile, logout, checkSession,
     can, hasRole,
   };
 

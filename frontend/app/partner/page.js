@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { LayoutDashboard, Users, Coins, Banknote, Award, Twitter, MessageCircle, Facebook, Copy, Check } from 'lucide-react';
+import { LayoutDashboard, Users, Coins, Banknote, Award, Twitter, MessageCircle, Facebook, Copy, Check, Loader2, Star, Zap } from 'lucide-react';
 import PartnerDashboard from '../../components/PartnerDashboard.js';
 import ReferralTree from '../../components/ReferralTree.js';
 
@@ -193,10 +193,17 @@ function WithdrawTab() {
     setSubmitting(true);
     setMessage(null);
     try {
+      // Get CSRF token
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+      const csrfData = await csrfRes.json();
+      
       const res = await fetch(`${API_BASE}/partner/withdraw`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfData.token || '',
+        },
         body: JSON.stringify({ amount: Math.round(Number(amount) * 100), phone, idempotency_key: crypto.randomUUID() }),
       });
       const data = await res.json();
@@ -334,7 +341,123 @@ function TiersTab() {
 
 export default function PartnerPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isPartner, setIsPartner] = useState(null);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
 
+  useEffect(() => {
+    fetch(`${API_BASE}/partner/wallet`, { credentials: 'include' })
+      .then(r => r.json())
+      .then(data => {
+        if (data?.tier === 'partner' || data?.tier === 'pro_partner') {
+          setIsPartner(true);
+        } else {
+          setIsPartner(false);
+        }
+      })
+      .catch(() => setIsPartner(false));
+  }, []);
+
+  const joinPartner = async (tier = 'partner') => {
+    setJoining(true);
+    setJoinError('');
+    try {
+      const endpoint = tier === 'pro_partner' ? 'subscribe/pro' : 'subscribe/partner';
+      const res = await fetch(`${API_BASE}/partner/${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setIsPartner(true);
+      } else {
+        setJoinError(data.error || 'Could not activate partner status.');
+      }
+    } catch (e) {
+      setJoinError('Network error. Please try again.');
+    }
+    setJoining(false);
+  };
+
+  // Loading state
+  if (isPartner === null) {
+    return (
+      <div className="min-h-screen grid place-items-center">
+        <Loader2 className="animate-spin text-ink" size={24} />
+      </div>
+    );
+  }
+
+  // Join screen — shown when user is not yet a partner
+  if (isPartner === false) {
+    return (
+      <div className="max-w-2xl mx-auto p-4 md:p-8">
+        <h1 className="text-2xl font-semibold text-ink mb-1">Partner Program</h1>
+        <p className="text-sm text-ink/60 mb-8">Earn money by referring users to OpinionPlus.</p>
+
+        {joinError && (
+          <div className="mb-6 p-4 bg-red-50 border border-signal rounded-sm text-sm text-signal">{joinError}</div>
+        )}
+
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Partner Card */}
+          <div className="border border-wire bg-paper p-6 flex flex-col">
+            <div className="flex items-center gap-2 mb-4">
+              <Star size={20} className="text-amber-600" />
+              <h2 className="text-lg font-bold text-ink">Partner</h2>
+            </div>
+            <ul className="space-y-2 mb-6 flex-1 text-sm text-ink/70">
+              <li>· KES 100 per basic referral</li>
+              <li>· KES 300 per partner referral</li>
+              <li>· Earn from story views & likes</li>
+              <li>· KES 5 withdrawal fee</li>
+              <li>· Bronze tier benefits</li>
+            </ul>
+            <button
+              disabled={joining}
+              onClick={() => joinPartner('partner')}
+              className="w-full bg-ink text-white py-3 font-bold uppercase text-xs tracking-wider rounded-sm hover:bg-ink/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {joining ? <Loader2 size={14} className="animate-spin" /> : null}
+              Join Free — Partner
+            </button>
+          </div>
+
+          {/* Pro Partner Card */}
+          <div className="border-2 border-amber-500 bg-paper p-6 flex flex-col relative">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-sm">Popular</span>
+            <div className="flex items-center gap-2 mb-4 mt-2">
+              <Zap size={20} className="text-amber-600" />
+              <h2 className="text-lg font-bold text-ink">Pro Partner</h2>
+            </div>
+            <ul className="space-y-2 mb-6 flex-1 text-sm text-ink/70">
+              <li>· KES 500 per pro referral</li>
+              <li>· Higher engagement bonuses</li>
+              <li>· 1.1x earnings multiplier</li>
+              <li>· KES 3 withdrawal fee</li>
+              <li>· Silver tier fast-track</li>
+            </ul>
+            <button
+              disabled={joining}
+              onClick={() => joinPartner('pro_partner')}
+              className="w-full bg-amber-600 text-white py-3 font-bold uppercase text-xs tracking-wider rounded-sm hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {joining ? <Loader2 size={14} className="animate-spin" /> : null}
+              Join Free — Pro Partner
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-ink/40 text-center mt-6">
+          All payments are currently disabled. Partner subscriptions are completely free.
+        </p>
+      </div>
+    );
+  }
+
+  // Partner dashboard — shown when user IS a partner
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8">
       <h1 className="text-2xl font-semibold text-ink mb-1">Partner Program</h1>

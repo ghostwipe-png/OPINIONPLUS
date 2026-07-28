@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth, ROOT_ADMIN_EMAIL } from '../lib/auth';
 import { useStore } from '../lib/store';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, WifiOff } from 'lucide-react';
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 const HAS_REAL_CLIENT_ID = !!GOOGLE_CLIENT_ID;
@@ -24,19 +24,42 @@ const DEV_PROFILES = [
   },
 ];
 
-export default function GoogleLoginButton() {
+/**
+ * Props are optional. If onSuccess/onStart/onError aren't provided, this
+ * falls back to the original behavior (upsert into the local store + push
+ * to '/'), so existing call sites keep working unchanged.
+ */
+export default function GoogleLoginButton({ onStart, onSuccess, onError, label = 'Continue with Google' }) {
   const { login, loginWithGoogle } = useAuth();
   const { upsertUser } = useStore();
   const router = useRouter();
-  
+
   const btnRef = useRef(null);
   const initialized = useRef(false);
-  
+
   const [devOpen, setDevOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(HAS_REAL_CLIENT_ID); // Load state for SDK inject
   const [error, setError] = useState(null);
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false
+  );
+
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, []);
 
   const afterLogin = useCallback((profile) => {
+    if (onSuccess) {
+      onSuccess(profile);
+      return;
+    }
     try {
       upsertUser({
         id: profile.id || profile.googleSub,
@@ -52,24 +75,42 @@ export default function GoogleLoginButton() {
       });
       router.push('/');
     } catch (err) {
-      setError('Failed to construct user session. Please try again.');
+      const message = 'Failed to construct user session. Please try again.';
+      setError(message);
       setIsLoading(false);
+      if (onError) onError(message);
     }
-  }, [upsertUser, router]);
+  }, [upsertUser, router, onSuccess, onError]);
 
   const handleCallback = useCallback(async (response) => {
+    if (isOffline) {
+      setError("You're offline. Connect to the internet to sign in.");
+      return;
+    }
     setIsLoading(true);
     setError(null);
+    if (onStart) onStart();
     try {
       const profile = await loginWithGoogle(response.credential);
       if (!profile) throw new Error('No profile returned from authentication.');
       afterLogin(profile);
     } catch (e) {
       console.error('Sign-in failed:', e);
-      setError(e.message || 'Authentication failed. Check console for details.');
+      const message = mapErrorMessage(e);
+      setError(message);
       setIsLoading(false);
+      if (onError) onError(message);
     }
-  }, [loginWithGoogle, afterLogin]);
+  }, [loginWithGoogle, afterLogin, onStart, onError, isOffline]);
+
+  function mapErrorMessage(e) {
+    const raw = (e && e.message) || '';
+    if (/offline/i.test(raw)) return raw;
+    if (/suspended/i.test(raw)) return 'This account has been suspended. Contact support.';
+    if (/expired|invalid.*token/i.test(raw)) return 'Session expired. Please try again.';
+    if (/network|fetch|failed to fetch/i.test(raw)) return 'Connection failed. Check your internet and try again.';
+    return raw || 'Authentication failed. Please try again.';
+  }
 
   useEffect(() => {
     if (!HAS_REAL_CLIENT_ID || initialized.current) return;
@@ -77,7 +118,7 @@ export default function GoogleLoginButton() {
     const initializeGoogleSignIn = () => {
       try {
         if (!window.google?.accounts?.id) throw new Error('Google SDK not loaded properly');
-        
+
         window.google.accounts.id.initialize({
           client_id: GOOGLE_CLIENT_ID,
           callback: handleCallback,
@@ -87,8 +128,8 @@ export default function GoogleLoginButton() {
 
         if (btnRef.current) {
           window.google.accounts.id.renderButton(btnRef.current, {
-            theme: 'outline', 
-            size: 'large', 
+            theme: 'outline',
+            size: 'large',
             text: 'continue_with',
             width: '100%',
             shape: 'rectangular',
@@ -103,7 +144,6 @@ export default function GoogleLoginButton() {
       }
     };
 
-    // Dynamically inject script if missing to guarantee it loads
     if (!window.google) {
       const script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
@@ -120,15 +160,27 @@ export default function GoogleLoginButton() {
     }
   }, [handleCallback]);
 
-  // Handle errors visually
+  // Offline state takes priority over everything else.
+  if (isOffline) {
+    return (
+      <div className="w-full bg-ink-50 border border-wire text-ink-600 rounded-sm p-4 text-xs font-medium flex items-start gap-2">
+        <WifiOff size={16} className="shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p>You&apos;re offline. Connect to the internet to sign in.</p>
+          <p className="mt-1 text-ink-400">We&apos;ll try again automatically once you&apos;re back online.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="w-full bg-red-50 border border-red-200 text-red-600 rounded-sm p-4 text-xs font-medium flex items-start gap-2">
         <AlertCircle size={16} className="shrink-0 mt-0.5" />
         <div className="flex-1">
           <p>{error}</p>
-          <button 
-            onClick={() => window.location.reload()} 
+          <button
+            onClick={() => { setError(null); window.location.reload(); }}
             className="mt-2 font-bold uppercase tracking-widest text-[10px] underline hover:text-red-800"
           >
             Reload Page
@@ -138,7 +190,6 @@ export default function GoogleLoginButton() {
     );
   }
 
-  // Real client ID loading/rendering UI
   if (HAS_REAL_CLIENT_ID) {
     return (
       <div className="w-full relative min-h-[44px]">
@@ -155,17 +206,17 @@ export default function GoogleLoginButton() {
   // Fallback: Dev Mode Mock Accounts
   return (
     <div className="w-full">
-      <button 
-        onClick={() => setDevOpen(o => !o)} 
+      <button
+        onClick={() => setDevOpen(o => !o)}
         disabled={isLoading}
         className="w-full bg-ink text-white font-bold uppercase tracking-widest text-xs py-3.5 rounded-sm hover:bg-signal transition-colors flex items-center justify-center gap-2 disabled:opacity-70"
       >
-        {isLoading ? <Loader2 size={16} className="animate-spin" /> : 'Continue via Dev Mode'}
+        {isLoading ? <Loader2 size={16} className="animate-spin" /> : label}
       </button>
       <p className="text-[10px] text-ink-400 mt-3 font-medium text-center uppercase tracking-wider">
         No <code className="font-mono bg-wire/30 px-1 rounded mx-0.5">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code>
       </p>
-      
+
       {devOpen && (
         <div className="mt-4 border-2 border-wire rounded-sm divide-y divide-wire bg-white overflow-hidden animate-in slide-in-from-top-2 duration-200">
           {DEV_PROFILES.map(p => (
@@ -174,7 +225,7 @@ export default function GoogleLoginButton() {
               disabled={isLoading}
               onClick={() => {
                 setIsLoading(true);
-                // Simulate slight network delay for realism
+                if (onStart) onStart();
                 setTimeout(() => {
                   const profile = login(p);
                   afterLogin(profile);

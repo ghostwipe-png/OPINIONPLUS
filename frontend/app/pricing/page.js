@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Zap, ShieldCheck } from 'lucide-react';
+import { Check, Zap, ShieldCheck, Loader2 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -10,10 +10,12 @@ export default function PricingPage() {
   const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const subscribe = async (tier) => {
     setLoading(tier);
     setError('');
+    setSuccess('');
     try {
       const ref = typeof window !== 'undefined' ? localStorage.getItem('op_referral') : null;
       const url = tier === 'partner' ? `${API_BASE}/partner/subscribe/partner` : `${API_BASE}/partner/subscribe/pro`;
@@ -31,10 +33,20 @@ export default function PricingPage() {
         body: JSON.stringify(ref ? { ref } : {}),
       });
       const data = await res.json();
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
+      
+      // PAYMENT: Uncomment when ready to charge
+      // if (data.authorization_url) {
+      //   window.location.href = data.authorization_url;
+      //   return;
+      // }
+      
+      if (res.ok) {
+        setSuccess(`Successfully activated ${tier === 'partner' ? 'Partner' : 'Pro Partner'} status! Redirecting to your dashboard...`);
+        setTimeout(() => {
+          window.location.href = '/partner';
+        }, 2000);
       } else {
-        throw new Error(data.error || 'Failed to initiate subscription gateway.');
+        throw new Error(data.error || 'Failed to activate partner status.');
       }
     } catch (e) {
       setError(e.message || 'Network error occurred. Please try again.');
@@ -71,11 +83,18 @@ export default function PricingPage() {
           <p className="text-base text-ink-600 font-medium leading-relaxed">
             Unlock professional earning features. Refer independent publishers, earn from content engagement, and withdraw payouts securely via M-Pesa.
           </p>
+          <p className="text-xs text-ink-400 mt-3 font-bold uppercase tracking-wider">All subscriptions are currently FREE.</p>
         </div>
 
         {error && (
           <div className="max-w-3xl mx-auto mb-8 bg-red-50 border border-signal text-signal p-4 rounded-sm text-xs font-bold uppercase tracking-wider text-center">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="max-w-3xl mx-auto mb-8 bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-sm text-xs font-bold uppercase tracking-wider text-center">
+            {success}
           </div>
         )}
 
@@ -91,8 +110,8 @@ export default function PricingPage() {
             
             <div className="mb-6 pb-6 border-b border-wire">
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-ink">KES 500</span>
-                <span className="text-xs font-bold text-ink-400 uppercase">/ one-time</span>
+                <span className="text-4xl font-black text-emerald-600">FREE</span>
+                <span className="text-xs font-bold text-ink-400 uppercase">/ for now</span>
               </div>
             </div>
 
@@ -106,9 +125,9 @@ export default function PricingPage() {
             <button 
               onClick={() => subscribe('partner')} 
               disabled={loading === 'partner'} 
-              className="w-full bg-ink text-white font-bold uppercase text-xs tracking-wider py-4 rounded-sm hover:bg-signal transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+              className="w-full bg-ink text-white font-bold uppercase text-xs tracking-wider py-4 rounded-sm hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
             >
-              {loading === 'partner' ? 'Redirecting to Gateway...' : 'Subscribe — KES 500'}
+              {loading === 'partner' ? <Loader2 size={14} className="animate-spin" /> : 'Join Free — Partner'}
             </button>
           </div>
 
@@ -127,8 +146,8 @@ export default function PricingPage() {
             
             <div className="mb-6 pb-6 border-b border-wire">
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-ink">KES 800</span>
-                <span className="text-xs font-bold text-ink-400 uppercase">/ one-time</span>
+                <span className="text-4xl font-black text-emerald-600">FREE</span>
+                <span className="text-xs font-bold text-ink-400 uppercase">/ for now</span>
               </div>
             </div>
 
@@ -144,7 +163,7 @@ export default function PricingPage() {
               disabled={loading === 'pro'} 
               className="w-full bg-signal text-white font-bold uppercase text-xs tracking-wider py-4 rounded-sm hover:bg-signal/90 transition-colors flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
             >
-              {loading === 'pro' ? 'Redirecting to Gateway...' : 'Subscribe — KES 800'}
+              {loading === 'pro' ? <Loader2 size={14} className="animate-spin" /> : 'Join Free — Pro Partner'}
             </button>
           </div>
 
