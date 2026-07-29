@@ -206,7 +206,7 @@ export default function WalletDashboard() {
             <button onClick={() => window.dispatchEvent(new CustomEvent('op:open-buy-credits'))} className="bg-ink text-white font-bold uppercase text-[11px] tracking-wider px-4 py-2.5 rounded-sm hover:bg-signal transition-colors flex items-center gap-1.5">
               <Sparkles size={13} /> Buy SMS Credits
             </button>
-            <a href="/partner/leaderboard" className="border border-wire bg-paper text-ink font-bold uppercase text-[11px] tracking-wider px-4 py-2.5 rounded-sm hover:border-ink transition-colors flex items-center gap-1.5">
+            <a href="/partner" className="border border-wire bg-paper text-ink font-bold uppercase text-[11px] tracking-wider px-4 py-2.5 rounded-sm hover:border-ink transition-colors flex items-center gap-1.5">
               <Trophy size={13} /> Leaderboard
             </a>
           </div>

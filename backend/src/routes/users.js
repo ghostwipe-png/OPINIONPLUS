@@ -39,8 +39,7 @@ users.get('/leaderboard', cache({ cacheName: 'op-leaderboard', cacheControl: 'pu
 // NOTE ON ROUTE ORDERING: Hono matches routes in registration
 // order. All literal-segment routes below (e.g. /me/badges,
 // /:id/endorse) are registered BEFORE the generic /:id route
-// further down, so they are never shadowed by it. This mirrors
-// the existing convention used for /leaderboard above.
+// further down, so they are never shadowed by it.
 // ═══════════════════════════════════════════════════════════
 
 // ---------- 6. Cover image ----------
@@ -133,7 +132,6 @@ users.get('/me/pinned-story', requireAuth, async (c) => {
   }
 });
 
-// Public: get any publisher's pinned/featured story
 users.get('/:id/pinned-story', async (c) => {
   try {
     const publisherId = c.req.param('id');
@@ -168,7 +166,6 @@ users.get('/me/badges', requireAuth, async (c) => {
   }
 });
 
-// Public: badges for any publisher (used on their profile page)
 users.get('/:id/badges', async (c) => {
   try {
     const publisherId = c.req.param('id');
@@ -300,7 +297,6 @@ users.post('/:id/endorse', requireAuth, async (c) => {
       return c.json({ error: 'A topic is required to endorse.' }, 400);
     }
 
-    // Rate limit: 20 endorsements per hour per user
     const limiter = createRateLimiter(c.env.DB, 3600, 20);
     const allowed = await limiter(user.id, 'endorse');
     if (!allowed) {
@@ -368,7 +364,6 @@ users.get('/:id/endorsements', async (c) => {
 users.get('/:id/collaborations', async (c) => {
   try {
     const publisherId = c.req.param('id');
-    // Assumes a `collaborations` table: (story_id, collaborator_id)
     const { results } = await c.env.DB.prepare(`
       SELECT s.id as story_id, s.title, u.id as collaborator_id, u.publisher_name as collaborator_name
       FROM collaborations c2
@@ -397,11 +392,18 @@ users.get('/:id', async (c) => {
   return c.json({ user: { ...row, followerCount: followers.n } });
 });
 
+// ── NEW: Rate limited profile edit (10/hour/user) ──────────────────────
 users.patch('/me', requireAuth, async (c) => {
   const user = c.get('user');
+
+  const limiter = createRateLimiter(c.env.DB, 3600, 10);
+  const allowed = await limiter(user.id, 'user:profile_edit');
+  if (!allowed) {
+    return c.json({ error: 'Too many profile edits. Please wait before trying again.' }, 429);
+  }
+
   const body = await c.req.json();
   
-  // Sanitize inputs — strip HTML, enforce length limits
   const publisherName = String(body.publisherName ?? user.publisher_name ?? '').trim().slice(0, 100).replace(/<[^>]*>/g, '');
   const bio = String(body.bio ?? user.bio ?? '').trim().slice(0, 500).replace(/<[^>]*>/g, '');
   const socialLink = String(body.socialLink ?? user.social_link ?? '').trim().slice(0, 500);
@@ -423,8 +425,16 @@ users.patch('/me', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// ── NEW: Rate limited follow (30/hour/user) ────────────────────────────
 users.post('/:id/follow', requireAuth, async (c) => {
   const user = c.get('user');
+
+  const limiter = createRateLimiter(c.env.DB, 3600, 30);
+  const allowed = await limiter(user.id, 'user:follow');
+  if (!allowed) {
+    return c.json({ error: 'Too many follow actions. Please slow down.' }, 429);
+  }
+
   const publisherId = c.req.param('id');
   const existing = await c.env.DB.prepare(
     'SELECT 1 FROM follows WHERE follower_id = ? AND publisher_id = ?'
@@ -445,7 +455,6 @@ users.post('/:id/follow', requireAuth, async (c) => {
 
 // Masthead Newsletter Subscription Route
 users.post('/:id/subscribe', async (c) => {
-  // Rate limit: 10 subscriptions per hour per IP
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   const limiter = createRateLimiter(c.env.DB, 3600, 10);
   const allowed = await limiter(ip, 'subscribe');
@@ -455,7 +464,6 @@ users.post('/:id/subscribe', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const email = (body.email || '').trim().toLowerCase();
 
-  // Proper email validation
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return c.json({ error: 'Please provide a valid email address.' }, 400);
   }

@@ -497,7 +497,7 @@ export default function ProfilePage() {
   const followerCount = Object.values(follows).filter((list) => list.includes(id)).length;
   const iFollow = user ? (follows[user.id] || []).includes(id) : false;
 
-  const saveEdits = () => {
+    const saveEdits = () => {
     upsertUser({ ...profile, ...form });
     if (isOwner) updateProfile(form);
     setEditing(false);
@@ -507,9 +507,9 @@ export default function ProfilePage() {
     openCloudinaryWidget({ onSuccess: (r) => setForm((f) => ({ ...f, logoUrl: r.url })) });
   };
 
-  const publisherName = profile.publisherName || profile.publisher_name;
-  const logoUrl = profile.logoUrl || profile.logo_url;
-  const coverImageUrl = (editing ? form.coverImage : (profile.coverImage || profile.cover_image)) || null;
+  const publisherName = profile?.publisherName || profile?.publisher_name;
+  const logoUrl = profile?.logoUrl || profile?.logo_url;
+  const coverImageUrl = profile ? (editing ? form.coverImage : (profile.coverImage || profile.cover_image)) : null;
 
   // ── NEW: reading time stats (feature 6) ────────────────────────────────
   const { totalWords, avgReadMin } = useMemo(
@@ -518,14 +518,14 @@ export default function ProfilePage() {
   );
 
   // ── NEW: social links (feature 3) ──────────────────────────────────────
-  const socialLinks = [
+  const socialLinks = profile ? [
     profile.social_link || profile.socialLink
       ? { key: 'website', href: /^https?:\/\//i.test(profile.social_link || profile.socialLink) ? (profile.social_link || profile.socialLink) : `https://${profile.social_link || profile.socialLink}`, Icon: Globe, label: 'Website' }
       : null,
     profile.twitter ? { key: 'twitter', href: `https://twitter.com/${String(profile.twitter).replace('@', '')}`, Icon: Twitter, label: 'Twitter' } : null,
     profile.linkedin ? { key: 'linkedin', href: profile.linkedin, Icon: Linkedin, label: 'LinkedIn' } : null,
     profile.email ? { key: 'email', href: `mailto:${profile.email}`, Icon: Mail, label: 'Email' } : null,
-  ].filter(Boolean);
+  ].filter(Boolean) : [];
 
   if (!profile) {
     return (

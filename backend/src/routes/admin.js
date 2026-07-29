@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { requireAdmin, requireRoot, requirePin } from '../middleware/auth.js';
 import apiServiceAdmin from './api-service-admin.js';
+import { getAllFeatureFlags, setFeatureFlag } from '../middleware/featureFlags.js';
+import { getCircuitBreakerStatus, resetCircuitBreaker } from '../middleware/circuitBreaker.js';
+import { getBlacklist, blockIp, unblockIp } from '../middleware/ipBlacklist.js';
 
 const admin = new Hono();
 admin.use('*', requireAdmin);
@@ -19,8 +22,306 @@ function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Feature Flags Management (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/feature-flags', requireRoot, async (c) => {
+  try {
+    const flags = await getAllFeatureFlags(c.env);
+    return c.json({ flags });
+  } catch (e) {
+    return c.json({ error: 'Failed to load feature flags.' }, 500);
+  }
+});
+
+admin.put('/feature-flags/:key', requireRoot, requirePin, async (c) => {
+  const key = c.req.param('key');
+  const body = await c.req.json().catch(() => ({}));
+  const value = String(body.value ?? 'true');
+  const user = c.get('user');
+
+  try {
+    const result = await setFeatureFlag(c.env, key, value, user.email);
+    await log(c, 'update_feature_flag', key, `Set to ${value}`);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to update feature flag.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Circuit Breaker Management (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/circuit-breakers', requireRoot, async (c) => {
+  try {
+    const status = await getCircuitBreakerStatus(c.env);
+    return c.json({ breakers: status });
+  } catch (e) {
+    return c.json({ error: 'Failed to load circuit breaker status.' }, 500);
+  }
+});
+
+admin.post('/circuit-breakers/:name/reset', requireRoot, requirePin, async (c) => {
+  const name = c.req.param('name');
+  const user = c.get('user');
+
+  try {
+    const result = await resetCircuitBreaker(c.env, name);
+    await log(c, 'reset_circuit_breaker', name);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to reset circuit breaker.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: IP Blacklist Management (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/ip-blacklist', requireRoot, async (c) => {
+  const page = parseInt(c.req.query('page') || '1', 10);
+  try {
+    const result = await getBlacklist(c.env, page);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to load IP blacklist.' }, 500);
+  }
+});
+
+admin.post('/ip-blacklist', requireRoot, requirePin, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ip = body.ip;
+  const reason = body.reason || 'Manual block by admin';
+  const permanent = !!body.permanent;
+
+  if (!ip) return c.json({ error: 'IP address is required.' }, 400);
+
+  try {
+    const result = await blockIp(c.env, ip, reason, permanent);
+    await log(c, permanent ? 'permanent_block_ip' : 'temp_block_ip', ip, reason);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to block IP.' }, 500);
+  }
+});
+
+admin.delete('/ip-blacklist/:ip', requireRoot, requirePin, async (c) => {
+  const ip = c.req.param('ip');
+
+  try {
+    const result = await unblockIp(c.env, ip);
+    await log(c, 'unblock_ip', ip);
+    return c.json(result);
+  } catch (e) {
+    return c.json({ error: 'Failed to unblock IP.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Cron Job Management (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/cron-jobs', requireRoot, async (c) => {
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM cron_job_log ORDER BY created_at DESC LIMIT ?'
+    ).bind(limit).all();
+    return c.json({ jobs: results || [] });
+  } catch (e) {
+    return c.json({ jobs: [], error: 'Failed to load cron job logs.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Slow Query Log (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/slow-queries', requireRoot, async (c) => {
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM slow_query_log ORDER BY created_at DESC LIMIT ?'
+    ).bind(limit).all();
+    return c.json({ queries: results || [] });
+  } catch (e) {
+    return c.json({ queries: [], error: 'Failed to load slow queries.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Error Aggregation (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/errors', requireRoot, async (c) => {
+  const page = parseInt(c.req.query('page') || '1', 10);
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const offset = (page - 1) * limit;
+  const resolved = c.req.query('resolved') === 'true';
+
+  try {
+    const totalRow = await c.env.DB.prepare(
+      'SELECT COUNT(*) as count FROM error_aggregation WHERE resolved = ?'
+    ).bind(resolved ? 1 : 0).first();
+
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM error_aggregation WHERE resolved = ? ORDER BY last_seen_at DESC LIMIT ? OFFSET ?'
+    ).bind(resolved ? 1 : 0, limit, offset).all();
+
+    return c.json({
+      errors: results || [],
+      total: totalRow?.count || 0,
+      page,
+      totalPages: Math.ceil((totalRow?.count || 0) / limit),
+    });
+  } catch (e) {
+    return c.json({ errors: [], error: 'Failed to load errors.' }, 500);
+  }
+});
+
+admin.post('/errors/:errorKey/resolve', requireRoot, requirePin, async (c) => {
+  const errorKey = c.req.param('errorKey');
+  try {
+    await c.env.DB.prepare(
+      'UPDATE error_aggregation SET resolved = 1 WHERE error_key = ?'
+    ).bind(errorKey).run();
+    await log(c, 'resolve_error', errorKey);
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to resolve error.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Dead Links Management (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/dead-links', requireRoot, async (c) => {
+  const page = parseInt(c.req.query('page') || '1', 10);
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const offset = (page - 1) * limit;
+
+  try {
+    const totalRow = await c.env.DB.prepare(
+      'SELECT COUNT(*) as count FROM dead_links WHERE resolved = 0'
+    ).first();
+
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM dead_links WHERE resolved = 0 ORDER BY found_at DESC LIMIT ? OFFSET ?'
+    ).bind(limit, offset).all();
+
+    return c.json({
+      links: results || [],
+      total: totalRow?.count || 0,
+      page,
+      totalPages: Math.ceil((totalRow?.count || 0) / limit),
+    });
+  } catch (e) {
+    return c.json({ links: [], error: 'Failed to load dead links.' }, 500);
+  }
+});
+
+admin.post('/dead-links/:id/resolve', requireRoot, requirePin, async (c) => {
+  const id = c.req.param('id');
+  try {
+    await c.env.DB.prepare('UPDATE dead_links SET resolved = 1 WHERE id = ?').bind(id).run();
+    await log(c, 'resolve_dead_link', id);
+    return c.json({ ok: true });
+  } catch (e) {
+    return c.json({ error: 'Failed to resolve dead link.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Real-Time Dashboard Data (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/dashboard/realtime', requireRoot, async (c) => {
+  try {
+    const now = new Date();
+    const fiveMinAgo = new Date(now - 5 * 60 * 1000).toISOString();
+    const oneHourAgo = new Date(now - 60 * 60 * 1000).toISOString();
+
+    const [activeSessions, recentRequests, recentErrors, dbQueryAvg, totalUsers, totalStories] = await Promise.all([
+      c.env.DB.prepare(
+        "SELECT COUNT(*) as count FROM users WHERE created_at >= datetime('now', '-5 minutes')"
+      ).first().catch(() => ({ count: 0 })),
+      c.env.DB.prepare(
+        "SELECT COUNT(*) as count FROM admin_logs WHERE created_at >= ?"
+      ).bind(fiveMinAgo).first().catch(() => ({ count: 0 })),
+      c.env.DB.prepare(
+        'SELECT COUNT(*) as count FROM error_aggregation WHERE last_seen_at >= ?'
+      ).bind(oneHourAgo).first().catch(() => ({ count: 0 })),
+      c.env.DB.prepare(
+        "SELECT COALESCE(AVG(duration_ms), 0) as avg FROM slow_query_log WHERE created_at >= datetime('now', '-1 hour')"
+      ).first().catch(() => ({ avg: 0 })),
+      c.env.DB.prepare('SELECT COUNT(*) as count FROM users').first().catch(() => ({ count: 0 })),
+      c.env.DB.prepare('SELECT COUNT(*) as count FROM stories WHERE deleted = 0').first().catch(() => ({ count: 0 })),
+    ]);
+
+    return c.json({
+      activeUsersRecently: activeSessions?.count || 0,
+      adminActionsLast5Min: recentRequests?.count || 0,
+      errorsLastHour: recentErrors?.count || 0,
+      avgQueryTimeMs: Math.round(dbQueryAvg?.avg || 0),
+      totalUsers: totalUsers?.count || 0,
+      totalStories: totalStories?.count || 0,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return c.json({ error: 'Failed to load dashboard data.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Content Filter Log (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/content-filter-log', requireRoot, async (c) => {
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM content_filter_log ORDER BY created_at DESC LIMIT ?'
+    ).bind(limit).all();
+    return c.json({ logs: results || [] });
+  } catch (e) {
+    return c.json({ logs: [], error: 'Failed to load content filter log.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Bulk User Operations (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.post('/users/bulk-suspend', requireRoot, requirePin, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const userIds = body.user_ids;
+  const reason = body.reason || 'Bulk suspension';
+
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return c.json({ error: 'user_ids array is required.' }, 400);
+  }
+
+  if (userIds.length > 100) {
+    return c.json({ error: 'Maximum 100 users per bulk operation.' }, 400);
+  }
+
+  let count = 0;
+  for (const userId of userIds) {
+    try {
+      await c.env.DB.prepare('UPDATE users SET suspended = 1 WHERE id = ?').bind(userId).run();
+      count++;
+    } catch (e) { /* skip failed updates */ }
+  }
+
+  await log(c, 'bulk_suspend_users', 'MULTIPLE', `Suspended ${count} users. Reason: ${reason}`);
+  return c.json({ ok: true, count, total: userIds.length });
+});
+
 // ---------------------------------------------------------------------------
-// Users & Accounts
+// Users & Accounts (existing routes preserved below)
 // ---------------------------------------------------------------------------
 
 admin.get('/users', async (c) => {
@@ -47,11 +348,6 @@ admin.patch('/user/:id', requirePin, async (c) => {
   return c.json({ ok: true });
 });
 
-// NEW: hard-delete a user account. This route is referenced by the admin
-// console's "Delete User" action (root only, PIN gated). It performs a
-// soft-delete style suspension + anonymization rather than a physical
-// DELETE FROM users, to preserve referential integrity with existing
-// service_orders / payment_transactions / stories rows.
 admin.delete('/user/:id', requireRoot, requirePin, async (c) => {
   const id = c.req.param('id');
   const target = await c.env.DB.prepare('SELECT id, email FROM users WHERE id = ?').bind(id).first();
@@ -105,7 +401,7 @@ admin.post('/force-logout-all', requireRoot, requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Content Management
+// Content Management (existing routes preserved)
 // ---------------------------------------------------------------------------
 
 admin.get('/stories', async (c) => {
@@ -163,7 +459,7 @@ admin.post('/reports/:id/resolve', requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Financial Controls
+// Financial Controls (existing routes preserved)
 // ---------------------------------------------------------------------------
 
 admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
@@ -175,7 +471,6 @@ admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
   const user = await c.env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (!user) return c.json({ error: 'User not found' }, 404);
 
-  // Balance can never go below zero even on a large negative adjustment.
   const record = await c.env.DB.prepare('SELECT balance FROM sms_credits WHERE user_id = ?').bind(user.id).first();
   const newBalance = Math.max(0, (record?.balance || 0) + amount);
   await c.env.DB.prepare(
@@ -187,7 +482,7 @@ admin.post('/credit-adjust', requireRoot, requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Data Export Center
+// Data Export Center (existing routes preserved)
 // ---------------------------------------------------------------------------
 
 admin.get('/export/:entity', requirePin, async (c) => {
@@ -213,7 +508,7 @@ admin.get('/export/:entity', requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// System & Security Settings (Root Only)
+// System & Security Settings (Root Only — existing routes preserved)
 // ---------------------------------------------------------------------------
 
 admin.get('/settings', requireRoot, async (c) => {
@@ -264,7 +559,7 @@ admin.get('/logs', requireRoot, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Root Admins Management
+// Root Admins Management (existing routes preserved)
 // ---------------------------------------------------------------------------
 
 admin.get('/admins', requireRoot, async (c) => {
@@ -298,7 +593,7 @@ admin.delete('/admins/:email', requireRoot, requirePin, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Service Management & Customer Support Tools (Root Only)
+// Service Management & Customer Support Tools (Root Only — existing preserved)
 // ---------------------------------------------------------------------------
 
 async function adminProvisionService(db, serviceType, packageId, userId, customCredits) {
@@ -379,7 +674,6 @@ admin.get('/services/orders/:id', requireRoot, async (c) => {
 
 admin.post('/services/orders/:id/fulfill', requireRoot, requirePin, async (c) => {
   const id = c.req.param('id');
-  // Optimistic lock: only a genuinely pending order can be fulfilled once.
   const update = await c.env.DB.prepare("UPDATE service_orders SET status = ?, paystack_status = ? WHERE id = ? AND status = ?")
     .bind('active', 'success', id, 'pending').run();
   const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
@@ -412,9 +706,6 @@ admin.post('/services/orders/:id/refund', requireRoot, requirePin, async (c) => 
     .bind('refunded', 'cancelled', id, 'refunded').run();
   const flipped = (update?.meta?.changes ?? update?.changes ?? 0) > 0;
 
-  // Reverse SMS credits that were granted for this order, mirroring the
-  // logic in payments.js /refund, so a refunded service order can't leave
-  // credits sitting in the user's account.
   let creditsDeducted = 0;
   if (flipped && order.service_type === 'sms') {
     const pkg = await c.env.DB.prepare('SELECT sms_count FROM sms_packages WHERE id = ?').bind(order.package_id).first();
@@ -566,10 +857,6 @@ admin.get('/services/export', requireRoot, async (c) => {
   return c.text(csv);
 });
 
-// NEW: reconciliation endpoint — cross-checks a batch of local order
-// references against Paystack's own record of the transaction so an admin
-// can spot drift between the two systems (e.g. a webhook that silently
-// failed to process).
 admin.get('/services/reconcile', requireRoot, async (c) => {
   const secretKey = c.env.PAYSTACK_SECRET_KEY;
   if (!secretKey) return c.json({ error: 'Payment gateway not configured.' }, 500);
@@ -588,7 +875,7 @@ admin.get('/services/reconcile', requireRoot, async (c) => {
       if (data.status && data.data?.status === 'success') {
         mismatches.push({ orderId: order.id, reference: order.paystack_reference, localStatus: order.status, paystackStatus: data.data.status });
       }
-    } catch (e) { /* skip transient errors, surfaced on next run */ }
+    } catch (e) { /* skip transient errors */ }
   }
 
   return c.json({ checked: pending.length, mismatches });
@@ -620,5 +907,6 @@ admin.post('/services/sms/adjust', requireRoot, requirePin, async (c) => {
   await log(c, 'adjust_sms_credits', email, `Adjusted SMS credits by ${credits}. Reason: ${reason}. New balance: ${newBalance}`);
   return c.json({ ok: true, newBalance });
 });
+
 admin.route('/api-service', apiServiceAdmin);
 export default admin;

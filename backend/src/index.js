@@ -7,6 +7,10 @@ import { createRateLimiter } from './middleware/rateLimit.js';
 import { createDB } from './utils/db.js';
 import { AudioRoomDO } from './audio-room-do.js';
 
+// NEW: Platform hardening middleware
+import { ipBlacklistMiddleware } from './middleware/ipBlacklist.js';
+import { maintenanceMiddleware } from './middleware/featureFlags.js';
+
 import auth from './routes/auth.js';
 import stories from './routes/stories.js';
 import users from './routes/users.js';
@@ -24,8 +28,8 @@ import rooms from './routes/rooms.js';
 import jobs from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services, { publishScheduledPressReleases } from './routes/services.js';
-import apiService from './routes/api-service.js'; // NEW: Standalone API service
-import sponsoredService, { processSponsoredCampaigns, countSponsoredImpressions } from './routes/sponsored-service.js'; // NEW: Standalone Sponsored Content service
+import apiService from './routes/api-service.js';
+import sponsoredService, { processSponsoredCampaigns, countSponsoredImpressions } from './routes/sponsored-service.js';
 import health from './routes/health.js';
 import videos, {
   channels as videoChannels,
@@ -86,6 +90,12 @@ async function checkPaystack(env) {
 }
 
 // ── Middleware ────────────────────────────────────────
+
+// NEW: IP Blacklist — applied first, before anything else
+app.use('*', ipBlacklistMiddleware);
+
+// NEW: Maintenance Mode — applied early, after IP check
+app.use('*', maintenanceMiddleware);
 
 app.use('*', async (c, next) => {
   const requestId = c.req.header('X-Request-ID') || crypto.randomUUID();
@@ -190,12 +200,8 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/campuses/')) return await next();
   if (c.req.path === '/payments/webhook') return await next();
   if (c.req.path === '/services/webhook') return await next();
-  // Public, unauthenticated view-tracking pixel for press releases — no session/CSRF cookie to check.
   if (/^\/services\/press-release\/[^/]+\/track-view$/.test(c.req.path)) return await next();
-  // Public API v1 endpoints — authenticated via API key, not session cookie
   if (c.req.path.startsWith('/api-service/v1/')) return await next();
-  // Public, unauthenticated sponsored-content tracking pixels (impression/click/conversion) —
-  // no session/CSRF cookie to check. Covers both the canonical mount and the backward-compat alias.
   if (c.req.path.startsWith('/sponsored-service/track/')) return await next();
   if (c.req.path.startsWith('/services/sponsored/track/')) return await next();
   return csrfProtection(c, next);
@@ -291,10 +297,10 @@ app.route('/rooms', rooms);
 app.route('/jobs', jobs);
 app.route('/campuses', campuses);
 app.route('/services', services);
-app.route('/api-service', apiService); // NEW: Standalone API service
-app.route('/services/api', apiService); // NEW: Backward compat — /services/api/* still works
-app.route('/sponsored-service', sponsoredService); // NEW: Standalone Sponsored Content service
-app.route('/services/sponsored', sponsoredService); // NEW: Backward compat — /services/sponsored/* still works
+app.route('/api-service', apiService);
+app.route('/services/api', apiService);
+app.route('/sponsored-service', sponsoredService);
+app.route('/services/sponsored', sponsoredService);
 app.route('/videos', videos);
 app.route('/channels', videoChannels);
 app.route('/subs', videoSubscriptionsFeed);
@@ -342,14 +348,46 @@ app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {
   const status = err.status || err.statusCode || 500;
   const requestId = c.get('requestId');
+
+  // NEW: Aggregate errors for monitoring (fire and forget)
+  c.executionCtx?.waitUntil?.(
+    (async () => {
+      try {
+        const errorKey = `${(err.message || '').slice(0, 100)}::${c.req.path}`;
+        await c.env.DB.prepare(
+          `INSERT INTO error_aggregation (error_key, error_message, endpoint, last_seen_at, occurrence_count)
+           VALUES (?, ?, ?, datetime('now'), 1)
+           ON CONFLICT(error_key) DO UPDATE SET
+             last_seen_at = datetime('now'),
+             occurrence_count = occurrence_count + 1`
+        ).bind(errorKey, (err.message || '').slice(0, 500), c.req.path).run();
+      } catch (e) { /* silent */ }
+    })().catch(() => {})
+  );
+
   if (status >= 400 && status < 500) {
     return c.json({ error: err.message || 'Request error.', requestId }, status);
   }
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
 
+// NEW: Cron job logging wrapper
 async function runCronJob(name, fn) {
-  try { await fn(); } catch (e) {}
+  const start = Date.now();
+  try {
+    await fn();
+    // Log success (fire and forget)
+    const env = globalThis.__env; // Set by worker fetch if available
+    if (env?.DB) {
+      try {
+        await env.DB.prepare(
+          'INSERT INTO cron_job_log (id, job_name, status, duration_ms) VALUES (?, ?, ?, ?)'
+        ).bind(crypto.randomUUID(), name, 'success', Date.now() - start).run();
+      } catch (e) { /* silent */ }
+    }
+  } catch (e) {
+    console.error(JSON.stringify({ kind: 'cron_job_failed', job: name, message: e.message }));
+  }
 }
 
 // ── Worker ────────────────────────────────────────────
@@ -357,9 +395,11 @@ async function runCronJob(name, fn) {
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
+    // Set env globally so runCronJob can access it for logging
+    globalThis.__env = env;
+    
     const jobs = [];
 
-    // Health check — every 5 minutes
     if (event.cron === '*/5 * * * *') {
       jobs.push(runCronJob('health-check', async () => {
         const results = await Promise.all([
@@ -387,29 +427,35 @@ const worker = {
       }));
       jobs.push(runCronJob('process-sponsored-campaigns', () => processSponsoredCampaigns(env)));
       jobs.push(runCronJob('count-sponsored-impressions', () => countSponsoredImpressions(env)));
-      // NEW: API log cleanup (90-day retention) + webhook retries
       jobs.push(runCronJob('api-log-cleanup', async () => {
         await env.DB.prepare("DELETE FROM api_request_logs WHERE created_at < datetime('now', '-90 days')").run();
       }));
-      // NEW: partner engagement bonuses — checked every 5 min alongside the other health/publish jobs
       jobs.push(runCronJob('partner-engagement-bonuses', async () => {
         const partnerModule = await import('./routes/partner.js');
         if (typeof partnerModule.checkEngagementBonuses === 'function') {
           return await partnerModule.checkEngagementBonuses(env);
         }
       }));
+      // NEW: Circuit breaker health check
+      jobs.push(runCronJob('circuit-breaker-health', async () => {
+        const { getCircuitBreakerStatus } = await import('./middleware/circuitBreaker.js');
+        const status = await getCircuitBreakerStatus(env);
+        const openCircuits = (status || []).filter(s => s.state === 'open');
+        if (openCircuits.length > 0) {
+          log('error', 'CIRCUIT_BREAKERS_OPEN', {
+            circuits: openCircuits.map(c => c.service_name),
+          });
+        }
+      }));
       jobs.push(runCronJob('api-webhook-retries', async () => {
-        // Retry failed webhook deliveries from last 24h (up to 3 attempts total)
         try {
           const { results } = await env.DB.prepare(
             "SELECT w.*, l.id as log_id FROM api_webhook_logs l JOIN api_webhooks w ON l.webhook_id = w.id WHERE l.success = 0 AND l.created_at >= datetime('now', '-24 hours') AND w.is_active = 1"
           ).all();
-          
           for (const row of results) {
             const attempts = await env.DB.prepare(
               "SELECT COUNT(*) as count FROM api_webhook_logs WHERE webhook_id = ? AND event_type = ? AND created_at >= datetime('now', '-24 hours')"
             ).bind(row.webhook_id, row.event_type).first();
-            
             if ((attempts?.count || 0) < 3) {
               try {
                 const start = Date.now();
@@ -418,10 +464,9 @@ const worker = {
                   headers: { 'Content-Type': 'application/json', 'X-OP-Event': row.event_type },
                   body: row.payload,
                 });
-                const responseTime = Date.now() - start;
                 await env.DB.prepare(
                   'INSERT INTO api_webhook_logs (id, webhook_id, event_type, payload, response_status, response_time_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                ).bind(crypto.randomUUID(), row.webhook_id, row.event_type, row.payload, res.status, responseTime, res.ok ? 1 : 0).run();
+                ).bind(crypto.randomUUID(), row.webhook_id, row.event_type, row.payload, res.status, Date.now() - start, res.ok ? 1 : 0).run();
               } catch (e) {
                 await env.DB.prepare(
                   'INSERT INTO api_webhook_logs (id, webhook_id, event_type, payload, response_status, response_time_ms, success) VALUES (?, ?, ?, ?, 0, 0, 0)'
@@ -429,25 +474,51 @@ const worker = {
               }
             }
           }
-        } catch (e) { /* silently fail — webhook retries are best-effort */ }
+        } catch (e) { /* silently fail */ }
       }));
     }
 
     if (event.cron === '0 3 * * *') {
       jobs.push(runCronJob('retention-cleanup', () => runRetentionCleanup(env)));
-      // NEW: recalculate partner tiers nightly
       jobs.push(runCronJob('partner-tier-recalculation', async () => {
         const partnerModule = await import('./routes/partner.js');
         if (typeof partnerModule.recalculateAllTiers === 'function') {
           return await partnerModule.recalculateAllTiers(env);
         }
       }));
-      // NEW: anomaly detection sweep nightly
       jobs.push(runCronJob('partner-anomaly-detection', async () => {
         const partnerModule = await import('./routes/partner.js');
         if (typeof partnerModule.runAnomalyDetection === 'function') {
           return await partnerModule.runAnomalyDetection(env);
         }
+      }));
+    }
+
+    // NEW: Every hour — dead link checker
+    if (event.cron === '0 * * * *') {
+      jobs.push(runCronJob('dead-link-checker', async () => {
+        try {
+          const { results: stories } = await env.DB.prepare(
+            "SELECT id, body FROM stories WHERE deleted = 0 AND body LIKE '%http%' LIMIT 50"
+          ).all();
+          for (const story of stories || []) {
+            const urls = (story.body || '').match(/https?:\/\/[^\s<>"']+/g) || [];
+            for (const url of urls.slice(0, 5)) {
+              try {
+                const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
+                if (res.status >= 400) {
+                  await env.DB.prepare(
+                    'INSERT OR IGNORE INTO dead_links (id, story_id, link_url, status_code) VALUES (?, ?, ?, ?)'
+                  ).bind(crypto.randomUUID(), story.id, url.slice(0, 500), res.status).run();
+                }
+              } catch (e) {
+                await env.DB.prepare(
+                  'INSERT OR IGNORE INTO dead_links (id, story_id, link_url, status_code) VALUES (?, ?, ?, ?)'
+                ).bind(crypto.randomUUID(), story.id, url.slice(0, 500), 0).run();
+              }
+            }
+          }
+        } catch (e) { /* silently fail */ }
       }));
     }
 

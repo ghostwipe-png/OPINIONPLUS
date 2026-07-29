@@ -7,7 +7,7 @@ import {
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
-  KeyRound, Server, FileDown, MonitorPlay, UserCog, GraduationCap, Megaphone, Clock, UserX, Briefcase
+  KeyRound, Server, FileDown, MonitorPlay, UserCog, Link2, GraduationCap, Megaphone, Clock, UserX, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -19,6 +19,7 @@ import PressReleaseAdminTab from './PressReleaseAdminTab';
 import ApiServiceAdminSection from './api-service-section';
 import SponsoredCampaignsAdminSection from './SponsoredCampaignsAdminSection';
 import PartnerAdminSection from './PartnerAdminSection';
+import PlatformAdminSection from './PlatformAdminSection';
 
 const DEMO_PIN = '1234';
 const IDLE_LIMIT_MS = 5 * 60 * 1000;
@@ -592,6 +593,13 @@ export default function AdminPage() {
     ...(isRoot ? [{ id: 'partner-admin', label: 'Partners', icon: UsersIcon, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'api-service', label: 'API Service', icon: Server }] : []),
     ...(isRoot ? [{ id: 'admins', label: 'Admins', icon: ShieldPlus }] : []),
+    ...(isRoot ? [{ id: 'feature-flags', label: 'Feature Flags', icon: Flag, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'ip-blacklist', label: 'IP Blacklist', icon: Shield, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'circuit-breakers', label: 'Breakers', icon: Zap, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'cron-jobs', label: 'Cron Jobs', icon: Clock, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'errors-log', label: 'Error Log', icon: AlertTriangle, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'dead-links', label: 'Dead Links', icon: Link2, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'realtime', label: 'Realtime', icon: Activity, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
     { id: 'log', label: 'Audit Log', icon: ScrollText },
@@ -1604,6 +1612,13 @@ export default function AdminPage() {
 {tab === 'api-service' && isRoot && <ApiServiceAdminSection />}
 {tab === 'sponsored-admin' && isRoot && <SponsoredCampaignsAdminSection />}
 {tab === 'partner-admin' && isRoot && <PartnerAdminSection />}
+{tab === 'feature-flags' && isRoot && <PlatformAdminSection subTab="feature-flags" />}
+{tab === 'ip-blacklist' && isRoot && <PlatformAdminSection subTab="ip-blacklist" />}
+{tab === 'circuit-breakers' && isRoot && <PlatformAdminSection subTab="circuit-breakers" />}
+{tab === 'cron-jobs' && isRoot && <PlatformAdminSection subTab="cron-jobs" />}
+{tab === 'errors-log' && isRoot && <PlatformAdminSection subTab="errors-log" />}
+{tab === 'dead-links' && isRoot && <PlatformAdminSection subTab="dead-links" />}
+{tab === 'realtime' && isRoot && <PlatformAdminSection subTab="realtime" />}
           </main>
         </div>
       </div>

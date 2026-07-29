@@ -5,6 +5,14 @@ import { Mail, CheckCircle } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
+async function getCsrfToken() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+    const data = await res.json();
+    return data.token || '';
+  } catch (e) { return ''; }
+}
+
 export default function MastheadNewsletter({ publisherId, publisherName }) {
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState('idle'); // idle | loading | success | error
@@ -18,9 +26,13 @@ export default function MastheadNewsletter({ publisherId, publisherName }) {
     setErrorMessage('');
 
     try {
+      const csrfToken = await getCsrfToken();
       const res = await fetch(`${API_BASE}/users/${publisherId}/subscribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
+        },
         body: JSON.stringify({ email }),
       });
       const data = await res.json();

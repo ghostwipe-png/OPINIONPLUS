@@ -43,6 +43,13 @@ function loadLocal() {
   return JSON.parse(JSON.stringify(SEED));
 }
 
+function saveLocal(state) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) { /* storage full or unavailable */ }
+}
+
 let csrfToken = null;
 
 async function fetchCsrfToken() {
@@ -176,6 +183,13 @@ export function StoreProvider({ children }) {
     }
   }, []);
 
+  // Auto-save to localStorage on every data change
+  useEffect(() => {
+    if (ready && typeof window !== 'undefined') {
+      saveLocal(data);
+    }
+  }, [data, ready]);
+
   async function loadFromAPI() {
     try {
       const [storiesRes, meRes] = await Promise.all([
@@ -201,6 +215,8 @@ export function StoreProvider({ children }) {
             name: u.name,
             publisherName: u.publisher_name || u.name,
             logoUrl: u.logo_url || null,
+            coverImage: u.cover_image || u.coverImage || null,
+            cover_image: u.cover_image || u.coverImage || null,
             bio: u.bio || '',
             socialLink: u.social_link || '',
             role: u.role || 'user',
@@ -213,7 +229,19 @@ export function StoreProvider({ children }) {
       });
       setStoriesError(null);
     } catch (e) {
-      console.error('Failed to load from API, using local fallback:', e);
+      console.error('Failed to load from API, using stale cache:', e);
+      // Serve stale cache from localStorage
+      try {
+        const cached = window.localStorage.getItem(STORAGE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setData(d => ({
+            ...d,
+            stories: parsed.stories || d.stories,
+            users: parsed.users || d.users,
+          }));
+        }
+      } catch (e2) { /* ignore */ }
       setStoriesError(e.message);
     }
   }
@@ -285,14 +313,12 @@ export function StoreProvider({ children }) {
       updatedAt: new Date().toISOString() 
     };
     
-    // Instantly prepend the new story to the front of the local state array
     setData(d => ({ ...d, stories: [newStory, ...d.stories] }));
     
     if (USE_API) {
       enqueueOrRun(async () => {
         try {
           const res = await api('/stories', { method: 'POST', body: JSON.stringify({ title: story.title, excerpt: story.excerpt, body: story.body, type: story.type, privacy: story.privacy, coverImage: story.coverImage, files: story.files }) });
-          // Update the temporary ID with the real database ID
           setData(d => ({ ...d, stories: d.stories.map(s => s.id === id ? { ...s, id: res.id || id } : s) }));
           invalidateCache('/stories');
           setStoriesError(null);

@@ -3,8 +3,60 @@ import { requireAuth } from '../middleware/auth.js';
 import { apiKeyAuth } from '../middleware/apiKey.js';
 import { cache } from 'hono/cache';
 import { createRateLimiter } from '../middleware/rateLimit.js';
+import { isFeatureEnabled } from '../middleware/featureFlags.js';
 
 const stories = new Hono();
+
+// ── Content filter ─────────────────────────────────────────────────────
+// Simple profanity/abuse word list (English + Swahili). Expand as needed.
+const BLOCKED_WORDS = new Set([
+  // English profanity
+  'fuck', 'shit', 'asshole', 'bastard', 'bitch', 'damn', 'dick', 'piss',
+  // Slurs & hate speech (zero tolerance)
+  'nigger', 'nigga', 'faggot', 'retard', 'chink', 'kike', 'spic', 'wetback',
+  // Swahili profanity
+  'mavi', 'mkojo', 'takataka', 'malaya', 'kahaba', 'mshenzi', 'kuma', 'mjinga',
+  // Spam patterns
+  'buy now', 'click here', 'free money', 'win big', 'casino', 'lottery',
+]);
+
+function filterContent(text, contentType) {
+  if (!text || typeof text !== 'string') return { clean: true, triggers: [] };
+
+  const lower = text.toLowerCase();
+  const triggers = [];
+
+  for (const word of BLOCKED_WORDS) {
+    if (lower.includes(word)) {
+      triggers.push(word);
+    }
+  }
+
+  return {
+    clean: triggers.length === 0,
+    triggers,
+  };
+}
+
+async function logContentFilter(env, { userId, contentType, snippet, triggers, actionTaken }) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO content_filter_log (id, user_id, content_type, content_snippet, filter_trigger, action_taken)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      userId || null,
+      contentType,
+      (snippet || '').slice(0, 200),
+      triggers.join(', '),
+      actionTaken
+    ).run();
+  } catch (e) {
+    console.error('Content filter log failed:', e.message);
+  }
+}
+
+// ── Existing helpers (preserved) ───────────────────────────────────────
 
 async function hydrateStory(db, row) {
   const [files, likes, ratings, comments] = await Promise.all([
@@ -194,7 +246,6 @@ stories.post('/bulk-archive', requireAuth, async (c) => {
   return c.json({ ok: true, count: ids.length });
 });
 
-// ⚡ PROTECTED: GET /search with strict rate limiting (30 requests per minute per IP)
 stories.get('/search', cache({ cacheName: 'op-search', cacheControl: 'public, max-age=60' }), async (c) => {
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   const limiter = createRateLimiter(c.env.DB, 60, 30);
@@ -250,11 +301,10 @@ stories.get('/timeline/:userId', async (c) => {
   return c.json({ timeline: results });
 });
 
-// ⚡ TRANSLATE: Handled via browser translation natively
 stories.post('/:id/translate', async (c) => {
   return c.json({ 
     ok: true, 
-    message: 'Please use your browser’s built-in translation feature to view this story.' 
+    message: 'Please use your browser\'s built-in translation feature to view this story.' 
   });
 });
 
@@ -267,7 +317,6 @@ stories.get('/:id', async (c) => {
   const isPublic = row.privacy === 'public';
   const isAdminUser = isAdmin(user);
   
-  // WHITELIST: only serve if public, owned by current user, or user is admin
   if (!isPublic && !isOwner && !isAdminUser) {
     return c.json({ error: 'Not found' }, 404);
   }
@@ -281,16 +330,58 @@ stories.get('/:id', async (c) => {
       await c.env.DB.prepare('UPDATE stories SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?').bind(row.id).run();
       row.view_count = (row.view_count || 0) + 1;
     }
-  } catch (e) { /* view tracking is non-critical */ }
+  } catch (e) { }
 
   const hydrated = await hydrateStory(c.env.DB, row);
   const quality = computeQualityScore(row);
   return c.json({ story: { ...hydrated, view_count: row.view_count || 0, quality_score: quality.score, quality_tier: quality.tier } });
 });
 
+// ── NEW: Rate limited + content filtered story creation ────────────────
 stories.post('/', requireAuth, async (c) => {
   const user = c.get('user');
+
+  // Check feature flag — disable_story_creation
+  const creationDisabled = await isFeatureEnabled(c.env, 'disable_story_creation');
+  if (creationDisabled && !isAdmin(user)) {
+    return c.json({ error: 'Story creation is temporarily disabled.' }, 503);
+  }
+
+  // Rate limit: 10 stories per hour per user
+  const limiter = createRateLimiter(c.env.DB, 3600, 10);
+  const allowed = await limiter(user.id, 'story:create');
+  if (!allowed) {
+    return c.json({ error: 'You can create up to 10 stories per hour. Please slow down.' }, 429);
+  }
+
   const body = await c.req.json();
+
+  // Content filter on title
+  const titleFilter = filterContent(body.title, 'story_title');
+  if (!titleFilter.clean) {
+    await logContentFilter(c.env, {
+      userId: user.id,
+      contentType: 'story_title',
+      snippet: body.title,
+      triggers: titleFilter.triggers,
+      actionTaken: 'blocked',
+    });
+    return c.json({ error: 'Your title contains prohibited content. Please revise and try again.' }, 400);
+  }
+
+  // Content filter on body
+  const bodyFilter = filterContent(body.body, 'story_body');
+  if (!bodyFilter.clean) {
+    await logContentFilter(c.env, {
+      userId: user.id,
+      contentType: 'story_body',
+      snippet: (body.body || '').slice(0, 200),
+      triggers: bodyFilter.triggers,
+      actionTaken: 'blocked',
+    });
+    return c.json({ error: 'Your content contains prohibited language. Please revise and try again.' }, 400);
+  }
+
   const id = crypto.randomUUID();
   const privacy = body.scheduled_at ? 'scheduled' : (body.privacy || 'public');
   await c.env.DB.prepare('INSERT INTO stories (id, author_id, title, excerpt, body, type, privacy, cover_image, scheduled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -333,9 +424,17 @@ stories.delete('/:id', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// ── NEW: Rate limited likes (60/hour/user) ─────────────────────────────
 stories.post('/:id/like', requireAuth, async (c) => {
   const user = c.get('user');
   const id = c.req.param('id');
+
+  const limiter = createRateLimiter(c.env.DB, 3600, 60);
+  const allowed = await limiter(user.id, 'story:like');
+  if (!allowed) {
+    return c.json({ error: 'Too many likes. Please slow down.' }, 429);
+  }
+
   const existing = await c.env.DB.prepare('SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?').bind(id, user.id).first();
   if (existing) { await c.env.DB.prepare('DELETE FROM likes WHERE story_id = ? AND user_id = ?').bind(id, user.id).run(); return c.json({ liked: false }); }
   await c.env.DB.prepare('INSERT INTO likes (story_id, user_id) VALUES (?, ?)').bind(id, user.id).run();
@@ -351,11 +450,40 @@ stories.post('/:id/rate', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// ── NEW: Rate limited + content filtered comments (30/hour/user) ───────
 stories.post('/:id/comments', requireAuth, async (c) => {
   const user = c.get('user');
+
+  // Check feature flag — disable_comments
+  const commentsDisabled = await isFeatureEnabled(c.env, 'disable_comments');
+  if (commentsDisabled && !isAdmin(user)) {
+    return c.json({ error: 'Comments are temporarily disabled.' }, 503);
+  }
+
+  // Rate limit: 30 comments per hour per user
+  const limiter = createRateLimiter(c.env.DB, 3600, 30);
+  const allowed = await limiter(user.id, 'story:comment');
+  if (!allowed) {
+    return c.json({ error: 'Too many comments. Please slow down.' }, 429);
+  }
+
   const id = c.req.param('id');
   const { body, parentId } = await c.req.json();
   if (!body?.trim()) return c.json({ error: 'Comment cannot be empty.' }, 400);
+
+  // Content filter on comment
+  const commentFilter = filterContent(body, 'comment');
+  if (!commentFilter.clean) {
+    await logContentFilter(c.env, {
+      userId: user.id,
+      contentType: 'comment',
+      snippet: body.slice(0, 200),
+      triggers: commentFilter.triggers,
+      actionTaken: 'blocked',
+    });
+    return c.json({ error: 'Your comment contains prohibited language. Please revise and try again.' }, 400);
+  }
+
   const commentId = crypto.randomUUID();
   await c.env.DB.prepare('INSERT INTO comments (id, story_id, user_id, body, parent_id) VALUES (?, ?, ?, ?, ?)').bind(commentId, id, user.id, body.trim(), parentId || null).run();
   return c.json({ id: commentId }, 201);
