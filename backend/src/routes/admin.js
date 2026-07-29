@@ -908,5 +908,170 @@ admin.post('/services/sms/adjust', requireRoot, requirePin, async (c) => {
   return c.json({ ok: true, newBalance });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Alert Configuration (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/alerts/config', requireRoot, async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM alert_configs ORDER BY created_at DESC'
+    ).all();
+    return c.json({ configs: results || [] });
+  } catch (e) {
+    return c.json({ configs: [], error: 'Failed to load alert configs.' }, 500);
+  }
+});
+
+admin.post('/alerts/config', requireRoot, requirePin, async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { alert_type, destination, error_threshold } = body;
+
+  if (!['email', 'sms'].includes(alert_type)) {
+    return c.json({ error: 'alert_type must be email or sms.' }, 400);
+  }
+  if (!destination || typeof destination !== 'string') {
+    return c.json({ error: 'destination is required.' }, 400);
+  }
+  if (alert_type === 'email' && !isValidEmail(destination)) {
+    return c.json({ error: 'Invalid email address.' }, 400);
+  }
+  if (error_threshold && (!Number.isInteger(error_threshold) || error_threshold < 1)) {
+    return c.json({ error: 'error_threshold must be a positive integer.' }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const threshold = error_threshold || 10;
+
+  await c.env.DB.prepare(
+    'INSERT INTO alert_configs (id, alert_type, destination, error_threshold) VALUES (?, ?, ?, ?)'
+  ).bind(id, alert_type, destination.trim(), threshold).run();
+
+  await log(c, 'create_alert_config', id, `${alert_type} -> ${destination.trim()} (threshold: ${threshold})`);
+  return c.json({ ok: true, config: { id, alert_type, destination: destination.trim(), error_threshold: threshold } });
+});
+
+admin.delete('/alerts/config/:id', requireRoot, requirePin, async (c) => {
+  const id = c.req.param('id');
+  await c.env.DB.prepare('DELETE FROM alert_configs WHERE id = ?').bind(id).run();
+  await log(c, 'delete_alert_config', id);
+  return c.json({ ok: true });
+});
+
+admin.get('/alerts/history', requireRoot, async (c) => {
+  const limit = parseInt(c.req.query('limit') || '30', 10);
+  try {
+    const { results } = await c.env.DB.prepare(
+      'SELECT * FROM alert_history ORDER BY created_at DESC LIMIT ?'
+    ).bind(limit).all();
+    return c.json({ history: results || [] });
+  } catch (e) {
+    return c.json({ history: [], error: 'Failed to load alert history.' }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW: Uptime Dashboard (Root Only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+admin.get('/uptime', requireRoot, async (c) => {
+  try {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
+
+    // Current month
+    const currentMonthLogs = await c.env.DB.prepare(
+      "SELECT status, created_at FROM uptime_log WHERE created_at >= ? ORDER BY created_at ASC"
+    ).bind(monthStart).all();
+
+    // Last month
+    const lastMonthLogs = await c.env.DB.prepare(
+      "SELECT status, created_at FROM uptime_log WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC"
+    ).bind(lastMonthStart, lastMonthEnd).all();
+
+    const calcUptime = (logs) => {
+      if (!logs || logs.length === 0) return { percentage: 100, checks: 0, failures: 0 };
+      const total = logs.length;
+      const failures = logs.filter(l => l.status !== 'ok').length;
+      return {
+        percentage: total > 0 ? Number(((total - failures) / total * 100).toFixed(2)) : 100,
+        checks: total,
+        failures,
+      };
+    };
+
+    const current = calcUptime(currentMonthLogs?.results || []);
+    const previous = calcUptime(lastMonthLogs?.results || []);
+
+    // Recent incidents (last 30 days, only failures)
+    const incidents = await c.env.DB.prepare(
+      "SELECT * FROM uptime_log WHERE status != 'ok' AND created_at >= datetime('now', '-30 days') ORDER BY created_at DESC LIMIT 20"
+    ).all();
+
+    // Uptime by service (last 24h)
+    const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const recentLogs = await c.env.DB.prepare(
+      "SELECT * FROM uptime_log WHERE created_at >= ? ORDER BY created_at ASC"
+    ).bind(oneDayAgo).all();
+
+    const services = {};
+    for (const log of (recentLogs?.results || [])) {
+      try {
+        const detail = JSON.parse(log.detail || '{}');
+        if (detail.services) {
+          for (const svc of detail.services) {
+            if (!services[svc.provider]) {
+              services[svc.provider] = { ok: 0, total: 0 };
+            }
+            services[svc.provider].total++;
+            if (svc.status === 'ok') services[svc.provider].ok++;
+          }
+        }
+      } catch (e) {}
+    }
+
+    const serviceUptime = Object.entries(services).map(([name, stats]) => ({
+      name,
+      percentage: stats.total > 0 ? Number(((stats.ok / stats.total) * 100).toFixed(2)) : 100,
+      checks: stats.total,
+    }));
+
+    return c.json({
+      currentMonth: current,
+      previousMonth: previous,
+      incidents: incidents?.results || [],
+      serviceUptime,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return c.json({ error: 'Failed to load uptime data.' }, 500);
+  }
+});
+
+// Public uptime endpoint (for status badge)
+admin.get('/uptime/public', async (c) => {
+  try {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const logs = await c.env.DB.prepare(
+      "SELECT status FROM uptime_log WHERE created_at >= ?"
+    ).bind(monthStart).all();
+
+    const results = logs?.results || [];
+    const total = results.length || 1;
+    const failures = results.filter(l => l.status !== 'ok').length;
+    const percentage = Number(((total - failures) / total * 100).toFixed(2));
+
+    return c.json({
+      uptime: percentage,
+      period: 'current_month',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return c.json({ uptime: 100, period: 'current_month' }, 200);
+  }
+});
+
 admin.route('/api-service', apiServiceAdmin);
 export default admin;

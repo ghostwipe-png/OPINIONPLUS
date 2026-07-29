@@ -436,6 +436,51 @@ const worker = {
           return await partnerModule.checkEngagementBonuses(env);
         }
       }));
+
+            // NEW: Uptime tracking + error alert check
+      jobs.push(runCronJob('uptime-check', async () => {
+        const results = await Promise.all([
+          checkD1(env),
+          checkBunny(env),
+          checkPaystack(env),
+        ]);
+        const overall = results.every(r => r.status === 'ok') ? 'ok' : 'degraded';
+        const anyDown = results.some(r => r.status === 'down');
+        
+        await env.DB.prepare(
+          'INSERT INTO uptime_log (id, status, detail) VALUES (?, ?, ?)'
+        ).bind(crypto.randomUUID(), anyDown ? 'down' : overall, JSON.stringify({ services: results })).run();
+
+        // Check error threshold for alerts
+        if (overall !== 'ok') {
+          const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+          const errorCount = await env.DB.prepare(
+            "SELECT COUNT(*) as count FROM error_aggregation WHERE last_seen_at >= ?"
+          ).bind(oneHourAgo).first();
+          
+          const alerts = await env.DB.prepare(
+            'SELECT * FROM alert_configs WHERE is_active = 1'
+          ).all();
+          
+          for (const alert of (alerts?.results || [])) {
+            if ((errorCount?.count || 0) >= alert.error_threshold) {
+              console.log(JSON.stringify({
+                kind: 'alert_triggered',
+                alert_type: alert.alert_type,
+                destination: alert.destination,
+                error_count: errorCount?.count,
+                message: `ALERT: ${errorCount?.count} errors in the last hour. Platform status: ${overall}`,
+              }));
+              await env.DB.prepare(
+                'INSERT INTO alert_history (id, alert_type, destination, error_count, message) VALUES (?, ?, ?, ?, ?)'
+              ).bind(crypto.randomUUID(), alert.alert_type, alert.destination, errorCount?.count || 0, `Errors: ${errorCount?.count}. Status: ${overall}`).run();
+            }
+          }
+        }
+      }));
+
+
+
       // NEW: Circuit breaker health check
       jobs.push(runCronJob('circuit-breaker-health', async () => {
         const { getCircuitBreakerStatus } = await import('./middleware/circuitBreaker.js');

@@ -7,7 +7,7 @@ import {
   MessageSquare, Search, Wallet, CheckCircle, Mail, Download, Eye, Trash2,
   XCircle, ChevronLeft, ChevronRight, TrendingUp, Settings, Shield, LogOut, Sun, Moon, Menu,
   RefreshCw, Loader2, X, Check, Star, AlertTriangle, Package, Zap, ChevronDown, ChevronUp,
-  KeyRound, Server, FileDown, MonitorPlay, UserCog, Link2, GraduationCap, Megaphone, Clock, UserX, Briefcase
+  KeyRound, Server, FileDown, MonitorPlay, Bell, UserCog, Link2, GraduationCap, Megaphone, Clock, UserX, Briefcase
 } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
 import { useStore, setAdminPin } from '../../lib/store';
@@ -600,6 +600,8 @@ export default function AdminPage() {
     ...(isRoot ? [{ id: 'errors-log', label: 'Error Log', icon: AlertTriangle, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'dead-links', label: 'Dead Links', icon: Link2, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'realtime', label: 'Realtime', icon: Activity, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'alerts', label: 'Alerts', icon: Bell, visible: user?.role === 'root' }] : []),
+    ...(isRoot ? [{ id: 'uptime', label: 'Uptime', icon: TrendingUp, visible: user?.role === 'root' }] : []),
     ...(isRoot ? [{ id: 'settings', label: 'System Settings', icon: Settings }] : []),
     ...(isRoot ? [{ id: 'security', label: 'Security Center', icon: Shield }] : []),
     { id: 'log', label: 'Audit Log', icon: ScrollText },
@@ -744,7 +746,15 @@ export default function AdminPage() {
               {TABS.map((t, i) => (
                 <button 
                   key={t.id} 
-                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } if (t.id === 'partner-admin') { } }}
+                  onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } if (t.id === 'partner-admin') { } if (t.id === 'feature-flags') { }
+                  if (t.id === 'ip-blacklist') { }
+                  if (t.id === 'circuit-breakers') { }
+                  if (t.id === 'cron-jobs') { }
+                  if (t.id === 'errors-log') { }
+                  if (t.id === 'dead-links') { }
+                  if (t.id === 'realtime') { }
+                  if (t.id === 'alerts') { }
+                  if (t.id === 'uptime') { } }}
                   title={`Ctrl+${i + 1}`}
                   className={`px-4 py-2.5 rounded-sm border flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-left transition-colors ${
                     tab === t.id ? 'bg-ink text-white border-ink shadow-sm' : `${darkCard} hover:border-ink`
@@ -762,7 +772,15 @@ export default function AdminPage() {
             {TABS.map(t => (
               <button 
                 key={t.id} 
-                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } if (t.id === 'partner-admin') { } }}
+                onClick={() => { setTab(t.id); if (['transactions', 'sms', 'withdrawals', 'subscribers', 'search'].includes(t.id)) { loadAllData(); } if (t.id === 'campuses-admin') { loadCampuses(); } if (t.id === 'api-service') { } if (t.id === 'sponsored-admin') { } if (t.id === 'partner-admin') { } if (t.id === 'feature-flags') { }
+                if (t.id === 'ip-blacklist') { }
+                if (t.id === 'circuit-breakers') { }
+                if (t.id === 'cron-jobs') { }
+                if (t.id === 'errors-log') { }
+                if (t.id === 'dead-links') { }
+                if (t.id === 'realtime') { }
+                if (t.id === 'alerts') { }
+                if (t.id === 'uptime') { } }}
                 className={`px-3 py-2 rounded-sm border text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
                   tab === t.id ? 'bg-ink text-white border-ink' : 'border-wire bg-white text-ink-600'
                 }`}
@@ -1619,6 +1637,8 @@ export default function AdminPage() {
 {tab === 'errors-log' && isRoot && <PlatformAdminSection subTab="errors-log" />}
 {tab === 'dead-links' && isRoot && <PlatformAdminSection subTab="dead-links" />}
 {tab === 'realtime' && isRoot && <PlatformAdminSection subTab="realtime" />}
+{tab === 'alerts' && isRoot && <PlatformAdminSection subTab="alerts" />}
+{tab === 'uptime' && isRoot && <PlatformAdminSection subTab="uptime" />}
           </main>
         </div>
       </div>
