@@ -3247,7 +3247,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-      "bytes": 366906,
+      "bytes": 367032,
       "imports": [
         {
           "path": "path",
@@ -3651,8 +3651,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/chunks/106.js": {
-      "bytes": 18442,
+    ".open-next/server-functions/default/.next/server/chunks/105.js": {
+      "bytes": 18937,
       "imports": [],
       "format": "cjs"
     },
@@ -3662,12 +3662,12 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/chunks/249.js": {
-      "bytes": 60666,
+      "bytes": 63964,
       "imports": [],
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/chunks/448.js": {
-      "bytes": 11715,
+      "bytes": 11416,
       "imports": [],
       "format": "cjs"
     },
@@ -3691,9 +3691,9 @@
       "bytes": 1873,
       "imports": [
         {
-          "path": ".open-next/server-functions/default/.next/server/chunks/106.js",
+          "path": ".open-next/server-functions/default/.next/server/chunks/105.js",
           "kind": "require-call",
-          "original": "./chunks/106.js"
+          "original": "./chunks/105.js"
         },
         {
           "path": ".open-next/server-functions/default/.next/server/chunks/194.js",
@@ -4054,7 +4054,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/profile/[id]/page.js": {
-      "bytes": 121689,
+      "bytes": 156887,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4384,7 +4384,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/videos/[id]/page.js": {
-      "bytes": 54800,
+      "bytes": 55112,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4582,7 +4582,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/rooms/[id]/page.js": {
-      "bytes": 45520,
+      "bytes": 45591,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4648,7 +4648,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/story/[id]/page.js": {
-      "bytes": 50505,
+      "bytes": 50296,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -4978,7 +4978,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/partner/page.js": {
-      "bytes": 46391,
+      "bytes": 46448,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5507,8 +5507,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/signup/page.js": {
-      "bytes": 21611,
+    ".open-next/server-functions/default/.next/server/app/shorts/page.js": {
+      "bytes": 31629,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5573,8 +5573,8 @@
       ],
       "format": "cjs"
     },
-    ".open-next/server-functions/default/.next/server/app/shorts/page.js": {
-      "bytes": 31629,
+    ".open-next/server-functions/default/.next/server/app/signup/page.js": {
+      "bytes": 21611,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5706,7 +5706,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-      "bytes": 167468,
+      "bytes": 167533,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -5970,7 +5970,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/jobs/page.js": {
-      "bytes": 34529,
+      "bytes": 34588,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -6093,7 +6093,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/.next/server/app/page.js": {
-      "bytes": 26505,
+      "bytes": 43164,
       "imports": [
         {
           "path": ".open-next/server-functions/default/node_modules/next/dist/shared/lib/router/utils/app-paths.js",
@@ -6159,7 +6159,7 @@
       "format": "cjs"
     },
     ".open-next/server-functions/default/node_modules/next/dist/server/require.js": {
-      "bytes": 62021,
+      "bytes": 64595,
       "imports": [
         {
           "path": "path",
@@ -6327,14 +6327,14 @@
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\pages\\_document.js"
         },
         {
-          "path": ".open-next/server-functions/default/.next/server/app/signup/page.js",
-          "kind": "require-call",
-          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\signup\\page.js"
-        },
-        {
           "path": ".open-next/server-functions/default/.next/server/app/shorts/page.js",
           "kind": "require-call",
           "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\shorts\\page.js"
+        },
+        {
+          "path": ".open-next/server-functions/default/.next/server/app/signup/page.js",
+          "kind": "require-call",
+          "original": "C:\\Users\\adipo\\Videos\\opinionplus\\opinionplus\\frontend\\.open-next\\server-functions\\default\\.next\\server\\app\\signup\\page.js"
         },
         {
           "path": ".open-next/server-functions/default/.next/server/app/videos/page.js",
@@ -8656,7 +8656,7 @@
           "bytesInOutput": 586
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/load-manifest.external.js": {
-          "bytesInOutput": 326247
+          "bytesInOutput": 326366
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/app-render/action-async-storage-instance.js": {
           "bytesInOutput": 501
@@ -8718,17 +8718,17 @@
         ".open-next/server-functions/default/node_modules/next/dist/server/app-render/dynamic-access-async-storage.external.js": {
           "bytesInOutput": 516
         },
-        ".open-next/server-functions/default/.next/server/chunks/106.js": {
-          "bytesInOutput": 19842
+        ".open-next/server-functions/default/.next/server/chunks/105.js": {
+          "bytesInOutput": 20337
         },
         ".open-next/server-functions/default/.next/server/chunks/194.js": {
           "bytesInOutput": 457894
         },
         ".open-next/server-functions/default/.next/server/chunks/249.js": {
-          "bytesInOutput": 61638
+          "bytesInOutput": 64940
         },
         ".open-next/server-functions/default/.next/server/chunks/448.js": {
-          "bytesInOutput": 12136
+          "bytesInOutput": 11837
         },
         ".open-next/server-functions/default/.next/server/chunks/580.js": {
           "bytesInOutput": 30803
@@ -8755,7 +8755,7 @@
           "bytesInOutput": 24426
         },
         ".open-next/server-functions/default/.next/server/app/profile/[id]/page.js": {
-          "bytesInOutput": 123800
+          "bytesInOutput": 160220
         },
         ".open-next/server-functions/default/.next/server/app/services/api/page.js": {
           "bytesInOutput": 80792
@@ -8770,7 +8770,7 @@
           "bytesInOutput": 24174
         },
         ".open-next/server-functions/default/.next/server/app/videos/[id]/page.js": {
-          "bytesInOutput": 55612
+          "bytesInOutput": 55930
         },
         ".open-next/server-functions/default/.next/server/app/_not-found/page.js": {
           "bytesInOutput": 15130
@@ -8779,10 +8779,10 @@
           "bytesInOutput": 18500
         },
         ".open-next/server-functions/default/.next/server/app/rooms/[id]/page.js": {
-          "bytesInOutput": 46289
+          "bytesInOutput": 46367
         },
         ".open-next/server-functions/default/.next/server/app/story/[id]/page.js": {
-          "bytesInOutput": 51467
+          "bytesInOutput": 51252
         },
         ".open-next/server-functions/default/.next/server/app/campuses/page.js": {
           "bytesInOutput": 31246
@@ -8797,7 +8797,7 @@
           "bytesInOutput": 32100
         },
         ".open-next/server-functions/default/.next/server/app/partner/page.js": {
-          "bytesInOutput": 47030
+          "bytesInOutput": 47094
         },
         ".open-next/server-functions/default/.next/server/app/pricing/page.js": {
           "bytesInOutput": 23533
@@ -8847,17 +8847,17 @@
         ".open-next/server-functions/default/.next/server/pages/_document.js": {
           "bytesInOutput": 455
         },
-        ".open-next/server-functions/default/.next/server/app/signup/page.js": {
-          "bytesInOutput": 21822
-        },
         ".open-next/server-functions/default/.next/server/app/shorts/page.js": {
           "bytesInOutput": 32109
+        },
+        ".open-next/server-functions/default/.next/server/app/signup/page.js": {
+          "bytesInOutput": 21822
         },
         ".open-next/server-functions/default/.next/server/app/videos/page.js": {
           "bytesInOutput": 28181
         },
         ".open-next/server-functions/default/.next/server/app/admin/page.js": {
-          "bytesInOutput": 170489
+          "bytesInOutput": 170561
         },
         ".open-next/server-functions/default/.next/server/app/login/page.js": {
           "bytesInOutput": 22126
@@ -8869,7 +8869,7 @@
           "bytesInOutput": 17038
         },
         ".open-next/server-functions/default/.next/server/app/jobs/page.js": {
-          "bytesInOutput": 34815
+          "bytesInOutput": 34879
         },
         ".open-next/server-functions/default/.next/server/pages/_error.js": {
           "bytesInOutput": 83188
@@ -8878,10 +8878,10 @@
           "bytesInOutput": 3581
         },
         ".open-next/server-functions/default/.next/server/app/page.js": {
-          "bytesInOutput": 26788
+          "bytesInOutput": 43893
         },
         ".open-next/server-functions/default/node_modules/next/dist/server/require.js": {
-          "bytesInOutput": 52572
+          "bytesInOutput": 55122
         },
         ".open-next/server-functions/default/node_modules/next/dist/lib/wait.js": {
           "bytesInOutput": 341
@@ -8992,7 +8992,7 @@
           "bytesInOutput": 69264
         }
       },
-      "bytes": 4078038
+      "bytes": 4138111
     }
   }
 }

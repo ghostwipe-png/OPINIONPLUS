@@ -1,4 +1,4 @@
-// components/navbar.js[cite: 3]
+// components/navbar.js
 'use client';
 
 import Link from 'next/link';
@@ -40,8 +40,8 @@ function NavLink({ href, children, className = '', onClick }) {
     <Link
       href={href}
       onClick={onClick}
-      className={`tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm pb-0.5 border-b-2 whitespace-nowrap ${
-        active ? 'text-signal border-signal' : 'text-white/75 border-transparent hover:text-signal'
+      className={`tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-all duration-200 ease-out focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none rounded-sm pb-0.5 border-b-2 whitespace-nowrap hover:-translate-y-[0.5px] active:scale-[0.98] ${
+        active ? 'text-amber-400 border-amber-400/80' : 'text-white/75 border-transparent hover:text-amber-300 hover:scale-[1.02]'
       } ${className}`}
     >
       {children}
@@ -53,7 +53,7 @@ export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const { stories } = useStore();
   const pathname = usePathname();
-  
+
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [servicesOpen, setServicesOpen] = useState(false);
@@ -64,7 +64,7 @@ export default function Navbar() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  
+
   const isMasterAdmin = user?.email === 'adipotech@gmail.com';
 
   useEffect(() => {
@@ -137,16 +137,16 @@ export default function Navbar() {
   return (
     <>
       {searchOpen && (
-        <div className="fixed inset-0 z-[60] bg-[#1C1917]/95 backdrop-blur-xl animate-in fade-in flex flex-col">
-          <div className="p-5 md:p-8 flex justify-between items-center border-b border-white/10">
+        <div className="fixed inset-0 z-[60] bg-[#0A0807]/98 backdrop-blur-3xl animate-in fade-in flex flex-col">
+          <div className="p-5 md:p-8 flex justify-between items-center border-b border-white/[0.04]">
              <h2 className="text-white text-lg md:text-2xl font-black uppercase tracking-widest flex items-center gap-3">
-               <Sparkles className="text-signal" /> Deep Search Engine
+               <Sparkles className="text-amber-400" /> Deep Search Engine
              </h2>
-             <button onClick={closeSearch} className="text-white/50 hover:text-signal transition-colors p-2 bg-white/5 rounded-full hover:bg-white/10">
+             <button onClick={closeSearch} className="text-white/50 hover:text-amber-300 transition-all duration-200 p-2 bg-white/5 rounded-full hover:bg-white/10 active:scale-[0.97]">
                <X size={28} />
              </button>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto p-5 md:p-10">
              <div className="max-w-5xl mx-auto">
                <form onSubmit={performDeepSearch} className="relative">
@@ -156,34 +156,34 @@ export default function Navbar() {
                    placeholder="Search stories, campus news, documentaries..."
                    value={searchQuery}
                    onChange={(e) => setSearchQuery(e.target.value)}
-                   className="w-full bg-transparent border-b-2 border-white/20 text-white text-2xl md:text-5xl font-black py-4 md:py-6 focus:outline-none focus:border-signal transition-colors placeholder:text-white/20"
+                   className="w-full bg-transparent border-b-2 border-white/20 text-white text-3xl md:text-5xl font-black py-4 md:py-6 focus:outline-none focus:border-amber-400/50 transition-colors placeholder:text-white/10"
                  />
-                 <button type="submit" disabled={isSearching} className="absolute right-0 top-1/2 -translate-y-1/2 text-signal hover:text-white transition-colors disabled:opacity-50">
+                 <button type="submit" disabled={isSearching} className="absolute right-0 top-1/2 -translate-y-1/2 text-amber-400 hover:text-white transition-all duration-200 disabled:opacity-50 active:scale-[0.97]">
                    {isSearching ? <Loader2 size={40} className="animate-spin" /> : <ArrowRight size={40} />}
                  </button>
                </form>
 
                <div className="mt-12">
                  {isSearching ? (
-                   <div className="text-signal flex items-center gap-3 text-sm md:text-lg font-bold uppercase tracking-widest animate-pulse">
+                   <div className="text-amber-400 flex items-center gap-3 text-sm md:text-lg font-bold uppercase tracking-widest animate-pulse">
                      <Loader2 className="animate-spin" /> Scanning Platform Database...
                    </div>
                  ) : searchResults.length > 0 ? (
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                      {searchResults.map(result => (
-                        <Link 
-                          href={`/story/${result.id}`} 
-                          onClick={closeSearch} 
-                          key={result.id} 
-                          className="group block bg-white/5 border border-white/10 rounded-2xl p-6 hover:bg-white/10 hover:border-signal hover:shadow-2xl transition-all"
+                        <Link
+                          href={`/story/${result.id}`}
+                          onClick={closeSearch}
+                          key={result.id}
+                          className="group block bg-white/[0.02] border border-white/[0.04] rounded-2xl p-6 hover:bg-white/[0.05] hover:border-amber-400/40 hover:shadow-2xl transition-all duration-200"
                         >
                           <div className="flex items-center justify-between mb-3">
-                            <span className="text-[10px] bg-signal/20 text-signal px-2 py-1 rounded-sm font-bold uppercase tracking-widest">
+                            <span className="text-[10px] bg-amber-400/20 text-amber-400 px-2 py-1 rounded-sm font-bold uppercase tracking-widest">
                               {result.type?.replace('_', ' ') || 'Content'}
                             </span>
                             <span className="text-[10px] text-white/40 uppercase tracking-widest">{new Date(result.created_at || result.createdAt).toLocaleDateString()}</span>
                           </div>
-                          <h3 className="text-white text-lg font-black leading-snug group-hover:text-signal transition-colors line-clamp-2">{result.title}</h3>
+                          <h3 className="text-white text-lg font-black leading-snug group-hover:text-amber-300 transition-colors line-clamp-2">{result.title}</h3>
                           <p className="text-white/50 text-xs mt-3 line-clamp-2 font-medium leading-relaxed">{result.excerpt || 'Read full publication...'}</p>
                         </Link>
                      ))}
@@ -203,15 +203,15 @@ export default function Navbar() {
         </div>
       )}
 
-      <header className="bg-ink border-b border-white/10 sticky top-0 z-40">
+      <header className="bg-[#0A0807]/85 backdrop-blur-xl border-b border-white/[0.04] sticky top-0 z-40">
         <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-20">
-            
-            <Link href="/" className="shrink-0 group focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none rounded-sm bg-white p-1">
-              <img 
-                src="/default-og-image.jpg" 
-                alt="OpinionPlus Logo" 
-                className="h-9 lg:h-11 w-auto object-contain" 
+          <div className="flex items-center justify-between h-16">
+
+            <Link href="/" className="shrink-0 group focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none rounded-sm bg-white p-1 hover:ring-1 hover:ring-white/10 transition-all duration-500">
+              <img
+                src="/default-og-image.jpg"
+                alt="OpinionPlus Logo"
+                className="h-8 lg:h-9 w-auto object-contain hover:brightness-110 transition-all duration-500"
               />
             </Link>
 
@@ -223,11 +223,11 @@ export default function Navbar() {
               <NavLink href="/?type=story">Stories</NavLink>
               <NavLink href="/?type=documentary">Docs</NavLink>
               <NavLink href="/campuses">Campus</NavLink>
-              
-              <button 
+
+              <button
                 onClick={() => setServicesOpen(!servicesOpen)}
-                className={`flex items-center gap-1.5 tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-colors focus-visible:outline-none pb-0.5 border-b-2 ${
-                  servicesOpen ? 'text-signal border-signal' : 'text-white/75 border-transparent hover:text-signal'
+                className={`flex items-center gap-1.5 tracking-[0.08em] xl:tracking-[0.12em] uppercase text-[10px] xl:text-[11px] font-semibold transition-all duration-200 ease-out focus-visible:outline-none pb-0.5 border-b-2 active:scale-[0.98] ${
+                  servicesOpen ? 'text-amber-400 border-amber-400/80' : 'text-white/75 border-transparent hover:text-amber-300 hover:scale-[1.02]'
                 }`}
               >
                 Services & Offers <ChevronDown size={14} className={`transition-transform duration-300 ${servicesOpen ? 'rotate-180' : 'rotate-0'}`} />
@@ -237,18 +237,21 @@ export default function Navbar() {
             <nav className="hidden lg:flex items-center gap-4 xl:gap-6">
               <button
                 onClick={handleSearchClick}
-                className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none flex items-center gap-1.5"
+                className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-amber-300 transition-all duration-200 ease-out focus-visible:outline-none flex items-center gap-1.5 hover:-translate-y-[0.5px] active:scale-[0.98]"
               >
                 <Search size={14} /> Search
               </button>
-              
+
               {isAuthenticated ? (
                 <Link
                   href={`/profile/${user.id}`}
-                  className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none flex items-center gap-1.5"
+                  className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-amber-300 transition-all duration-200 ease-out focus-visible:outline-none flex items-center gap-1.5 hover:-translate-y-[0.5px] active:scale-[0.98]"
                 >
                   {user.logoUrl ? (
-                    <img src={user.logoUrl} alt={user.publisherName} className="w-5 h-5 rounded-full object-cover border border-white/20" />
+                    <span className="relative inline-block">
+                      <img src={user.logoUrl} alt={user.publisherName} className="w-5 h-5 rounded-full object-cover ring-1 ring-white/10 hover:ring-amber-400/50 transition-all duration-200" />
+                      <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 ring-1 ring-[#0A0807]" />
+                    </span>
                   ) : (
                     <UserIcon size={14} />
                   )}
@@ -257,93 +260,104 @@ export default function Navbar() {
               ) : (
                 <Link
                   href="/login"
-                  className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-signal transition-colors focus-visible:outline-none"
+                  className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-white/75 hover:text-amber-300 transition-all duration-200 ease-out focus-visible:outline-none"
                 >
                   Sign In
                 </Link>
               )}
 
+              {isAuthenticated && (
+                <button
+                  onClick={() => logout()}
+                  title="Sign out"
+                  className="text-white/40 hover:text-rose-400 transition-all duration-200 p-1.5 rounded-full hover:bg-rose-400/10 focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none active:scale-[0.97]"
+                  aria-label="Sign out"
+                >
+                  <LogOut size={15} />
+                </button>
+              )}
+
               {isMasterAdmin && (
-  <Link
-    href="/admin"
-    className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-signal hover:text-white transition-colors focus-visible:outline-none flex items-center gap-1.5"
-  >
-    <ShieldCheck size={14} /> Admin
-  </Link>
-)}
-              
+                <Link
+                  href="/admin"
+                  className="tracking-[0.08em] uppercase text-[10px] xl:text-[11px] font-semibold text-amber-400 hover:text-white transition-all duration-200 ease-out focus-visible:outline-none flex items-center gap-1.5 hover:-translate-y-[0.5px] active:scale-[0.98]"
+                >
+                  <ShieldCheck size={14} /> Admin
+                </Link>
+              )}
+
               <Link
                 href="/publish"
-                className="bg-signal text-white px-4 py-2 rounded-sm tracking-[0.12em] uppercase text-[10px] font-bold hover:bg-white hover:text-ink transition-colors shadow-sm"
+                className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-[#0A0807] px-4 py-2 rounded-sm tracking-[0.12em] uppercase text-[10px] font-bold shadow-lg shadow-amber-900/20 hover:shadow-amber-900/40 transition-all duration-300 active:scale-[0.97]"
               >
                 Publish
               </Link>
             </nav>
 
             <div className="flex items-center gap-3 lg:hidden ml-auto z-10">
-              <button onClick={handleSearchClick} className="text-white p-1 rounded-sm"><Search size={20} /></button>
-              <button onClick={clearUnread} className="relative text-white p-1 rounded-sm">
+              <button onClick={handleSearchClick} className="text-white p-1 rounded-sm transition-all duration-200 active:scale-[0.97]"><Search size={20} /></button>
+              <button onClick={clearUnread} className="relative text-white p-1 rounded-sm transition-all duration-200 active:scale-[0.97]">
                 <Bell size={20} />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-signal text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-[#0A0807] text-[9px] font-bold flex items-center justify-center leading-none">
                     {unreadCount}
                   </span>
                 )}
               </button>
-              <button onClick={() => setOpen(true)} className="text-white p-1 rounded-sm"><Menu size={22} /></button>
+              <button onClick={() => setOpen(true)} className="text-white p-1 rounded-sm transition-all duration-200 active:scale-[0.97]"><Menu size={22} /></button>
             </div>
           </div>
         </div>
 
-        <div 
-          className={`hidden lg:block w-full bg-ink border-t border-white/5 shadow-2xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] absolute top-20 left-0 ${
-            servicesOpen ? 'max-h-[500px] opacity-100 border-b border-white/10' : 'max-h-0 opacity-0 border-transparent'
+        <div
+          className={`hidden lg:block w-full bg-[#0A0807]/95 backdrop-blur-2xl border-t border-white/[0.04] shadow-2xl overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] absolute top-16 left-0 ${
+            servicesOpen ? 'max-h-[500px] opacity-100 border-b border-white/[0.04]' : 'max-h-0 opacity-0 border-transparent'
           }`}
         >
           <div className="max-w-[96rem] mx-auto px-6 py-10 grid grid-cols-4 gap-8">
             <div className="col-span-3 grid grid-cols-3 gap-6">
-              <Link href="/services/press-release" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><PenSquare size={20} /></div>
+              <Link href="/services/press-release" onClick={() => setServicesOpen(false)} style={{ animationDelay: '0ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-blue-500/10 p-3 rounded-xl text-blue-400 group-hover:bg-blue-500 group-hover:text-white transition-all duration-300"><PenSquare size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Press Releases</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Distribute your official company announcements.</p>
                 </div>
               </Link>
-              
-              <Link href="/services/sponsored" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><Gift size={20} /></div>
+
+              <Link href="/services/sponsored" onClick={() => setServicesOpen(false)} style={{ animationDelay: '50ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-amber-500/10 p-3 rounded-xl text-amber-400 group-hover:bg-amber-500 group-hover:text-white transition-all duration-300"><Gift size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Sponsored Content</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Promote articles to a highly targeted audience.</p>
                 </div>
               </Link>
 
-              <Link href="/services/api" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><Wrench size={20} /></div>
+              <Link href="/services/api" onClick={() => setServicesOpen(false)} style={{ animationDelay: '100ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-purple-500/10 p-3 rounded-xl text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-all duration-300"><Wrench size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Developer API</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Access real-time news streams for your apps.</p>
                 </div>
               </Link>
 
-              <Link href="/rooms" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><Radio size={20} /></div>
+              <Link href="/rooms" onClick={() => setServicesOpen(false)} style={{ animationDelay: '150ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-emerald-500/10 p-3 rounded-xl text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-all duration-300"><Radio size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Live Spaces</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Host interactive audio discussions with readers.</p>
                 </div>
               </Link>
 
-              <Link href="/jobs" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><Briefcase size={20} /></div>
+              <Link href="/jobs" onClick={() => setServicesOpen(false)} style={{ animationDelay: '200ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-rose-500/10 p-3 rounded-xl text-rose-400 group-hover:bg-rose-500 group-hover:text-white transition-all duration-300"><Briefcase size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Jobs Board</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Hire top media professionals and creators.</p>
                 </div>
               </Link>
 
-              <Link href="/pricing" onClick={() => setServicesOpen(false)} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors">
-                <div className="bg-signal/10 p-3 rounded-lg text-signal group-hover:bg-signal group-hover:text-white transition-colors"><ShieldCheck size={20} /></div>
+              <Link href="/pricing" onClick={() => setServicesOpen(false)} style={{ animationDelay: '250ms' }} className="group flex items-start gap-4 p-4 rounded-xl hover:bg-white/[0.04] hover:scale-[1.01] transition-all duration-300">
+                <div className="bg-amber-600/10 p-3 rounded-xl text-amber-500 group-hover:bg-amber-600 group-hover:text-white transition-all duration-300"><ShieldCheck size={20} /></div>
                 <div>
                   <h4 className="text-white font-bold text-sm uppercase tracking-wider mb-1">Partner Program</h4>
                   <p className="text-white/50 text-xs leading-relaxed">Monetize your content as an OpinionPlus partner.</p>
@@ -351,17 +365,17 @@ export default function Navbar() {
               </Link>
             </div>
 
-            <div className="col-span-1 border-l border-white/10 pl-8 flex flex-col justify-center">
+            <div className="col-span-1 border-l border-white/[0.04] pl-8 flex flex-col justify-center">
               <p className="text-white/40 text-xs uppercase tracking-widest font-bold mb-4">Dedicated Support</p>
-              
-              <a 
+
+              <a
                 href="https://wa.me/254112696334"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group relative flex items-center justify-between bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-signal hover:border-signal transition-all overflow-hidden"
+                className="group relative flex items-center justify-between bg-white/[0.02] border border-white/[0.04] rounded-lg p-4 hover:bg-emerald-500 hover:border-emerald-500 transition-all duration-300 overflow-hidden"
               >
                 <div className="flex items-center gap-3 relative z-10">
-                  <MessageCircle size={20} className="text-signal group-hover:text-white transition-colors" />
+                  <MessageCircle size={20} className="text-emerald-400 group-hover:text-white transition-colors" />
                   <div className="flex flex-col">
                      <span className="text-white font-bold text-sm">How can we help you?</span>
                      <span className="text-white/80 text-xs font-mono max-h-0 opacity-0 group-hover:max-h-10 group-hover:opacity-100 group-hover:mt-1 transition-all duration-300">
@@ -382,63 +396,63 @@ export default function Navbar() {
         }`}
         aria-hidden={!open}
       >
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-xs transition-opacity" onClick={closeDrawer} />
+        <div className="absolute inset-0 bg-black/85 backdrop-blur-md transition-opacity" onClick={closeDrawer} />
         <div
-          className={`absolute top-0 right-0 h-full w-[85%] max-w-sm bg-ink shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col ${
+          className={`absolute top-0 right-0 h-full w-[85%] max-w-sm bg-[#0A0807]/98 backdrop-blur-2xl border-l border-white/[0.04] shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] flex flex-col ${
             open ? 'translate-x-0' : 'translate-x-full'
           }`}
         >
-          <div className="flex items-center justify-between px-5 h-20 border-b border-white/10 bg-white/5">
+          <div className="flex items-center justify-between px-5 h-20 border-b border-white/[0.04] bg-white/[0.02]">
             <img src="/default-og-image.jpg" alt="OpinionPlus Logo" className="h-8 object-contain rounded-sm" />
-            <button onClick={closeDrawer} className="text-white p-2 rounded-full hover:bg-white/10">
+            <button onClick={closeDrawer} className="text-white p-2 rounded-full hover:bg-white/10 hover:scale-110 transition-all duration-200">
               <X size={24} />
             </button>
           </div>
 
           <nav className="flex-1 overflow-y-auto px-5 py-6 flex flex-col gap-2 text-xs font-semibold tracking-[0.12em] uppercase">
-            <Link href="/" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Feed</Link>
-            <Link href="/videos" onClick={closeDrawer} className="flex items-center gap-2 min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">
+            <Link href="/" onClick={closeDrawer} className={`flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200 ${pathname === '/' ? 'border-l-2 border-amber-400 pl-3' : ''}`}>Feed</Link>
+            <Link href="/videos" onClick={closeDrawer} className={`flex items-center gap-2 min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200 ${pathname === '/videos' ? 'border-l-2 border-amber-400 pl-3' : ''}`}>
               <Play size={16} fill="currentColor" /> Videos
             </Link>
-            <Link href="/?type=story" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Stories</Link>
-            <Link href="/?type=documentary" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Documentaries</Link>
-            <Link href="/campuses" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10">Campus Editions</Link>
-            
-            <div className="border-t border-white/10 my-2" />
-            
-            <button 
+            <Link href="/?type=story" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200">Stories</Link>
+            <Link href="/?type=documentary" onClick={closeDrawer} className="flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200">Documentaries</Link>
+            <Link href="/campuses" onClick={closeDrawer} className={`flex items-center min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200 ${pathname === '/campuses' ? 'border-l-2 border-amber-400 pl-3' : ''}`}>Campus Editions</Link>
+
+            <div className="border-t border-white/[0.04] my-2" />
+
+            <button
               onClick={() => setMobileServicesOpen(!mobileServicesOpen)}
-              className="flex items-center justify-between min-h-[44px] px-3 rounded-sm text-signal font-bold hover:bg-white/10 w-full"
+              className="flex items-center justify-between min-h-[44px] px-3 rounded-sm text-amber-400 font-bold hover:bg-white/[0.03] transition-all duration-200 w-full"
             >
               Services & Offers <ChevronDown size={16} className={`transition-transform duration-300 ${mobileServicesOpen ? 'rotate-180' : 'rotate-0'}`} />
             </button>
-            
+
             <div className={`flex flex-col gap-1 overflow-hidden transition-all duration-300 ${mobileServicesOpen ? 'max-h-96 opacity-100 pl-4 py-2' : 'max-h-0 opacity-0'}`}>
-               <Link href="/services/press-release" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><PenSquare size={14}/> Press Releases</Link>
-               <Link href="/services/sponsored" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><Gift size={14}/> Sponsored Content</Link>
-               <Link href="/services/api" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><Wrench size={14}/> Developer API</Link>
-               <Link href="/rooms" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><Radio size={14}/> Live Spaces</Link>
-               <Link href="/jobs" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><Briefcase size={14}/> Jobs Board</Link>
-               <Link href="/pricing" onClick={closeDrawer} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white"><ShieldCheck size={14}/> Partner Program</Link>
+               <Link href="/services/press-release" onClick={closeDrawer} style={{ animationDelay: '0ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><PenSquare size={14}/> Press Releases</Link>
+               <Link href="/services/sponsored" onClick={closeDrawer} style={{ animationDelay: '50ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><Gift size={14}/> Sponsored Content</Link>
+               <Link href="/services/api" onClick={closeDrawer} style={{ animationDelay: '100ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><Wrench size={14}/> Developer API</Link>
+               <Link href="/rooms" onClick={closeDrawer} style={{ animationDelay: '150ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><Radio size={14}/> Live Spaces</Link>
+               <Link href="/jobs" onClick={closeDrawer} style={{ animationDelay: '200ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><Briefcase size={14}/> Jobs Board</Link>
+               <Link href="/pricing" onClick={closeDrawer} style={{ animationDelay: '250ms' }} className="flex items-center gap-2 min-h-[40px] text-white/70 hover:text-white hover:pl-1 transition-all duration-200"><ShieldCheck size={14}/> Partner Program</Link>
             </div>
 
-            <div className="border-t border-white/10 my-2" />
+            <div className="border-t border-white/[0.04] my-2" />
 
-            <Link href="/read-later" onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/10"><Bookmark size={16} /> Saved Articles</Link>
+            <Link href="/read-later" onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-white/90 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200"><Bookmark size={16} /> Saved Articles</Link>
             <div className="py-3 px-3"><PushNotificationToggle /></div>
 
             {isMasterAdmin && (
-              <Link href="/admin" onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-signal hover:bg-white/10 mt-2"><ShieldCheck size={16} /> Admin Dashboard</Link>
+              <Link href="/admin" onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-amber-400 hover:bg-white/[0.03] hover:pl-4 transition-all duration-200 mt-2"><ShieldCheck size={16} /> Admin Dashboard</Link>
             )}
 
             <div className="mt-6">
-              <a 
+              <a
                 href="https://wa.me/254112696334"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-3 bg-white/5 border border-white/10 p-4 rounded-lg hover:bg-signal transition-colors text-white"
+                className="flex items-center gap-3 bg-white/[0.02] border border-white/[0.04] p-4 rounded-lg hover:bg-emerald-500 hover:border-emerald-500 transition-all duration-300 text-white"
               >
-                <MessageCircle size={20} className="text-signal" />
+                <MessageCircle size={20} className="text-emerald-400" />
                 <div className="flex flex-col">
                   <span className="font-bold">How can we help you?</span>
                   <span className="text-white/60 normal-case tracking-normal">Tap to chat on WhatsApp</span>
@@ -447,14 +461,19 @@ export default function Navbar() {
             </div>
           </nav>
 
-          <div className="px-5 py-4 border-t border-white/10 bg-black/20">
+          <div className="px-5 py-4 border-t border-white/[0.04] bg-black/20">
             {isAuthenticated ? (
               <div className="flex flex-col gap-2">
-                <Link href={`/profile/${user.id}`} onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[40px] text-white uppercase text-[11px] font-bold tracking-[0.12em] hover:text-signal transition-colors"><LayoutGrid size={15} /> Account Settings</Link>
-                <button onClick={() => { closeDrawer(); logout(); }} className="flex items-center gap-2.5 min-h-[40px] text-left text-signal uppercase text-[11px] font-bold tracking-[0.12em] hover:opacity-80 transition-opacity"><LogOut size={15} /> Sign out</button>
+                <Link href={`/profile/${user.id}`} onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[40px] text-white uppercase text-[11px] font-bold tracking-[0.12em] hover:text-amber-300 transition-colors duration-200"><LayoutGrid size={15} /> Account Settings</Link>
+                <button
+                  onClick={() => { closeDrawer(); logout(); }}
+                  className="flex items-center gap-2.5 min-h-[44px] px-3 rounded-sm text-rose-400 hover:bg-rose-400/5 uppercase text-[11px] font-bold tracking-[0.12em] transition-all duration-200"
+                >
+                  <LogOut size={15} /> Sign out
+                </button>
               </div>
             ) : (
-              <Link href="/login" onClick={closeDrawer} className="bg-signal text-white px-4 py-3 text-center rounded-sm block uppercase text-[11px] font-bold tracking-[0.12em] hover:bg-white hover:text-ink transition-colors shadow-sm">Sign In</Link>
+              <Link href="/login" onClick={closeDrawer} className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-[#0A0807] px-4 py-3 text-center rounded-sm block uppercase text-[11px] font-bold tracking-[0.12em] transition-all duration-300 shadow-sm active:scale-[0.97]">Sign In</Link>
             )}
           </div>
         </div>
