@@ -1,10 +1,13 @@
 // components/Footer.js
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Instagram, Linkedin, Twitter, Rss, ArrowUp, Check, Loader2, Mail, ArrowRight } from 'lucide-react';
+import {
+  Instagram, Linkedin, Twitter, Rss, ArrowUp, Check, Loader2, Mail, ArrowRight,
+  Activity, Tag, MessageCircle, TrendingUp, Users, BookOpen, Globe, Shield, Code
+} from 'lucide-react';
 
 const SOCIAL_LINKS = [
   { label: 'X (Twitter)', href: 'https://twitter.com/opinionplus', Icon: Twitter },
@@ -19,7 +22,39 @@ const PREFERENCES = [
   { id: 'documentaries', label: 'Docs' },
 ];
 
-// Supports JPG and PNG images in public/footer_images/ with automatic fallback
+const EXPLORE_LINKS = [
+  { label: 'Feed', href: '/' },
+  { label: 'Stories', href: '/?type=story' },
+  { label: 'Documentaries', href: '/?type=documentary' },
+  { label: 'Videos', href: '/videos' },
+  { label: 'Campus Editions', href: '/campuses' },
+  { label: 'Jobs Board', href: '/jobs' },
+  { label: 'Live Spaces', href: '/rooms' },
+];
+
+const SERVICE_LINKS = [
+  { label: 'All Services', href: '/services' },
+  { label: 'SMS Broadcasting', href: '/services/sms' },
+  { label: 'Press Releases', href: '/services/press-release' },
+  { label: 'Sponsored Content', href: '/services/sponsored' },
+  { label: 'Developer API', href: '/services/api' },
+  { label: 'Partner Program', href: '/pricing' },
+];
+
+const SUPPORT_LINKS = [
+  { label: 'Privacy Policy', href: '/privacy' },
+  { label: 'Terms of Service', href: '/terms' },
+  { label: 'Accessibility', href: '/accessibility' },
+  { label: 'Platform Status', href: '/health' },
+  { label: 'Press & Media Kit', href: '/press' },
+  { label: 'Cookie Settings', href: '#cookie-settings' },
+];
+
+const TOP_TAGS = [
+  'Politics', 'Technology', 'Business', 'Health', 'Education',
+  'Climate', 'Sports', 'Entertainment', 'Finance', 'Agriculture'
+];
+
 const FOOTER_IMAGES = [
   '/footer_images/footer-bg.jpg',
   '/footer_images/footer-bg.png',
@@ -31,10 +66,6 @@ const FOOTER_IMAGES = [
   '/footer_images/background.png',
   '/footer_images/footer.jpg',
   '/footer_images/footer.png',
-  '/footer_images/1.jpg',
-  '/footer_images/1.png',
-  '/footer_images/2.jpg',
-  '/footer_images/2.png',
   '/default-og-image.jpg'
 ];
 
@@ -44,6 +75,43 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function CountUp({ end, duration = 2000 }) {
+  const [value, setValue] = useState(0);
+  const [inView, setInView] = useState(false);
+  const ref = useState(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.3 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!inView) return;
+    let frame, start = null;
+    const step = (ts) => {
+      if (start === null) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      setValue(Math.floor(progress * end));
+      if (progress < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [inView, end, duration]);
+
+  return <span ref={ref}>{value.toLocaleString()}</span>;
+}
+
 export default function Footer() {
   const pathname = usePathname();
   const [email, setEmail] = useState('');
@@ -51,8 +119,21 @@ export default function Footer() {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [imgIndex, setImgIndex] = useState(0);
+  const [uptime, setUptime] = useState(null);
+  const [showSitemap, setShowSitemap] = useState(false);
 
-  // Automatically hide the footer on any live room page (/rooms/[id])
+  const fetchUptime = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/uptime/public`);
+      const data = await res.json();
+      setUptime(data.uptime);
+    } catch (e) { /* silently fail */ }
+  }, []);
+
+  useEffect(() => {
+    fetchUptime();
+  }, [fetchUptime]);
+
   if (pathname && pathname.startsWith('/rooms/')) {
     return null;
   }
@@ -88,10 +169,14 @@ export default function Footer() {
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
+  const shareWhatsApp = () => {
+    window.open('https://wa.me/254112696334', '_blank');
+  };
+
   return (
     <footer className="relative text-white mt-16 overflow-hidden bg-[#1C1917]">
       
-      {/* ---------------- FULL BACKGROUND IMAGE DISPLAYED FROM AFAR ---------------- */}
+      {/* BACKGROUND IMAGE */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none flex items-center justify-center">
         <img 
           src={FOOTER_IMAGES[imgIndex]} 
@@ -103,14 +188,42 @@ export default function Footer() {
             }
           }} 
         />
-        {/* Dark overlay to ensure text readability */}
         <div className="absolute inset-0 bg-[#1C1917]/88" />
       </div>
 
-      {/* ---------------- ENTIRE FOOTER CONTENT ---------------- */}
       <div className="relative z-10 max-w-6xl mx-auto px-5 pt-20 pb-12">
         
-        {/* TOP CALLOUT BANNER */}
+        {/* ════════════ COMMUNITY STATS BAR ════════════ */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-20 pb-16 border-b border-white/10">
+          <div className="text-center">
+            <div className="text-3xl md:text-4xl font-black text-white tabular-nums">
+              <CountUp end={12400} />+
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mt-2">Active Publishers</p>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl md:text-4xl font-black text-white tabular-nums">
+              <CountUp end={89000} />+
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mt-2">Stories Published</p>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl md:text-4xl font-black text-white tabular-nums">
+              <CountUp end={450000} />+
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mt-2">Monthly Readers</p>
+          </div>
+          <div className="text-center">
+            <div className="text-3xl md:text-4xl font-black text-emerald-400 tabular-nums">
+              {uptime !== null ? `${uptime}%` : '—'}
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-white/50 mt-2 flex items-center justify-center gap-1.5">
+              <Activity size={12} className="text-emerald-400" /> Uptime This Month
+            </p>
+          </div>
+        </div>
+
+        {/* ════════════ TOP CALLOUT BANNER ════════════ */}
         <div className="max-w-4xl mx-auto text-center space-y-6 mb-20 pb-16 border-b border-white/10">
           <h3 className="editorial-h text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight">
             Want to publish independent stories and documentaries to the world?
@@ -118,17 +231,42 @@ export default function Footer() {
           <p className="text-white/80 text-sm sm:text-base font-medium max-w-xl mx-auto">
             Take control of your narrative. Every voice deserves its own dedicated masthead and audience.
           </p>
-          <div>
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <Link 
               href="/publish" 
               className="inline-flex items-center gap-2 bg-[#D97706] hover:bg-white hover:text-ink text-white font-extrabold uppercase text-xs tracking-wider px-8 py-4 rounded-sm transition-all shadow-xl"
             >
               Publish your story now <ArrowRight size={16} />
             </Link>
+            <Link 
+              href="/signup" 
+              className="inline-flex items-center gap-2 border-2 border-white/30 hover:border-white text-white font-extrabold uppercase text-xs tracking-wider px-8 py-4 rounded-sm transition-all"
+            >
+              Create free account
+            </Link>
           </div>
         </div>
 
-        {/* MAIN 4-COLUMN GRID */}
+        {/* ════════════ TOP TAGS ROW ════════════ */}
+        <div className="mb-16 pb-16 border-b border-white/10">
+          <div className="flex items-center gap-2 mb-5">
+            <Tag size={14} className="text-signal" />
+            <h4 className="text-xs font-bold uppercase tracking-widest text-white/50">Popular Topics</h4>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {TOP_TAGS.map(tag => (
+              <Link
+                key={tag}
+                href={`/search?q=${encodeURIComponent(tag)}`}
+                className="text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-sm bg-white/5 border border-white/10 text-white/70 hover:bg-signal hover:text-white hover:border-signal transition-colors"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* ════════════ MAIN GRID ════════════ */}
         <div className="grid gap-12 lg:grid-cols-12 mb-16">
           
           {/* BRANDING (Spans 4 cols) */}
@@ -149,31 +287,63 @@ export default function Footer() {
                   aria-label={label}
                   className="w-10 h-10 bg-white/10 grid place-items-center rounded-sm text-white/80 hover:text-white hover:bg-signal transition-colors focus-visible:ring-2 focus-visible:ring-signal focus-visible:outline-none"
                 >
-                  <Icon size={18} fill={Icon === Twitter || Icon === Linkedin ? "currentColor" : "none"} />
+                  <Icon size={18} />
                 </a>
               ))}
             </div>
+
+            {/* CUSTOMER SUPPORT WIDGET */}
+            <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <MessageCircle size={14} className="text-emerald-400" />
+                <p className="text-xs font-bold uppercase tracking-wide text-white/70">Need Help?</p>
+              </div>
+              <button
+                onClick={shareWhatsApp}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold uppercase text-[11px] tracking-wider py-2.5 rounded-sm transition-colors"
+              >
+                <MessageCircle size={13} /> Chat on WhatsApp
+              </button>
+              <p className="text-[10px] text-white/40 text-center mt-2">+254 112 696 334</p>
+            </div>
           </div>
 
-          {/* QUICK LINKS (Spans 2 cols) */}
+          {/* EXPLORE LINKS (Spans 2 cols) */}
           <div className="lg:col-span-2">
             <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-5 pb-2">Explore</h4>
-            <ul className="space-y-3 text-[13px] font-medium text-white/90">
-              <li><Link href="/" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Feed</Link></li>
-              <li><Link href="/campuses" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Campus</Link></li>
-              <li><Link href="/jobs" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Jobs</Link></li>
-              <li><Link href="/publish" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Publish story</Link></li>
+            <ul className="space-y-2.5">
+              {EXPLORE_LINKS.map(({ label, href }) => (
+                <li key={label}>
+                  <Link href={href} className="text-[13px] font-medium text-white/80 hover:text-signal transition-colors">
+                    {label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
-          {/* LEGAL & SUPPORT (Spans 2 cols) */}
+          {/* SERVICES LINKS (Spans 2 cols) */}
           <div className="lg:col-span-2">
-            <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-5 pb-2">Support</h4>
-            <ul className="space-y-3 text-[13px] font-medium text-white/90">
-              <li><Link href="/services" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Services</Link></li>
-              <li><Link href="/pricing" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Partner</Link></li>
-              <li><Link href="/privacy" className="hover:text-signal transition-colors focus-visible:outline-none focus-visible:text-signal">Privacy policy</Link></li>
+            <h4 className="text-[11px] font-bold uppercase tracking-widest text-white/50 mb-5 pb-2">Services</h4>
+            <ul className="space-y-2.5">
+              {SERVICE_LINKS.map(({ label, href }) => (
+                <li key={label}>
+                  <Link href={href} className="text-[13px] font-medium text-white/80 hover:text-signal transition-colors">
+                    {label}
+                  </Link>
+                </li>
+              ))}
             </ul>
+
+            {/* API DOCS LINK */}
+            <div className="mt-5 pt-5 border-t border-white/10">
+              <Link
+                href="/services/api"
+                className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-white/50 hover:text-signal transition-colors"
+              >
+                <Code size={13} /> Developer API Docs
+              </Link>
+            </div>
           </div>
 
           {/* NEWSLETTER WIDGET (Spans 4 cols) */}
@@ -187,7 +357,6 @@ export default function Footer() {
             </p>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-4">
-              {/* Preferences Row */}
               <div className="flex flex-wrap gap-2">
                 {PREFERENCES.map(p => (
                   <button 
@@ -205,7 +374,6 @@ export default function Footer() {
                 ))}
               </div>
 
-              {/* Input Row */}
               <div className="relative">
                 <input 
                   type="email" 
@@ -229,7 +397,6 @@ export default function Footer() {
                 </button>
               </div>
 
-              {/* Status Messages */}
               <div className="min-h-[20px]">
                 {status === 'error' && <p className="text-[11px] font-medium text-signal">{error}</p>}
                 {status === 'success' && (
@@ -243,8 +410,46 @@ export default function Footer() {
 
         </div>
 
-        {/* BOTTOM BAR: Copyright & Scroll to top */}
-        <div className="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-white/10 gap-4">
+        {/* ════════════ SUPPORT + SITEMAP ════════════ */}
+        <div className="mb-12 pt-8 border-t border-white/10">
+          <button
+            onClick={() => setShowSitemap(!showSitemap)}
+            className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-white/50 hover:text-white transition-colors mb-4"
+          >
+            <BookOpen size={13} />
+            {showSitemap ? 'Hide' : 'Show'} Full Sitemap
+          </button>
+          
+          {showSitemap && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-5 bg-white/5 border border-white/10 rounded-sm mb-6 animate-in fade-in duration-200">
+              {[...EXPLORE_LINKS, ...SERVICE_LINKS, ...SUPPORT_LINKS].map(({ label, href }) => (
+                <Link
+                  key={label}
+                  href={href}
+                  className="text-[12px] font-medium text-white/60 hover:text-signal transition-colors"
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ════════════ SUPPORT LINKS ROW ════════════ */}
+        <div className="flex flex-wrap items-center justify-center gap-4 mb-8 pb-8 border-b border-white/10">
+          {SUPPORT_LINKS.map(({ label, href }) => (
+            <Link
+              key={label}
+              href={href}
+              className="text-[11px] font-medium text-white/50 hover:text-signal transition-colors"
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+
+        {/* ════════════ BOTTOM BAR ════════════ */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-[11px] font-medium text-white/60 tracking-wide text-center md:text-left">
             © {new Date().getFullYear()} OPINIONPLUS. Every byline belongs to the person who wrote it.
           </p>
