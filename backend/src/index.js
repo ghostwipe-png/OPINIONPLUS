@@ -7,7 +7,7 @@ import { createRateLimiter } from './middleware/rateLimit.js';
 import { createDB } from './utils/db.js';
 import { AudioRoomDO } from './audio-room-do.js';
 
-// NEW: Platform hardening middleware
+// Platform hardening middleware
 import { ipBlacklistMiddleware } from './middleware/ipBlacklist.js';
 import { maintenanceMiddleware } from './middleware/featureFlags.js';
 
@@ -31,6 +31,9 @@ import services, { publishScheduledPressReleases } from './routes/services.js';
 import apiService from './routes/api-service.js';
 import sponsoredService, { processSponsoredCampaigns, countSponsoredImpressions } from './routes/sponsored-service.js';
 import health from './routes/health.js';
+// NEW: Global services
+import translate from './routes/translate.js';
+import aiServices from './routes/ai-services.js';
 import videos, {
   channels as videoChannels,
   subscriptionsFeed as videoSubscriptionsFeed,
@@ -91,10 +94,7 @@ async function checkPaystack(env) {
 
 // ── Middleware ────────────────────────────────────────
 
-// NEW: IP Blacklist — applied first, before anything else
 app.use('*', ipBlacklistMiddleware);
-
-// NEW: Maintenance Mode — applied early, after IP check
 app.use('*', maintenanceMiddleware);
 
 app.use('*', async (c, next) => {
@@ -126,9 +126,9 @@ app.use('*', async (c, next) => {
       "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com js.paystack.co",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
-      "media-src 'self' https:",
+      "media-src 'self' https: data:",
       "frame-src 'self' https://accounts.google.com https://www.youtube.com https://player.vimeo.com https://checkout.paystack.com https://iframe.mediadelivery.net",
-      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss: https://api.paystack.co https://video.bunnycdn.com",
+      "connect-src 'self' https://generativelanguage.googleapis.com https://accounts.google.com wss: https://api.paystack.co https://video.bunnycdn.com https://translation.googleapis.com https://texttospeech.googleapis.com https://libretranslate.com",
       "frame-ancestors 'none'",
     ].join('; ')
   );
@@ -301,6 +301,8 @@ app.route('/api-service', apiService);
 app.route('/services/api', apiService);
 app.route('/sponsored-service', sponsoredService);
 app.route('/services/sponsored', sponsoredService);
+app.route('/translate', translate);           // NEW: Multi-language translation
+app.route('/ai-services', aiServices);        // NEW: AI summarization, TTS, sentiment
 app.route('/videos', videos);
 app.route('/channels', videoChannels);
 app.route('/subs', videoSubscriptionsFeed);
@@ -312,7 +314,7 @@ app.route('/health', health);
 // ── Cleanup ───────────────────────────────────────────
 
 async function runRetentionCleanup(env) {
-  const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0 };
+  const results = { archiveApproved: 0, archiveRejected: 0, searchHistory: 0, rateLimits: 0, translationCache: 0 };
   try {
     const r = await env.DB.prepare("DELETE FROM archive WHERE status = 'approved' AND reviewed_at < datetime('now', '-30 days')").run();
     results.archiveApproved = r.meta?.changes || 0;
@@ -328,6 +330,11 @@ async function runRetentionCleanup(env) {
   try {
     const r = await env.DB.prepare("DELETE FROM rate_limits WHERE created_at < datetime('now', '-1 days')").run();
     results.rateLimits = r.meta?.changes || 0;
+  } catch (e) {}
+  try {
+    // Clean translations older than 30 days (will re-cache on next request)
+    const r = await env.DB.prepare("DELETE FROM translations_cache WHERE created_at < datetime('now', '-30 days')").run();
+    results.translationCache = r.meta?.changes || 0;
   } catch (e) {}
   return results;
 }
@@ -349,7 +356,6 @@ app.onError((err, c) => {
   const status = err.status || err.statusCode || 500;
   const requestId = c.get('requestId');
 
-  // NEW: Aggregate errors for monitoring (fire and forget)
   c.executionCtx?.waitUntil?.(
     (async () => {
       try {
@@ -371,13 +377,11 @@ app.onError((err, c) => {
   return c.json({ error: 'Something went wrong.', requestId }, status);
 });
 
-// NEW: Cron job logging wrapper
 async function runCronJob(name, fn) {
   const start = Date.now();
   try {
     await fn();
-    // Log success (fire and forget)
-    const env = globalThis.__env; // Set by worker fetch if available
+    const env = globalThis.__env;
     if (env?.DB) {
       try {
         await env.DB.prepare(
@@ -395,7 +399,6 @@ async function runCronJob(name, fn) {
 const worker = {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
-    // Set env globally so runCronJob can access it for logging
     globalThis.__env = env;
     
     const jobs = [];
@@ -436,8 +439,6 @@ const worker = {
           return await partnerModule.checkEngagementBonuses(env);
         }
       }));
-
-            // NEW: Uptime tracking + error alert check
       jobs.push(runCronJob('uptime-check', async () => {
         const results = await Promise.all([
           checkD1(env),
@@ -451,7 +452,6 @@ const worker = {
           'INSERT INTO uptime_log (id, status, detail) VALUES (?, ?, ?)'
         ).bind(crypto.randomUUID(), anyDown ? 'down' : overall, JSON.stringify({ services: results })).run();
 
-        // Check error threshold for alerts
         if (overall !== 'ok') {
           const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
           const errorCount = await env.DB.prepare(
@@ -478,10 +478,6 @@ const worker = {
           }
         }
       }));
-
-
-
-      // NEW: Circuit breaker health check
       jobs.push(runCronJob('circuit-breaker-health', async () => {
         const { getCircuitBreakerStatus } = await import('./middleware/circuitBreaker.js');
         const status = await getCircuitBreakerStatus(env);
@@ -539,7 +535,6 @@ const worker = {
       }));
     }
 
-    // NEW: Every hour — dead link checker
     if (event.cron === '0 * * * *') {
       jobs.push(runCronJob('dead-link-checker', async () => {
         try {

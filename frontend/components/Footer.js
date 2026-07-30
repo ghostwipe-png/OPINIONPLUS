@@ -8,6 +8,7 @@ import {
   Instagram, Linkedin, Twitter, Rss, ArrowUp, Check, Loader2, Mail, ArrowRight,
   Activity, Tag, MessageCircle, TrendingUp, Users, BookOpen, Globe, Shield, Code
 } from 'lucide-react';
+import LanguageSwitcher from './LanguageSwitcher';
 
 const SOCIAL_LINKS = [
   { label: 'X (Twitter)', href: 'https://twitter.com/opinionplus', Icon: Twitter },
@@ -47,7 +48,7 @@ const SUPPORT_LINKS = [
   { label: 'Accessibility', href: '/accessibility' },
   { label: 'Platform Status', href: '/health' },
   { label: 'Press & Media Kit', href: '/press' },
-  { label: 'Cookie Settings', href: '#cookie-settings' },
+  { label: 'Cookie Settings', href: '/cookie-settings' },
 ];
 
 const TOP_TAGS = [
@@ -292,8 +293,12 @@ export default function Footer() {
               ))}
             </div>
 
+            <div className="mt-5">
+              <LanguageSwitcher variant="footer" />
+            </div>
+
             {/* CUSTOMER SUPPORT WIDGET */}
-            <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-sm">
+            <div className="mt-5 p-4 bg-white/5 border border-white/10 rounded-sm">
               <div className="flex items-center gap-2 mb-2">
                 <MessageCircle size={14} className="text-emerald-400" />
                 <p className="text-xs font-bold uppercase tracking-wide text-white/70">Need Help?</p>

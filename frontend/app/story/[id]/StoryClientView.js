@@ -12,8 +12,9 @@ import ShareButtons from '../../../components/ShareButtons';
 import CommentThread from '../../../components/CommentThread';
 import ReadLaterButton from '../../../components/ReadLaterButton';
 import CollaborateButton from '../../../components/CollaborateButton';
-import StoryAudioPlayer from '../../../components/StoryAudioPlayer';
-import LanguageToggle from '../../../components/LanguageToggle';
+import AudioPlayer from '../../../components/AudioPlayer';
+import TranslateButton from '../../../components/TranslateButton';
+import AISummarizeButton from '../../../components/AISummarizeButton';
 import StoryQRCodeModal from '../../../components/StoryQRCodeModal';
 import DOMPurify from 'dompurify';
 import CampusBadge from '../../../components/CampusBadge';
@@ -32,7 +33,6 @@ export default function StoryClientView() {
   const [reported, setReported] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showToTop, setShowToTop] = useState(false);
-  const [translation, setTranslation] = useState(null);
   const contentRef = useRef(null);
 
   const story = stories.find((s) => s.id === id);
@@ -65,8 +65,8 @@ export default function StoryClientView() {
   const storyCreatedAt = story?.createdAt || story?.created_at;
   const date = storyCreatedAt ? new Date(storyCreatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 
-  const activeTitle = translation?.title || story?.title;
-  const rawBodyHtml = translation?.body || story?.body || '';
+  const activeTitle = story?.title;
+  const rawBodyHtml = story?.body || '';
   const bodyHtml = rawBodyHtml.includes('<') ? rawBodyHtml : rawBodyHtml.split('\n').filter((p) => p.trim()).map((p) => `<p>${p}</p>`).join('');
 
   const firstBlockHasText = /^\s*(<(p|blockquote|h\d)[^>]*>)?\s*[A-Za-z0-9"'\u2018\u201C]/.test(bodyHtml);
@@ -129,11 +129,11 @@ export default function StoryClientView() {
         <div className="h-full bg-signal transition-transform duration-150 origin-left" style={{ transform: `scaleX(${progress / 100})` }} />
       </div>
 
-      {/* Main Split-Screen Container with Independent Scrolling Columns */}
+      {/* Main Split-Screen Container */}
       <div className="max-w-[96rem] mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           
-          {/* ================= LEFT COLUMN: MAIN ARTICLE CONTENT (LIGHT GREY, INDEPENDENT SCROLL) ================= */}
+          {/* ================= LEFT COLUMN: MAIN ARTICLE ================= */}
           <div className="lg:col-span-8 bg-[#F4F4F6] rounded-3xl p-6 sm:p-12 shadow-sm lg:h-[calc(100vh-6rem)] lg:overflow-y-auto scroll-smooth space-y-6">
             
             {/* Title & Metadata Card */}
@@ -170,10 +170,16 @@ export default function StoryClientView() {
                 )}
               </div>
 
-              {/* Red Headline */}
+              {/* Headline */}
               <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-black text-[#9B1C1C] uppercase leading-tight tracking-tight mb-8 break-words">
                 {activeTitle}
               </h1>
+
+              {/* AI Tools Row */}
+              <div className="flex items-center gap-3 flex-wrap mb-4">
+                <TranslateButton storyId={story.id} title={activeTitle} body={bodyHtml} />
+                <AISummarizeButton storyId={story.id} title={activeTitle} body={bodyHtml} />
+              </div>
 
               {/* Author & Action Row */}
               <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pt-4 border-t border-gray-300/60">
@@ -239,17 +245,13 @@ export default function StoryClientView() {
               </div>
             )}
 
-            {/* Audio Narration Widget */}
+            {/* Audio Player */}
             <div className="bg-[#F4F4F6] rounded-2xl p-2">
-              <StoryAudioPlayer title={activeTitle} body={bodyHtml} />
+              <AudioPlayer storyId={story.id} title={activeTitle} bodyHtml={bodyHtml} />
             </div>
 
-            {/* Article Body Container (Light Grey background seamlessly integrated) */}
+            {/* Article Body */}
             <div className="bg-[#F4F4F6] rounded-2xl p-2 sm:p-4 relative">
-               <div className="absolute top-2 right-2">
-                 <LanguageToggle storyId={story.id} onTranslate={setTranslation} />
-               </div>
-
               <div
                 ref={contentRef}
                 className={`prose-story w-full max-w-none text-[#2D2D2D] text-lg sm:text-xl leading-[1.8] break-words [word-break:break-word] [overflow-wrap:anywhere]
@@ -283,7 +285,7 @@ export default function StoryClientView() {
               <ReadLaterButton story={{ id: story.id, title: activeTitle, excerpt: story.excerpt, authorName: authorName, coverImage: coverImage }} />
             </div>
 
-            {/* Reactions & Comments Block */}
+            {/* Reactions & Comments */}
             <section className="bg-white rounded-2xl shadow-sm p-6 sm:p-10 space-y-8 mt-4">
               <div className="flex items-center justify-between flex-wrap gap-6 border-b border-gray-100 pb-6">
                 <div className="flex items-center gap-6 flex-wrap">
@@ -313,7 +315,7 @@ export default function StoryClientView() {
             </section>
           </div>
 
-          {/* ================= RIGHT COLUMN: RELATED STORIES (LIGHT GREY, INDEPENDENT SCROLL) ================= */}
+          {/* ================= RIGHT COLUMN: RELATED STORIES ================= */}
           <aside className="lg:col-span-4 bg-[#F4F4F6] rounded-3xl p-6 shadow-sm lg:h-[calc(100vh-6rem)] lg:overflow-y-auto scroll-smooth">
             <h3 className="text-[#9B1C1C] text-lg font-black uppercase mb-6 tracking-wide px-2">Related Stories</h3>
             

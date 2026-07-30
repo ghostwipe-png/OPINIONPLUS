@@ -30,6 +30,7 @@ import {
 import { useAuth } from '../lib/auth';
 import { useStore } from '../lib/store';
 import PushNotificationToggle from './PushNotificationToggle';
+import LanguageSwitcher from './LanguageSwitcher';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -241,6 +242,8 @@ export default function Navbar() {
               >
                 <Search size={14} /> Search
               </button>
+
+              <LanguageSwitcher variant="navbar" />
 
               {isAuthenticated ? (
                 <Link
@@ -462,6 +465,9 @@ export default function Navbar() {
           </nav>
 
           <div className="px-5 py-4 border-t border-white/[0.04] bg-black/20">
+            <div className="mb-4 flex justify-center">
+              <LanguageSwitcher variant="footer" />
+            </div>
             {isAuthenticated ? (
               <div className="flex flex-col gap-2">
                 <Link href={`/profile/${user.id}`} onClick={closeDrawer} className="flex items-center gap-2.5 min-h-[40px] text-white uppercase text-[11px] font-bold tracking-[0.12em] hover:text-amber-300 transition-colors duration-200"><LayoutGrid size={15} /> Account Settings</Link>

@@ -36,11 +36,61 @@ users.get('/leaderboard', cache({ cacheName: 'op-leaderboard', cacheControl: 'pu
 });
 
 // ═══════════════════════════════════════════════════════════
-// NOTE ON ROUTE ORDERING: Hono matches routes in registration
-// order. All literal-segment routes below (e.g. /me/badges,
-// /:id/endorse) are registered BEFORE the generic /:id route
-// further down, so they are never shadowed by it.
+// NOTE ON ROUTE ORDERING: All literal-segment routes below
+// are registered BEFORE the generic /:id route.
 // ═══════════════════════════════════════════════════════════
+
+// ---------- Language Preference ----------
+users.patch('/me/language', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const lang = String(body.language || 'en').trim().slice(0, 5).toLowerCase();
+
+    // Simple validation: 2-5 char language code
+    if (!/^[a-z]{2,5}(-[A-Z]{2})?$/.test(lang)) {
+      return c.json({ error: 'Invalid language code.' }, 400);
+    }
+
+    await c.env.DB.prepare('UPDATE users SET preferred_language = ? WHERE id = ?')
+      .bind(lang, user.id)
+      .run();
+
+    return c.json({ ok: true, language: lang });
+  } catch (e) {
+    console.error('Language update error:', e.message);
+    return c.json({ error: 'Failed to update language preference.' }, 500);
+  }
+});
+
+users.patch('/me/ui-language', requireAuth, async (c) => {
+  try {
+    const user = c.get('user');
+    const body = await c.req.json().catch(() => ({}));
+    const lang = String(body.language || 'en').trim().slice(0, 5).toLowerCase();
+
+    if (!/^[a-z]{2,5}(-[A-Z]{2})?$/.test(lang)) {
+      return c.json({ error: 'Invalid language code.' }, 400);
+    }
+
+    await c.env.DB.prepare('UPDATE users SET preferred_ui_language = ? WHERE id = ?')
+      .bind(lang, user.id)
+      .run();
+
+    return c.json({ ok: true, uiLanguage: lang });
+  } catch (e) {
+    console.error('UI language update error:', e.message);
+    return c.json({ error: 'Failed to update UI language preference.' }, 500);
+  }
+});
+
+users.get('/me/language', requireAuth, async (c) => {
+  const user = c.get('user');
+  return c.json({
+    contentLanguage: user.preferred_language || 'en',
+    uiLanguage: user.preferred_ui_language || 'en',
+  });
+});
 
 // ---------- 6. Cover image ----------
 users.patch('/me/cover-image', requireAuth, async (c) => {
@@ -381,7 +431,7 @@ users.get('/:id/collaborations', async (c) => {
 
 users.get('/:id', async (c) => {
   const row = await c.env.DB.prepare(
-    'SELECT id, publisher_name, logo_url, bio, social_link, cover_image, tier, suspended, created_at FROM users WHERE id = ?'
+    'SELECT id, publisher_name, logo_url, bio, social_link, cover_image, tier, preferred_language, preferred_ui_language, suspended, created_at FROM users WHERE id = ?'
   )
     .bind(c.req.param('id'))
     .first();
@@ -392,7 +442,6 @@ users.get('/:id', async (c) => {
   return c.json({ user: { ...row, followerCount: followers.n } });
 });
 
-// ── NEW: Rate limited profile edit (10/hour/user) ──────────────────────
 users.patch('/me', requireAuth, async (c) => {
   const user = c.get('user');
 
@@ -425,7 +474,6 @@ users.patch('/me', requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// ── NEW: Rate limited follow (30/hour/user) ────────────────────────────
 users.post('/:id/follow', requireAuth, async (c) => {
   const user = c.get('user');
 
@@ -453,7 +501,6 @@ users.post('/:id/follow', requireAuth, async (c) => {
   return c.json({ following: true });
 });
 
-// Masthead Newsletter Subscription Route
 users.post('/:id/subscribe', async (c) => {
   const ip = c.req.header('CF-Connecting-IP') || 'unknown';
   const limiter = createRateLimiter(c.env.DB, 3600, 10);
