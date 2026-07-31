@@ -1,92 +1,331 @@
 // components/AISummarizeButton.js
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sparkles, Loader2, ChevronDown, ChevronUp, Zap, TrendingUp, AlertTriangle, FileText, Clock } from 'lucide-react';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+/* ────────────────────────────────────────────────────────────────
+   LOCAL SUMMARIZATION ENGINE (no network calls, runs entirely
+   in the browser)
+   ──────────────────────────────────────────────────────────────── */
+
+const ABBREVIATIONS = ['Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.', 'Sr.', 'Jr.', 'St.', 'vs.', 'etc.', 'e.g.', 'i.e.', 'U.S.', 'U.K.', 'U.N.', 'Inc.', 'Ltd.', 'Co.', 'No.', 'Fig.', 'Gov.', 'Sen.', 'Rep.', 'Ave.', 'Jan.', 'Feb.', 'Mar.', 'Apr.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
+
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'so', 'because', 'as', 'of', 'at', 'by', 'for',
+  'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above',
+  'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further',
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does',
+  'did', 'doing', 'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'must', 'that',
+  'this', 'these', 'those', 'it', 'its', 'they', 'them', 'their', 'he', 'she', 'his', 'her', 'we',
+  'you', 'your', 'i', 'me', 'my', 'not', 'no', 'nor', 'than', 'too', 'very', 'just', 'also',
+]);
+
+const POSITIVE_WORDS = [
+  'win', 'wins', 'won', 'success', 'successful', 'growth', 'improve', 'improved', 'celebrate',
+  'launch', 'launched', 'achieve', 'achieved', 'gain', 'gains', 'boost', 'rise', 'rising', 'record',
+  'breakthrough', 'innovation', 'expand', 'expansion', 'profit', 'opportunity', 'promising',
+  'optimistic', 'recovery', 'milestone', 'thrive', 'surge',
+];
+
+const NEGATIVE_WORDS = [
+  'fail', 'failed', 'failure', 'crisis', 'loss', 'losses', 'death', 'deaths', 'attack', 'attacks',
+  'protest', 'protests', 'corruption', 'decline', 'drop', 'dropped', 'crash', 'war', 'disaster',
+  'bankruptcy', 'scandal', 'fraud', 'collapse', 'recession', 'violence', 'tragedy', 'emergency',
+  'lawsuit', 'threat', 'controversy',
+];
+
+function hashContent(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return String(hash);
+}
+
+function stripHtml(html) {
+  return (html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function splitIntoSentences(text) {
+  // Protect abbreviations from being treated as sentence boundaries
+  let protectedText = text;
+  ABBREVIATIONS.forEach((abbr, idx) => {
+    const token = `__ABBR${idx}__`;
+    protectedText = protectedText.split(abbr).join(token);
+  });
+
+  const rawSentences = protectedText.match(/[^.!?]+[.!?]+(\s|$)/g) || [protectedText];
+
+  return rawSentences
+    .map((s) => {
+      let restored = s;
+      ABBREVIATIONS.forEach((abbr, idx) => {
+        const token = `__ABBR${idx}__`;
+        restored = restored.split(token).join(abbr);
+      });
+      return restored.trim();
+    })
+    .filter((s) => s.length > 0);
+}
+
+function countParagraphs(rawBody) {
+  const parts = (rawBody || '').split(/<\/p>|\n{2,}/i).map((p) => stripHtml(p)).filter((p) => p.length > 20);
+  return Math.max(1, parts.length);
+}
+
+function scoreSentences(sentences, title) {
+  const titleWords = new Set(
+    (title || '')
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 2 && !STOP_WORDS.has(w))
+  );
+
+  return sentences.map((sentence, index) => {
+    let score = 0;
+    const words = sentence.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+
+    // Position bonus
+    if (index === 0) score += 2;
+    else if (index === 1) score += 1.5;
+    else if (index === 2) score += 1;
+
+    // Length penalty / reward
+    if (wordCount < 8 || wordCount > 50) score -= 1;
+    else score += 0.5;
+
+    // Keyword density (non-stop-word ratio)
+    const meaningfulWords = words.filter((w) => !STOP_WORDS.has(w.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    score += Math.min(2, meaningfulWords.length / 10);
+
+    // Title overlap bonus
+    const sentenceLower = sentence.toLowerCase();
+    let overlap = 0;
+    titleWords.forEach((tw) => {
+      if (sentenceLower.includes(tw)) overlap += 1;
+    });
+    score += Math.min(1.5, overlap * 0.5);
+
+    // Named entity bonus (capitalized words mid-sentence)
+    const capitalizedMidSentence = words.slice(1).filter((w) => /^[A-Z][a-z]+/.test(w));
+    if (capitalizedMidSentence.length > 0) score += 0.5;
+
+    // Numeric / statistic bonus
+    if (/\d/.test(sentence) || /%/.test(sentence)) score += 0.5;
+
+    return { sentence, index, score };
+  });
+}
+
+function selectTopSentences(scored, count = 3) {
+  const sorted = [...scored].sort((a, b) => b.score - a.score);
+  const selected = [];
+  const usedIndices = [];
+
+  for (const candidate of sorted) {
+    if (selected.length >= count) break;
+    const tooClose = usedIndices.some((i) => Math.abs(i - candidate.index) < 2);
+    if (!tooClose || selected.length === 0) {
+      selected.push(candidate);
+      usedIndices.push(candidate.index);
+    }
+  }
+
+  // Fill up with next best if coverage constraint left us short
+  if (selected.length < count) {
+    for (const candidate of sorted) {
+      if (selected.length >= count) break;
+      if (!selected.includes(candidate)) selected.push(candidate);
+    }
+  }
+
+  // Return in original reading order for coherence
+  return selected.sort((a, b) => a.index - b.index).map((s) => s.sentence);
+}
+
+function analyzeSentiment(text) {
+  const lower = text.toLowerCase();
+  const countMatches = (list) =>
+    list.reduce((sum, word) => {
+      const re = new RegExp(`\\b${word}\\b`, 'g');
+      const matches = lower.match(re);
+      return sum + (matches ? matches.length : 0);
+    }, 0);
+
+  const posCount = countMatches(POSITIVE_WORDS);
+  const negCount = countMatches(NEGATIVE_WORDS);
+
+  if (posCount > negCount + 1) return 'positive';
+  if (negCount > posCount + 1) return 'negative';
+  return 'neutral';
+}
+
+function buildStats(cleanText, rawBody, sentenceCount) {
+  const words = cleanText.split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+  const readTime = Math.max(1, Math.round(wordCount / 200));
+  const paragraphCount = countParagraphs(rawBody);
+
+  return {
+    wordCount,
+    readTime,
+    paragraphCount,
+    keyTakeaway: `${wordCount.toLocaleString()} words · ${readTime} min read · covers ${paragraphCount} main topic${paragraphCount === 1 ? '' : 's'}`,
+  };
+}
+
+function generateLocalSummary(rawBody, title) {
+  const cleanText = stripHtml(rawBody);
+
+  if (!cleanText || cleanText.length < 20) {
+    return {
+      bullets: ['Read the full story for complete details and insights.'],
+      keyTakeaway: 'Summary unavailable for this story.',
+      sentiment: 'neutral',
+      source: 'local',
+    };
+  }
+
+  const sentences = splitIntoSentences(cleanText);
+  const scored = scoreSentences(sentences, title);
+  const bullets = selectTopSentences(scored, 3).filter((s) => s.length > 10);
+  const stats = buildStats(cleanText, rawBody, sentences.length);
+  const sentiment = analyzeSentiment(cleanText);
+
+  return {
+    bullets: bullets.length > 0 ? bullets : ['Read the full story for complete details and insights.'],
+    keyTakeaway: stats.keyTakeaway,
+    sentiment,
+    source: 'local',
+  };
+}
+
+/* ────────────────────────────────────────────────────────────────
+   BROWSER-NATIVE AI (window.ai / Gemini Nano, Chrome 129+)
+   ──────────────────────────────────────────────────────────────── */
+
+async function isBrowserAIAvailable() {
+  try {
+    if (typeof window === 'undefined') return false;
+    const summarizerApi = window.ai?.summarizer ?? self.ai?.summarizer;
+    if (!summarizerApi) return false;
+
+    if (typeof summarizerApi.capabilities === 'function') {
+      const capabilities = await summarizerApi.capabilities();
+      return capabilities?.available && capabilities.available !== 'no';
+    }
+    if (typeof summarizerApi.availability === 'function') {
+      const availability = await summarizerApi.availability();
+      return availability && availability !== 'unavailable';
+    }
+    // If no capability check exists but the API is present, assume usable
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function withTimeout(promise, ms) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('timeout')), ms);
+  });
+  try {
+    const result = await Promise.race([promise, timeout]);
+    clearTimeout(timeoutId);
+    return result;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
+}
+
+async function generateBrowserAISummary(rawBody, title) {
+  const cleanText = stripHtml(rawBody);
+  const summarizerApi = window.ai?.summarizer ?? self.ai?.summarizer;
+  if (!summarizerApi) throw new Error('Browser AI unavailable');
+
+  let resultText = '';
+
+  if (typeof summarizerApi.create === 'function') {
+    const summarizerInstance = await summarizerApi.create({
+      sharedContext: title || '',
+      type: 'key-points',
+      format: 'plain-text',
+      length: 'short',
+    });
+    resultText = await withTimeout(summarizerInstance.summarize(cleanText), 9000);
+    if (typeof summarizerInstance.destroy === 'function') {
+      try { summarizerInstance.destroy(); } catch (e) {}
+    }
+  } else if (typeof summarizerApi.summarize === 'function') {
+    resultText = await withTimeout(summarizerApi.summarize(cleanText, { context: title || '' }), 9000);
+  } else {
+    throw new Error('No summarize method available');
+  }
+
+  if (!resultText || typeof resultText !== 'string' || resultText.trim().length < 5) {
+    throw new Error('Empty summary from browser AI');
+  }
+
+  const bullets = splitIntoSentences(resultText)
+    .map((s) => s.replace(/^[-•*]\s*/, '').trim())
+    .filter((s) => s.length > 5)
+    .slice(0, 3);
+
+  const stats = buildStats(cleanText, rawBody, splitIntoSentences(cleanText).length);
+  const sentiment = analyzeSentiment(cleanText);
+
+  return {
+    bullets: bullets.length > 0 ? bullets : [resultText.trim()],
+    keyTakeaway: stats.keyTakeaway,
+    sentiment,
+    source: 'browser',
+  };
+}
+
+/* ────────────────────────────────────────────────────────────────
+   COMPONENT
+   ──────────────────────────────────────────────────────────────── */
 
 export default function AISummarizeButton({ storyId, title, body }) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState('');
+  const [slowNotice, setSlowNotice] = useState(false);
+  const slowTimerRef = useRef(null);
 
-  // Check cache on mount
+  const contentHash = hashContent(`${title || ''}::${body || ''}`);
+  const cacheKey = `summary_${storyId}`;
+
+  // Check cache on mount — invalidate if story content changed
   useEffect(() => {
-    const cached = sessionStorage.getItem(`summary_${storyId}`);
-    if (cached) {
-      try {
-        setSummary(JSON.parse(cached));
-      } catch (e) {}
-    }
-  }, [storyId]);
-
-  // Try backend AI first, fall back to local summary
-  const fetchAISummary = async () => {
     try {
-      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
-      const csrfData = await csrfRes.json();
-      
-      const res = await fetch(`${API_BASE}/ai-services/summarize`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfData.token || '',
-        },
-        body: JSON.stringify({
-          storyId,
-          title,
-          text: (body || '').replace(/<[^>]*>/g, ' '),
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.summary) {
-          return data.summary;
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.contentHash === contentHash && parsed.data) {
+          setSummary(parsed.data);
+        } else {
+          sessionStorage.removeItem(cacheKey);
         }
       }
     } catch (e) {
-      // Backend unavailable — fall through to local summary
+      // Corrupt cache entry — ignore and continue
     }
-    return null;
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyId]);
 
-  // Generate a simple extractive summary locally
-  const generateLocalSummary = () => {
-    const cleanText = (body || '').replace(/<[^>]*>/g, ' ').trim();
-    
-    // Get first 3 sentences as bullets
-    const sentences = cleanText.match(/[^.!?]+[.!?]+/g) || [];
-    const bullets = sentences
-      .slice(0, 3)
-      .map(s => s.trim())
-      .filter(s => s.length > 10);
-    
-    // Word count and reading time
-    const words = cleanText.split(/\s+/).filter(Boolean);
-    const wordCount = words.length;
-    const readTime = Math.max(1, Math.round(wordCount / 200));
-    
-    // Simple sentiment analysis
-    let sentiment = 'neutral';
-    const lower = cleanText.toLowerCase();
-    const positiveWords = ['win', 'success', 'growth', 'improve', 'celebrate', 'launch', 'achieve', 'gain', 'boost', 'rise', 'record'];
-    const negativeWords = ['fail', 'crisis', 'loss', 'death', 'attack', 'protest', 'corruption', 'decline', 'drop', 'crash', 'war'];
-    const posCount = positiveWords.filter(w => lower.includes(w)).length;
-    const negCount = negativeWords.filter(w => lower.includes(w)).length;
-    if (posCount > negCount + 1) sentiment = 'positive';
-    if (negCount > posCount + 1) sentiment = 'negative';
-
-    return {
-      bullets: bullets.length > 0 
-        ? bullets 
-        : ['Read the full story for complete details and insights.'],
-      keyTakeaway: `${wordCount.toLocaleString()} words · ${readTime} min read · ${sentences.length} sentences`,
-      sentiment,
-      local: true,
-    };
+  const persistToCache = (data) => {
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify({ contentHash, data }));
+    } catch (e) {
+      // sessionStorage may be full or unavailable — non-fatal
+    }
   };
 
   const handleSummarize = async () => {
@@ -97,29 +336,43 @@ export default function AISummarizeButton({ storyId, title, body }) {
 
     setLoading(true);
     setError('');
+    setSlowNotice(false);
+
+    slowTimerRef.current = setTimeout(() => setSlowNotice(true), 5000);
+
+    let result = null;
 
     try {
-      // Try backend AI first
-      const aiSummary = await fetchAISummary();
-      
-      if (aiSummary) {
-        setSummary(aiSummary);
-      } else {
-        // Fall back to local summary
-        const localSummary = generateLocalSummary();
-        setSummary(localSummary);
+      const browserAIReady = await isBrowserAIAvailable();
+      if (browserAIReady) {
+        try {
+          result = await generateBrowserAISummary(body, title);
+        } catch (aiError) {
+          // Browser AI failed or timed out — fall through to local engine
+          result = null;
+        }
       }
-      
-      setExpanded(true);
-      
-      try {
-        sessionStorage.setItem(`summary_${storyId}`, JSON.stringify(summary || generateLocalSummary()));
-      } catch (e) {}
-    } catch (e) {
-      setError('Could not generate summary.');
-    }
 
-    setLoading(false);
+      if (!result) {
+        result = generateLocalSummary(body, title);
+      }
+
+      setSummary(result);
+      setExpanded(true);
+      persistToCache(result);
+    } catch (fatalError) {
+      // Absolute last resort — never crash, offer retry
+      setError('Summary unavailable. Please try again.');
+    } finally {
+      clearTimeout(slowTimerRef.current);
+      setSlowNotice(false);
+      setLoading(false);
+    }
+  };
+
+  const handleRetry = () => {
+    setError('');
+    handleSummarize();
   };
 
   const sentimentColors = {
@@ -140,7 +393,7 @@ export default function AISummarizeButton({ storyId, title, body }) {
         ) : (
           <Sparkles size={13} />
         )}
-        {loading ? 'Analyzing...' : summary ? (expanded ? 'Hide Summary' : 'Quick Summary') : 'Quick Summary'}
+        {loading ? (slowNotice ? 'Taking longer than expected...' : 'Analyzing...') : summary ? (expanded ? 'Hide Summary' : 'Quick Summary') : 'Quick Summary'}
         {summary && !loading && (
           expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />
         )}
@@ -180,18 +433,28 @@ export default function AISummarizeButton({ storyId, title, body }) {
                 {summary.sentiment}
               </span>
             )}
-            
+
             {/* Source badge */}
-            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-sm border bg-ink-50 text-ink-500 border-wire`}>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-sm border bg-ink-50 text-ink-500 border-wire">
               <Sparkles size={10} className="inline mr-1" />
-              {summary.local ? 'Auto-generated' : 'AI-powered'}
+              {summary.source === 'browser' ? 'Browser AI' : 'Smart Extract'}
             </span>
           </div>
         </div>
       )}
 
       {error && (
-        <p className="text-[11px] font-bold text-signal mt-2">{error}</p>
+        <div className="mt-2 flex items-center gap-2">
+          <p className="text-[11px] font-bold text-signal flex items-center gap-1">
+            <AlertTriangle size={12} /> {error}
+          </p>
+          <button
+            onClick={handleRetry}
+            className="text-[11px] font-bold uppercase tracking-wider text-purple-600 hover:text-purple-800 underline"
+          >
+            Retry
+          </button>
+        </div>
       )}
     </div>
   );
