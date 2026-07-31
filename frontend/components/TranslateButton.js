@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Languages, Loader2, Check, X, ArrowLeftRight, ChevronDown } from 'lucide-react';
+import { Languages, Loader2, X, ArrowLeftRight, ChevronDown, ExternalLink } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -37,9 +37,8 @@ const LANGUAGES = [
 export default function TranslateButton({ storyId, title, body }) {
   const [open, setOpen] = useState(false);
   const [translating, setTranslating] = useState(false);
-  const [translated, setTranslated] = useState(null);
-  const [error, setError] = useState('');
   const [showTranslated, setShowTranslated] = useState(false);
+  const [selectedLang, setSelectedLang] = useState(null);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -52,88 +51,64 @@ export default function TranslateButton({ storyId, title, body }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Check cache on mount
+  // Check if there's a cached language preference
   useEffect(() => {
-    const cached = sessionStorage.getItem(`translated_${storyId}`);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setTranslated(parsed);
-      } catch (e) {}
-    }
+    try {
+      const cached = sessionStorage.getItem(`translated_lang_${storyId}`);
+      if (cached) {
+        const lang = LANGUAGES.find(l => l.code === cached);
+        if (lang) {
+          setSelectedLang(lang);
+          setShowTranslated(true);
+        }
+      }
+    } catch (e) {}
   }, [storyId]);
 
-  const handleTranslate = async (langCode) => {
+  const handleTranslate = (langCode) => {
     setOpen(false);
     setTranslating(true);
-    setError('');
 
+    const lang = LANGUAGES.find(l => l.code === langCode);
+    
+    // Open Google Translate in new tab
+    const storyUrl = typeof window !== 'undefined' 
+      ? `${window.location.origin}/story/${storyId}`
+      : `https://opinionplus.online/story/${storyId}`;
+    
+    const translateUrl = `https://translate.google.com/translate?hl=${langCode}&sl=auto&tl=${langCode}&u=${encodeURIComponent(storyUrl)}`;
+    
+    setSelectedLang(lang);
+    setShowTranslated(true);
+    
     try {
-      const res = await fetch(`${API_BASE}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: `${title}\n\n${(body || '').replace(/<[^>]*>/g, ' ')}`,
-          targetLanguage: langCode,
-          sourceType: 'story',
-          sourceId: storyId,
-        }),
-      });
+      sessionStorage.setItem(`translated_lang_${storyId}`, langCode);
+    } catch (e) {}
 
-      const data = await res.json();
-
-      if (res.ok) {
-        const lang = LANGUAGES.find(l => l.code === langCode);
-        const result = {
-          title: data.translatedText.split('\n\n')[0] || title,
-          body: data.translatedText.split('\n\n').slice(1).join('\n\n') || data.translatedText,
-          language: lang?.native || langCode,
-          flag: lang?.flag || '🌐',
-          sourceLanguage: data.sourceLanguage,
-        };
-        setTranslated(result);
-        setShowTranslated(true);
-        
-        try {
-          sessionStorage.setItem(`translated_${storyId}`, JSON.stringify(result));
-        } catch (e) {}
-      } else {
-        setError(data.error || 'Translation failed.');
-      }
-    } catch (e) {
-      setError('Network error. Please try again.');
-    }
-
+    window.open(translateUrl, '_blank');
     setTranslating(false);
+  };
+
+  const handleRemoveTranslation = () => {
+    setSelectedLang(null);
+    setShowTranslated(false);
+    try {
+      sessionStorage.removeItem(`translated_lang_${storyId}`);
+    } catch (e) {}
   };
 
   return (
     <div ref={ref} className="relative inline-block">
-      {/* Translation Toggle Bar */}
-      {translated && (
+      {/* Translation Active Indicator */}
+      {showTranslated && selectedLang && (
         <div className="flex items-center gap-2 mb-3">
-          <button
-            onClick={() => setShowTranslated(!showTranslated)}
-            className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-sm border transition-all ${
-              showTranslated 
-                ? 'bg-amber-400 text-ink border-amber-400' 
-                : 'bg-white text-ink border-wire hover:border-ink'
-            }`}
-          >
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-sm border bg-amber-50 border-amber-400 text-amber-700">
             <ArrowLeftRight size={13} />
-            {showTranslated ? (
-              <>Show Original</>
-            ) : (
-              <>{translated.flag} Read in {translated.language}</>
-            )}
-          </button>
+            {selectedLang.flag} Reading in {selectedLang.native}
+          </div>
           
           <button
-            onClick={() => {
-              setTranslated(null);
-              setShowTranslated(false);
-              try { sessionStorage.removeItem(`translated_${storyId}`); } catch (e) {}
-            }}
+            onClick={handleRemoveTranslation}
             className="p-1.5 rounded-sm text-ink-400 hover:text-signal transition-colors"
             title="Remove translation"
           >
@@ -143,42 +118,40 @@ export default function TranslateButton({ storyId, title, body }) {
       )}
 
       {/* Translate Button + Dropdown */}
-      {!showTranslated && (
-        <>
-          <button
-            onClick={() => setOpen(!open)}
-            disabled={translating}
-            className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-ink-500 hover:text-ink transition-colors border border-wire rounded-sm px-3 py-2 hover:border-ink disabled:opacity-50"
-          >
-            {translating ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <Languages size={13} />
-            )}
-            {translating ? 'Translating...' : 'Translate'}
-            <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-          </button>
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={translating}
+        className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-ink-500 hover:text-ink transition-colors border border-wire rounded-sm px-3 py-2 hover:border-ink disabled:opacity-50"
+      >
+        {translating ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : (
+          <Languages size={13} />
+        )}
+        {translating ? 'Opening...' : showTranslated ? 'Change Language' : 'Translate'}
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
 
-          {open && (
-            <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-wire rounded-sm shadow-xl z-30 max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-150">
-              {LANGUAGES.filter(l => l.code !== 'en').map(lang => (
-                <button
-                  key={lang.code}
-                  onClick={() => handleTranslate(lang.code)}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-ink hover:bg-ink-50 transition-colors"
-                >
-                  <span className="text-base">{lang.flag}</span>
-                  <span className="flex-1 text-left">{lang.native}</span>
-                  <span className="text-ink-400 text-[10px]">{lang.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {error && (
-        <p className="text-[11px] font-bold text-signal mt-2">{error}</p>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-wire rounded-sm shadow-xl z-30 max-h-80 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="p-2 border-b border-wire bg-ink-50">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-ink-400 px-2">
+              Open in Google Translate
+            </p>
+          </div>
+          {LANGUAGES.filter(l => l.code !== 'en').map(lang => (
+            <button
+              key={lang.code}
+              onClick={() => handleTranslate(lang.code)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-ink hover:bg-ink-50 transition-colors"
+            >
+              <span className="text-base">{lang.flag}</span>
+              <span className="flex-1 text-left">{lang.native}</span>
+              <span className="text-ink-400 text-[10px]">{lang.name}</span>
+              <ExternalLink size={11} className="text-ink-300" />
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

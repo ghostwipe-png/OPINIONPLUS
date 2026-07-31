@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Volume2, Play, Pause, SkipBack, SkipForward, Loader2, Gauge, Download } from 'lucide-react';
+import { Volume2, Play, Pause, SkipBack, SkipForward, Loader2, Gauge } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
@@ -14,12 +14,12 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [error, setError] = useState('');
+  const [useCloudTTS, setUseCloudTTS] = useState(true); // Try cloud first, fall back to browser
   const audioRef = useRef(null);
+  const utteranceRef = useRef(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Check for Web Speech API as fallback
       const hasSpeechSynthesis = 'speechSynthesis' in window;
       setIsSupported(hasSpeechSynthesis);
     }
@@ -28,10 +28,12 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
 
-  // Check for cached audio on mount
   useEffect(() => {
     if (!storyId) return;
     const cached = sessionStorage.getItem(`audio_${storyId}`);
@@ -45,11 +47,10 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
   }, [storyId]);
 
   const fetchAudio = useCallback(async () => {
-    if (audioUrl) return; // Already loaded
+    if (audioUrl) return;
     if (!storyId) return;
 
     setIsLoading(true);
-    setError('');
 
     try {
       const res = await fetch(`${API_BASE}/ai-services/audio/${storyId}`, {
@@ -57,7 +58,7 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
       });
       const data = await res.json();
 
-      if (res.ok && data.audioUrl) {
+      if (res.ok && data.audioUrl && data.audioUrl.startsWith('data:audio')) {
         setAudioUrl(data.audioUrl);
         setDuration(data.duration || 0);
         try {
@@ -66,27 +67,82 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
             duration: data.duration,
           }));
         } catch (e) {}
-      } else {
-        // Fallback to Web Speech API
-        setError(data.error || 'TTS not available. Using browser speech.');
+        setIsLoading(false);
+        return;
       }
     } catch (e) {
-      setError('Audio generation failed. Using browser speech.');
+      // Cloud TTS unavailable — fall through to browser speech
     }
 
+    // Cloud TTS failed or unavailable — use browser speech silently
+    setUseCloudTTS(false);
     setIsLoading(false);
   }, [storyId, audioUrl]);
 
+  const playWithBrowserSpeech = () => {
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+
+    const cleanText = (bodyHtml || '').replace(/<[^>]*>/g, ' ');
+    const textToSpeech = `${title}. ${cleanText}`;
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeech);
+    utterance.rate = playbackRate;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      setIsPlaying(true);
+      setIsLoading(false);
+    };
+
+    utterance.onend = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    utterance.onerror = () => {
+      setIsPlaying(false);
+      setIsLoading(false);
+    };
+
+    utteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
   const togglePlay = async () => {
-    if (!audioUrl) {
+    if (useCloudTTS && !audioUrl) {
       await fetchAudio();
+      // If cloud TTS loaded, play via audio element
+      if (audioUrl && audioRef.current) {
+        audioRef.current.play().catch(() => setUseCloudTTS(false));
+        return;
+      }
+      // If cloud failed, use browser speech
+      if (!useCloudTTS) {
+        playWithBrowserSpeech();
+        return;
+      }
+    }
+
+    if (useCloudTTS && audioUrl) {
+      if (isPlaying) {
+        audioRef.current?.pause();
+      } else {
+        audioRef.current?.play().catch(() => {
+          setUseCloudTTS(false);
+          playWithBrowserSpeech();
+        });
+      }
       return;
     }
 
+    // Browser speech mode
     if (isPlaying) {
-      audioRef.current?.pause();
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
     } else {
-      audioRef.current?.play().catch(() => setError('Playback failed.'));
+      playWithBrowserSpeech();
     }
   };
 
@@ -102,12 +158,11 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
   };
 
   const handleSeek = (e) => {
+    if (!useCloudTTS || !audioRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percent = x / rect.width;
-    if (audioRef.current) {
-      audioRef.current.currentTime = percent * (duration || audioRef.current.duration || 0);
-    }
+    audioRef.current.currentTime = percent * (duration || audioRef.current.duration || 0);
   };
 
   const changeSpeed = () => {
@@ -118,6 +173,9 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
     setPlaybackRate(newRate);
     if (audioRef.current) {
       audioRef.current.playbackRate = newRate;
+    }
+    if (utteranceRef.current) {
+      utteranceRef.current.rate = newRate;
     }
   };
 
@@ -147,7 +205,6 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
 
   return (
     <div className="bg-ink-50 border border-wire rounded-sm overflow-hidden shadow-sm my-6">
-      {/* Hidden audio element for cloud TTS */}
       <audio
         ref={audioRef}
         src={audioUrl || undefined}
@@ -155,13 +212,10 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
         onPause={() => setIsPlaying(false)}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleEnded}
-        onError={() => setError('Audio playback failed.')}
       />
 
-      {/* Player Bar */}
       <div className="p-4">
         <div className="flex items-center justify-between gap-4">
-          {/* Left: Icon + Info */}
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-10 h-10 rounded-sm grid place-items-center shrink-0 ${isPlaying ? 'bg-signal' : 'bg-ink'}`}>
               <Volume2 size={18} className={isPlaying ? 'text-white' : 'text-signal'} />
@@ -171,22 +225,25 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
                 {isPlaying ? 'Now Playing' : 'Listen to this story'}
               </p>
               <p className="text-[11px] text-ink-500 font-medium truncate">
-                {isPlaying 
+                {isPlaying && useCloudTTS && audioUrl
                   ? `${formatTime(currentTime)} / ${formatTime(duration || audioRef.current?.duration)}`
-                  : 'AI Audio Narration'}
+                  : isPlaying && !useCloudTTS
+                  ? 'Browser Speech'
+                  : 'Audio Narration'}
               </p>
             </div>
           </div>
 
-          {/* Center: Controls */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={skipBack}
-              className="p-2 rounded-sm text-ink-400 hover:text-ink hover:bg-ink-100 transition-colors"
-              title="Back 10s"
-            >
-              <SkipBack size={16} />
-            </button>
+            {useCloudTTS && audioUrl && (
+              <button
+                onClick={skipBack}
+                className="p-2 rounded-sm text-ink-400 hover:text-ink hover:bg-ink-100 transition-colors"
+                title="Back 10s"
+              >
+                <SkipBack size={16} />
+              </button>
+            )}
 
             <button
               onClick={togglePlay}
@@ -202,16 +259,17 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
               )}
             </button>
 
-            <button
-              onClick={skipForward}
-              className="p-2 rounded-sm text-ink-400 hover:text-ink hover:bg-ink-100 transition-colors"
-              title="Forward 30s"
-            >
-              <SkipForward size={16} />
-            </button>
+            {useCloudTTS && audioUrl && (
+              <button
+                onClick={skipForward}
+                className="p-2 rounded-sm text-ink-400 hover:text-ink hover:bg-ink-100 transition-colors"
+                title="Forward 30s"
+              >
+                <SkipForward size={16} />
+              </button>
+            )}
           </div>
 
-          {/* Right: Speed + Info */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={changeSpeed}
@@ -224,27 +282,22 @@ export default function AudioPlayer({ storyId, title, bodyHtml }) {
           </div>
         </div>
 
-        {/* Progress Bar */}
-        <div
-          className="mt-3 h-1.5 bg-wire/40 rounded-sm cursor-pointer group"
-          onClick={handleSeek}
-        >
+        {useCloudTTS && audioUrl && (
           <div
-            className="h-full bg-signal rounded-sm transition-all duration-100 group-hover:bg-signal/80"
-            style={{
-              width: `${duration || audioRef.current?.duration
-                ? ((currentTime / (duration || audioRef.current?.duration || 1)) * 100)
-                : 0}%`
-            }}
-          />
-        </div>
+            className="mt-3 h-1.5 bg-wire/40 rounded-sm cursor-pointer group"
+            onClick={handleSeek}
+          >
+            <div
+              className="h-full bg-signal rounded-sm transition-all duration-100 group-hover:bg-signal/80"
+              style={{
+                width: `${duration || audioRef.current?.duration
+                  ? ((currentTime / (duration || audioRef.current?.duration || 1)) * 100)
+                  : 0}%`
+              }}
+            />
+          </div>
+        )}
       </div>
-
-      {error && (
-        <div className="px-4 pb-3">
-          <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">{error}</p>
-        </div>
-      )}
     </div>
   );
 }

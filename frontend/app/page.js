@@ -10,7 +10,6 @@ import {
   Megaphone,
   MonitorPlay,
   ChevronDown,
-  Star,
   Heart,
   MessageCircle,
   Play,
@@ -18,6 +17,7 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import BreakingTicker from '../components/BreakingTicker';
+import BreakingNewsBanner from '../components/BreakingNewsBanner';
 import FilterBar from '../components/FilterBar';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -33,7 +33,6 @@ const FILTER_LABELS = {
   sponsored: 'Sponsored',
 };
 
-// Each content type gets its own card style
 const CARD_STYLES = {
   story: {
     badge: 'bg-ink text-white',
@@ -69,38 +68,6 @@ const CARD_STYLES = {
 
 const HERO_WORDS = "Anything's possible when you have the narrative.".split(' ');
 
-function useRevealOnView(threshold = 0.15) {
-  const ref = useRef(null);
-  const [inView, setInView] = useState(false);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { setInView(true); observer.disconnect(); }
-    }, { threshold });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [threshold]);
-  return [ref, inView];
-}
-
-function CountUp({ end, inView, duration = 1400 }) {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    if (!inView) return;
-    let frame, start = null;
-    const step = (ts) => {
-      if (start === null) start = ts;
-      const progress = Math.min((ts - start) / duration, 1);
-      setValue(Math.floor(progress * end));
-      if (progress < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [inView, end, duration]);
-  return <>{value.toLocaleString()}</>;
-}
-
 function AuthorAvatar({ name, dark = false }) {
   const initial = (name || '?').trim().charAt(0).toUpperCase();
   return (
@@ -121,9 +88,8 @@ function StoryCard({ story, index = 0 }) {
   return (
     <div
       className={`fade-up-in bg-white rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.05)] hover:shadow-2xl hover:-translate-y-1 transition-all duration-500 flex flex-col justify-between group border border-wire/40 ${style.accent}`}
-      style={{ animationDelay: `${index * 60}ms` }}
+      style={{ animationDelay: `${index * 50}ms` }}
     >
-      {/* Image area */}
       <div className="h-44 w-full overflow-hidden bg-ink-100 relative">
         {imageUrl ? (
           <img src={imageUrl} alt={story.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
@@ -133,17 +99,14 @@ function StoryCard({ story, index = 0 }) {
             <span className="text-[10px] font-bold uppercase tracking-widest text-ink-400">{style.label}</span>
           </div>
         )}
-        {/* Type badge */}
         <span className={`absolute top-3 left-3 font-bold text-[9px] uppercase px-2.5 py-1 rounded-md tracking-wider flex items-center gap-1.5 ${style.badge}`}>
           <TypeIcon size={10} /> {style.label}
         </span>
-        {/* Sponsored glow */}
         {story.type === 'sponsored' && (
           <div className="absolute inset-0 bg-gradient-to-t from-amber-500/10 to-transparent pointer-events-none" />
         )}
       </div>
 
-      {/* Content */}
       <div className="p-5 flex-1 flex flex-col justify-between">
         <div>
           <h3 className="text-sm font-bold text-ink group-hover:text-signal transition-colors line-clamp-2 leading-snug mb-2">
@@ -195,8 +158,6 @@ export default function HomePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [scrollY, setScrollY] = useState(0);
 
-  const [statsRef, statsInView] = useRevealOnView(0.4);
-
   const fetchStories = useCallback(async (currentCursor = null, isReset = false) => {
     if (isReset) { setLoading(true); } else { setLoadingMore(true); }
     try {
@@ -240,9 +201,6 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const featuredStory = stories[0];
-  const gridStories = stories.slice(1);
-
   const scrollToFeed = () => {
     document.getElementById('feed-section')?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -260,128 +218,59 @@ export default function HomePage() {
       `}</style>
 
       <BreakingTicker />
+      <BreakingNewsBanner />
 
-      {/* HERO */}
-      <section className="relative bg-[#1C1917] text-white pt-16 pb-16 px-5 overflow-hidden min-h-[70vh] md:min-h-[90vh] flex flex-col justify-between">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1600&auto=format&fit=crop&q=80')] bg-cover bg-center md:bg-fixed opacity-25 mix-blend-luminosity pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#1C1917] via-[#1C1917]/90 to-transparent pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-[420px] h-[420px] rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
+      {/* COMPACT HERO */}
+      <section className="relative bg-[#1C1917] text-white pt-12 pb-12 px-5 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-r from-[#1C1917] via-[#1C1917]/95 to-[#1C1917]/80 pointer-events-none" />
+        <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-amber-500/15 blur-3xl pointer-events-none" />
 
-        <div className="max-w-7xl mx-auto relative z-10 w-full">
-          <div className="max-w-3xl mb-12">
-            <h1 className="editorial-h text-4xl sm:text-6xl font-black tracking-tight text-white mb-6 leading-tight">
-              {HERO_WORDS.map((word, i) => (
-                <span key={i} className="inline-block fade-up-in mr-3" style={{ animationDelay: `${i * 80}ms` }}>{word}</span>
-              ))}
-            </h1>
-            <p className="text-white/80 text-base sm:text-lg font-medium leading-relaxed max-w-2xl fade-up-in" style={{ animationDelay: `${HERO_WORDS.length * 80 + 200}ms` }}>
-              Find compelling independent stories, in-depth documentaries, official campus news, press releases, sponsored features, and masthead solutions.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 border-t border-white/20 max-w-5xl relative">
-            <div className="space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 block">For Readers & Viewers</span>
-              <div>
-                <Link href="#feed-section" className="inline-flex items-center gap-2 bg-white text-ink font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-full hover:bg-signal hover:text-white transition-colors shadow-lg">
-                  Explore feed <ArrowRight size={14} />
-                </Link>
-              </div>
-            </div>
-            <div className="space-y-3 sm:border-l sm:border-white/20 sm:pl-6">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 block">Publish Announcements</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href="/services/press-release" className="inline-flex items-center gap-1.5 border border-white/40 text-white font-bold uppercase text-[10px] tracking-wider px-4 py-3 rounded-full hover:bg-white hover:text-ink transition-colors"><Megaphone size={12} className="text-signal" /> Press Release</Link>
-                <Link href="/services/sponsored" className="inline-flex items-center gap-1.5 border border-white/40 text-white font-bold uppercase text-[10px] tracking-wider px-4 py-3 rounded-full hover:bg-white hover:text-ink transition-colors"><MonitorPlay size={12} className="text-signal" /> Sponsored</Link>
-              </div>
-            </div>
-            <div className="space-y-3 sm:border-l sm:border-white/20 sm:pl-6">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-white/60 block">Partners & Creators</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href="/pricing" className="inline-block border border-white/40 text-white font-bold uppercase text-xs tracking-wider px-6 py-3.5 rounded-full hover:bg-white hover:text-ink transition-colors">Pricing & Solutions</Link>
-              </div>
-            </div>
-          </div>
-
-          <div ref={statsRef} className="flex flex-wrap gap-x-12 gap-y-6 pt-8 mt-8 border-t border-white/10">
-            <div><div className="text-3xl sm:text-4xl font-black text-white tabular-nums"><CountUp end={1247} inView={statsInView} /></div><div className="text-[11px] uppercase tracking-widest text-white/50 font-bold mt-1">Stories published today</div></div>
-            <div><div className="text-3xl sm:text-4xl font-black text-white tabular-nums"><CountUp end={89} inView={statsInView} /></div><div className="text-[11px] uppercase tracking-widest text-white/50 font-bold mt-1">Active campuses</div></div>
-            <div><div className="text-3xl sm:text-4xl font-black text-white tabular-nums"><CountUp end={12400} inView={statsInView} /></div><div className="text-[11px] uppercase tracking-widest text-white/50 font-bold mt-1">Readers online</div></div>
+        <div className="max-w-4xl mx-auto relative z-10 text-center">
+          <h1 className="editorial-h text-3xl sm:text-5xl font-black tracking-tight text-white mb-4 leading-tight">
+            {HERO_WORDS.map((word, i) => (
+              <span key={i} className="inline-block fade-up-in mr-2" style={{ animationDelay: `${i * 60}ms` }}>{word}</span>
+            ))}
+          </h1>
+          <p className="text-white/70 text-sm sm:text-base font-medium max-w-xl mx-auto fade-up-in" style={{ animationDelay: `${HERO_WORDS.length * 60 + 150}ms` }}>
+            Independent stories, documentaries, campus news, press releases, and sponsored features — all in one place.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-6 fade-up-in" style={{ animationDelay: `${HERO_WORDS.length * 60 + 300}ms` }}>
+            <button onClick={scrollToFeed} className="bg-amber-500 hover:bg-white hover:text-ink text-white font-extrabold uppercase text-xs tracking-wider px-6 py-3 rounded-full transition-all shadow-lg flex items-center gap-2">
+              Explore Feed <ArrowRight size={14} />
+            </button>
+            <Link href="/publish" className="border border-white/30 hover:border-white text-white font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-full transition-all">
+              Start Publishing
+            </Link>
           </div>
         </div>
-
-        <button onClick={scrollToFeed} className="relative z-10 mx-auto mt-10 flex flex-col items-center gap-2 text-white/60 hover:text-white transition-colors" style={{ opacity: Math.max(0, 1 - scrollY / 250) }} aria-label="Scroll to stories">
-          <span className="text-[10px] uppercase tracking-widest font-bold">Discover stories</span>
-          <ChevronDown size={20} className="bounce-arrow" />
-        </button>
       </section>
 
-      {/* FEATURED STORY */}
-      {!loading && featuredStory && (
-        <section className="max-w-7xl mx-auto px-5 w-full pt-10">
-          {(() => {
-            const imageUrl = featuredStory.coverImage || featuredStory.cover_image || '';
-            const authorName = featuredStory.author || featuredStory.publisher_name || 'OpinionPlus Staff';
-            const excerpt = featuredStory.excerpt || (typeof featuredStory.body === 'string' ? featuredStory.body.slice(0, 180) : 'Explore the full narrative and insights...');
-            const fStyle = CARD_STYLES[featuredStory.type] || CARD_STYLES.story;
-            return (
-              <div className="group rounded-2xl overflow-hidden border border-wire/40 shadow-[0_8px_40px_rgba(0,0,0,0.08)] hover:shadow-[0_20px_60px_rgba(0,0,0,0.15)] hover:ring-2 hover:ring-amber-400/40 transition-all duration-500 flex flex-col md:flex-row bg-white">
-                <div className="md:w-[60%] h-64 md:h-[400px] overflow-hidden bg-ink-100 relative">
-                  {imageUrl ? (
-                    <img src={imageUrl} alt={featuredStory.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-ink text-white font-black text-sm uppercase tracking-widest">OpinionPlus</div>
-                  )}
-                </div>
-                <div className="md:w-[40%] bg-[#1C1917] text-white p-8 md:p-10 flex flex-col justify-center gap-4">
-                  <span className="inline-flex items-center gap-1.5 w-fit bg-gradient-to-r from-amber-400 to-amber-600 text-[#1C1917] font-bold uppercase text-[10px] tracking-widest px-3 py-1.5 rounded-full">
-                    <Star size={11} fill="currentColor" /> Editor's Pick · {fStyle.label}
-                  </span>
-                  <h2 className="text-2xl font-black leading-tight">{featuredStory.title}</h2>
-                  <p className="text-white/70 text-sm leading-relaxed line-clamp-3">{excerpt}</p>
-                  <div className="flex items-center gap-3 pt-1">
-                    <AuthorAvatar name={authorName} dark />
-                    <span className="text-xs font-semibold text-white/80">{authorName}</span>
-                  </div>
-                  <Link href={`/story/${featuredStory.id}`} className="mt-2 inline-flex items-center gap-2 w-fit bg-gradient-to-r from-amber-400 to-amber-600 text-[#1C1917] font-bold uppercase text-xs tracking-wider px-6 py-3 rounded-full hover:brightness-110 transition-all shadow-lg">
-                    Read featured story <ArrowRight size={14} />
-                  </Link>
-                </div>
-              </div>
-            );
-          })()}
-        </section>
-      )}
-
-      {/* UNIFIED CONTENT GRID — All types visible together, each styled distinctly */}
-      <div id="feed-section" className="scroll-mt-24 flex-1 max-w-7xl mx-auto px-5 w-full pt-10">
+      {/* CONTENT GRID */}
+      <div id="feed-section" className="scroll-mt-24 flex-1 max-w-7xl mx-auto px-5 w-full pt-8">
         <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-sm">
           <FilterBar filter={filter} onFilterChange={setFilter} filters={FILTERS} filterLabels={FILTER_LABELS} />
         </div>
 
         {loading ? (
-          <div className="space-y-10 py-12">
-            <div className="h-64 md:h-[380px] rounded-2xl bg-wire/20 relative overflow-hidden"><div className="absolute inset-0 shimmer" /></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (<CardSkeleton key={i} />))}
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 py-8">
+            {Array.from({ length: 8 }).map((_, i) => (<CardSkeleton key={i} />))}
           </div>
         ) : stories.length === 0 ? (
           <div className="border-none rounded-2xl p-20 flex flex-col items-center text-center my-10 bg-white shadow-sm">
-            <div className="w-16 h-16 rounded-full bg-ink-100 flex items-center justify-center mb-5"><Newspaper size={28} className="text-ink-300" /></div>
+            <div className="w-16 h-16 rounded-full bg-ink-100 flex items-center justify-center mb-5">
+              <Newspaper size={28} className="text-ink-300" />
+            </div>
             <p className="editorial-h text-2xl font-black mb-2 text-ink">No stories yet</p>
-            <p className="text-sm text-ink-500 font-medium max-w-sm">Try a different category, or check back soon — new stories land here as soon as they publish.</p>
+            <p className="text-sm text-ink-500 font-medium max-w-sm">Try a different category, or check back soon.</p>
           </div>
         ) : (
           <div className="py-8 space-y-10">
-            {/* SINGLE UNIFIED GRID — All content types together */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-8">
-              {gridStories.map((story, i) => (
+              {stories.map((story, i) => (
                 <StoryCard key={story.id} story={story} index={i} />
               ))}
             </div>
 
-            {/* LOAD MORE */}
             <div className="pt-4 text-center flex flex-col items-center gap-4">
               <p className="text-xs font-semibold uppercase tracking-widest text-ink-400">
                 Showing {stories.length}{totalCount ? ` of ${totalCount}` : ''} {stories.length === 1 ? 'story' : 'stories'}
