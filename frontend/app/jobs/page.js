@@ -16,6 +16,7 @@ import JobAlertsForm from '../../components/JobAlertsForm';
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+const SALARY_CURRENCIES = ['KES', 'USD', 'EUR', 'GBP', 'ZAR', 'NGN', 'TZS', 'UGX'];
 const CATEGORIES = [
   'Media & Journalism', 'Tech & Development', 'Marketing & PR', 'Finance & Accounting',
   'Healthcare', 'Education', 'NGO & Nonprofit', 'Government', 'Sales',
@@ -55,11 +56,11 @@ function formatApplyLink(link) {
   return `https://${link}`;
 }
 
-function formatSalary(min, max) {
+function formatSalary(min, max, currency = 'KES') {
   const fmt = (n) => (n >= 1000 ? `${Math.round(n / 1000)}K` : n);
-  if (min && max) return `KES ${fmt(min)} - ${fmt(max)}`;
-  if (min) return `From KES ${fmt(min)}`;
-  if (max) return `Up to KES ${fmt(max)}`;
+  if (min && max) return `${currency} ${fmt(min)} - ${fmt(max)}`;
+  if (min) return `From ${currency} ${fmt(min)}`;
+  if (max) return `Up to ${currency} ${fmt(max)}`;
   return null;
 }
 
@@ -67,6 +68,21 @@ function isFeaturedActive(job) {
   if (!job?.is_featured) return false;
   if (!job.featured_until) return true;
   return new Date(job.featured_until).getTime() > Date.now();
+}
+
+function deriveCountryFromLocation(location) {
+  if (!location) return 'KE';
+  const loc = location.toLowerCase();
+  if (loc.includes('kenya') || loc.includes('nairobi') || loc.includes('mombasa') || loc.includes('kisumu')) return 'KE';
+  if (loc.includes('uganda') || loc.includes('kampala')) return 'UG';
+  if (loc.includes('tanzania') || loc.includes('dar es salaam') || loc.includes('dodoma')) return 'TZ';
+  if (loc.includes('rwanda') || loc.includes('kigali')) return 'RW';
+  if (loc.includes('nigeria') || loc.includes('lagos') || loc.includes('abuja')) return 'NG';
+  if (loc.includes('south africa') || loc.includes('johannesburg') || loc.includes('cape town')) return 'ZA';
+  if (loc.includes('ghana') || loc.includes('accra')) return 'GH';
+  if (loc.includes('ethiopia') || loc.includes('addis ababa')) return 'ET';
+  if (loc.includes('remote')) return null; // Remote jobs have no fixed country
+  return 'KE'; // Default to Kenya for unspecified locations
 }
 
 function JobBoardContent() {
@@ -100,6 +116,7 @@ function JobBoardContent() {
   // Employer dashboard
   const [dashboardJobs, setDashboardJobs] = useState([]);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
 
   // Share dropdown
   const [shareOpenId, setShareOpenId] = useState(null);
@@ -133,6 +150,7 @@ function JobBoardContent() {
     is_remote: false,
     salary_min: '',
     salary_max: '',
+    salary_currency: 'KES',
   });
 
   const fetchJobs = useCallback(async () => {
@@ -203,6 +221,7 @@ function JobBoardContent() {
   // Employer dashboard (auth only)
   const fetchDashboard = useCallback(async () => {
     if (!isAuthenticated) { setDashboardJobs([]); return; }
+    setDashboardLoading(true);
     try {
       const res = await fetch(`${API_BASE}/jobs/dashboard`, { credentials: 'include' });
       if (res.ok) {
@@ -210,6 +229,7 @@ function JobBoardContent() {
         setDashboardJobs(data.jobs || []);
       }
     } catch (e) { /* silent */ }
+    setDashboardLoading(false);
   }, [isAuthenticated]);
 
   useEffect(() => { fetchDashboard(); }, [fetchDashboard, jobs]);
@@ -267,7 +287,8 @@ function JobBoardContent() {
     setVerifying(true);
     try {
       const token = await fetchCsrfToken();
-      const res = await fetch(`${API_BASE}/jobs/_/feature-verify`, {
+      // Use standalone feature-verify endpoint (no :id param needed — job_id comes from Paystack metadata)
+      const res = await fetch(`${API_BASE}/jobs/feature-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token || '' },
         credentials: 'include',
@@ -398,6 +419,11 @@ function JobBoardContent() {
       apply_link: job.apply_link || '',
       deadline: job.deadline || '',
       is_urgent: !!job.is_urgent,
+      is_remote: !!job.is_remote,
+      category: job.category || 'Media & Journalism',
+      salary_min: job.salary_min || '',
+      salary_max: job.salary_max || '',
+      salary_currency: job.salary_currency || 'KES',
     });
   };
 
@@ -494,29 +520,42 @@ function JobBoardContent() {
   const regularJobs = activeJobs.filter((j) => !isFeaturedActive(j));
 
   // Google Jobs structured data (best-effort JSON-LD for this listing page)
-  const jobPostingLd = activeJobs.slice(0, 30).map((job) => ({
-    '@context': 'https://schema.org/',
-    '@type': 'JobPosting',
-    title: job.title,
-    description: job.description || job.additional_info || job.title,
-    datePosted: job.created_at,
-    validThrough: job.deadline || undefined,
-    employmentType: (job.type || 'FULL_TIME').toUpperCase().replace('-', '_'),
-    hiringOrganization: { '@type': 'Organization', name: job.company },
-    jobLocation: {
-      '@type': 'Place',
-      address: { '@type': 'PostalAddress', addressLocality: job.location || 'Remote', addressCountry: 'KE' },
-    },
-    ...(job.is_remote ? { jobLocationType: 'TELECOMMUTE' } : {}),
-    ...(job.education ? { educationRequirements: job.education } : {}),
-    ...(job.salary_min || job.salary_max ? {
-      baseSalary: {
-        '@type': 'MonetaryAmount',
-        currency: 'KES',
-        value: { '@type': 'QuantitativeValue', minValue: job.salary_min || undefined, maxValue: job.salary_max || undefined, unitText: 'MONTH' },
+  const jobPostingLd = activeJobs.slice(0, 30).map((job) => {
+    const country = deriveCountryFromLocation(job.location);
+    const jobLd = {
+      '@context': 'https://schema.org/',
+      '@type': 'JobPosting',
+      title: job.title,
+      description: job.description || job.additional_info || job.title,
+      datePosted: job.created_at,
+      validThrough: job.deadline || undefined,
+      employmentType: (job.type || 'FULL_TIME').toUpperCase().replace('-', '_'),
+      hiringOrganization: { '@type': 'Organization', name: job.company },
+      jobLocation: {
+        '@type': 'Place',
+        address: {
+          '@type': 'PostalAddress',
+          addressLocality: job.location || 'Remote',
+          ...(country ? { addressCountry: country } : {}),
+        },
       },
-    } : {}),
-  }));
+      ...(job.is_remote ? { jobLocationType: 'TELECOMMUTE' } : {}),
+      ...(job.education ? { educationRequirements: job.education } : {}),
+      ...(job.salary_min || job.salary_max ? {
+        baseSalary: {
+          '@type': 'MonetaryAmount',
+          currency: job.salary_currency || 'KES',
+          value: {
+            '@type': 'QuantitativeValue',
+            minValue: job.salary_min || undefined,
+            maxValue: job.salary_max || undefined,
+            unitText: 'MONTH',
+          },
+        },
+      } : {}),
+    };
+    return jobLd;
+  });
 
   return (
     <div className="min-h-screen bg-paper pb-24 relative">
@@ -599,47 +638,57 @@ function JobBoardContent() {
                 <X size={16} />
               </button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-ink-400 uppercase text-[10px] font-bold border-b border-wire/60">
-                    <th className="py-2 pr-4">Title</th>
-                    <th className="py-2 pr-4">Status</th>
-                    <th className="py-2 pr-4">Applicants</th>
-                    <th className="py-2 pr-4">Days Left</th>
-                    <th className="py-2 pr-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dashboardJobs.map((job) => (
-                    <tr key={job.id} className="border-b border-wire/30 last:border-0">
-                      <td className="py-2.5 pr-4 font-semibold text-ink max-w-[200px] truncate">{job.title}</td>
-                      <td className="py-2.5 pr-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                          job.status === 'active' && !job.is_expired ? 'bg-emerald-50 text-emerald-600'
-                          : job.status === 'pending' ? 'bg-amber-50 text-amber-600'
-                          : 'bg-ink-50 text-ink-500'
-                        }`}>
-                          {job.is_expired ? 'Expired' : job.status}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-4 flex items-center gap-1 text-ink-600"><Users size={11} /> {job.applicant_count || 0}</td>
-                      <td className="py-2.5 pr-4 text-ink-500">{job.days_remaining}d</td>
-                      <td className="py-2.5 pr-4">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => openEditModal(job)} title="Edit" className="text-ink-400 hover:text-signal"><Edit3 size={14} /></button>
-                          <button onClick={() => openFeatureModal(job)} title="Feature" className="text-ink-400 hover:text-amber-500"><Star size={14} /></button>
-                          {job.is_expired && (
-                            <button onClick={() => handleRenewJob(job.id)} title="Renew" className="text-ink-400 hover:text-emerald-500"><RefreshCw size={14} /></button>
-                          )}
-                          <button onClick={() => handleDeleteJob(job.id)} title="Delete" className="text-ink-400 hover:text-signal"><Trash2 size={14} /></button>
-                        </div>
-                      </td>
+            {dashboardLoading ? (
+              <div className="space-y-2 py-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-10 bg-paper rounded-lg animate-pulse" />
+                ))}
+              </div>
+            ) : dashboardJobs.length === 0 ? (
+              <p className="text-xs text-ink-500 py-4 text-center">No job listings yet. Post your first job above.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-ink-400 uppercase text-[10px] font-bold border-b border-wire/60">
+                      <th className="py-2 pr-4">Title</th>
+                      <th className="py-2 pr-4">Status</th>
+                      <th className="py-2 pr-4">Applicants</th>
+                      <th className="py-2 pr-4">Days Left</th>
+                      <th className="py-2 pr-4">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {dashboardJobs.map((job) => (
+                      <tr key={job.id} className="border-b border-wire/30 last:border-0">
+                        <td className="py-2.5 pr-4 font-semibold text-ink max-w-[200px] truncate">{job.title}</td>
+                        <td className="py-2.5 pr-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                            job.status === 'active' && !job.is_expired ? 'bg-emerald-50 text-emerald-600'
+                            : job.status === 'pending' ? 'bg-amber-50 text-amber-600'
+                            : 'bg-ink-50 text-ink-500'
+                          }`}>
+                            {job.is_expired ? 'Expired' : job.status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 pr-4 flex items-center gap-1 text-ink-600"><Users size={11} /> {job.applicant_count || 0}</td>
+                        <td className="py-2.5 pr-4 text-ink-500">{job.days_remaining}d</td>
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => openEditModal(job)} title="Edit" className="text-ink-400 hover:text-signal"><Edit3 size={14} /></button>
+                            <button onClick={() => openFeatureModal(job)} title="Feature" className="text-ink-400 hover:text-amber-500"><Star size={14} /></button>
+                            {job.is_expired && (
+                              <button onClick={() => handleRenewJob(job.id)} title="Renew" className="text-ink-400 hover:text-emerald-500"><RefreshCw size={14} /></button>
+                            )}
+                            <button onClick={() => handleDeleteJob(job.id)} title="Delete" className="text-ink-400 hover:text-signal"><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -755,25 +804,28 @@ function JobBoardContent() {
             <Star size={13} className="fill-amber-500 text-amber-500" /> Featured Opportunities
           </p>
           <div className="space-y-2.5">
-            {featuredJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                featured
-                user={user}
-                isAdmin={isAdmin}
-                isSaved={savedIds.has(job.id)}
-                shareOpenId={shareOpenId}
-                setShareOpenId={setShareOpenId}
-                onApply={handleApplyClick}
-                onSave={toggleSaveJob}
-                onDelete={handleDeleteJob}
-                onFeature={openFeatureModal}
-                onEdit={openEditModal}
-                onCopyLink={copyShareLink}
-                shareLinks={shareLinks(job)}
-              />
-            ))}
+            {featuredJobs.map((job) => {
+              if (!job?.id) return null;
+              return (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  featured
+                  user={user}
+                  isAdmin={isAdmin}
+                  isSaved={savedIds.has(job.id)}
+                  shareOpenId={shareOpenId}
+                  setShareOpenId={setShareOpenId}
+                  onApply={handleApplyClick}
+                  onSave={toggleSaveJob}
+                  onDelete={handleDeleteJob}
+                  onFeature={openFeatureModal}
+                  onEdit={openEditModal}
+                  onCopyLink={copyShareLink}
+                  shareLinks={shareLinks(job)}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -820,24 +872,27 @@ function JobBoardContent() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {regularJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                user={user}
-                isAdmin={isAdmin}
-                isSaved={savedIds.has(job.id)}
-                shareOpenId={shareOpenId}
-                setShareOpenId={setShareOpenId}
-                onApply={handleApplyClick}
-                onSave={toggleSaveJob}
-                onDelete={handleDeleteJob}
-                onFeature={openFeatureModal}
-                onEdit={openEditModal}
-                onCopyLink={copyShareLink}
-                shareLinks={shareLinks(job)}
-              />
-            ))}
+            {regularJobs.map((job) => {
+              if (!job?.id) return null;
+              return (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  user={user}
+                  isAdmin={isAdmin}
+                  isSaved={savedIds.has(job.id)}
+                  shareOpenId={shareOpenId}
+                  setShareOpenId={setShareOpenId}
+                  onApply={handleApplyClick}
+                  onSave={toggleSaveJob}
+                  onDelete={handleDeleteJob}
+                  onFeature={openFeatureModal}
+                  onEdit={openEditModal}
+                  onCopyLink={copyShareLink}
+                  shareLinks={shareLinks(job)}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -956,6 +1011,48 @@ function JobBoardContent() {
                 />
               </div>
               <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Category</label>
+                <select
+                  value={editingJob.category}
+                  onChange={(e) => setEditingJob({ ...editingJob, category: e.target.value })}
+                  className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none"
+                >
+                  {CATEGORIES.map((cat) => <option key={cat}>{cat}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Min</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingJob.salary_min}
+                    onChange={(e) => setEditingJob({ ...editingJob, salary_min: e.target.value })}
+                    className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Max</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingJob.salary_max}
+                    onChange={(e) => setEditingJob({ ...editingJob, salary_max: e.target.value })}
+                    className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Currency</label>
+                <select
+                  value={editingJob.salary_currency}
+                  onChange={(e) => setEditingJob({ ...editingJob, salary_currency: e.target.value })}
+                  className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none"
+                >
+                  {SALARY_CURRENCIES.map((cur) => <option key={cur} value={cur}>{cur}</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Closing Deadline</label>
                 <input
                   type="date"
@@ -973,6 +1070,15 @@ function JobBoardContent() {
                   className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-medium focus:outline-none resize-none"
                 />
               </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingJob.is_remote}
+                  onChange={(e) => setEditingJob({ ...editingJob, is_remote: e.target.checked })}
+                  className="rounded text-signal w-4 h-4"
+                />
+                <span className="text-xs font-extrabold text-ink uppercase">Remote Position</span>
+              </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1143,7 +1249,7 @@ function JobBoardContent() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Min (KES, optional)</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Min (optional)</label>
                   <input
                     type="number"
                     min="0"
@@ -1155,7 +1261,7 @@ function JobBoardContent() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Max (KES, optional)</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Max (optional)</label>
                   <input
                     type="number"
                     min="0"
@@ -1164,6 +1270,17 @@ function JobBoardContent() {
                     placeholder="e.g. 100000"
                     className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-ink"
                   />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block mb-1">Salary Currency</label>
+                  <select
+                    value={form.salary_currency}
+                    onChange={(e) => setForm({ ...form, salary_currency: e.target.value })}
+                    className="w-full bg-[#F4F4F6] rounded-lg px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:bg-white focus:ring-1 focus:ring-ink"
+                  >
+                    {SALARY_CURRENCIES.map((cur) => <option key={cur} value={cur}>{cur}</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -1242,8 +1359,9 @@ function JobCard({
   job, featured, user, isAdmin, isSaved, shareOpenId, setShareOpenId,
   onApply, onSave, onDelete, onFeature, onEdit, onCopyLink, shareLinks,
 }) {
-  const isOwnerOrAdmin = user && (user.id === job.employer_id || user.id === job.author_id || user.id === job.user_id || isAdmin);
-  const salaryLabel = formatSalary(job.salary_min, job.salary_max);
+  // Only check employer_id — the field the backend actually stores
+  const isOwnerOrAdmin = user && (user.id === job.employer_id || isAdmin);
+  const salaryLabel = formatSalary(job.salary_min, job.salary_max, job.salary_currency);
   const isShareOpen = shareOpenId === job.id;
 
   return (

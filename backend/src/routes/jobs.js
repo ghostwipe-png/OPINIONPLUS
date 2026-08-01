@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { createRateLimiter } from '../middleware/rateLimit.js';
+import { contentFilter } from '../middleware/contentFilter.js';
 
 const jobs = new Hono();
 
@@ -21,6 +22,7 @@ const CATEGORIES = [
 ];
 
 const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+const SALARY_CURRENCIES = ['KES', 'USD', 'EUR', 'GBP', 'ZAR', 'NGN', 'TZS', 'UGX'];
 
 const SITE_ORIGIN = 'https://opinionplus.online';
 
@@ -85,6 +87,38 @@ async function getJob(db, id) {
 function isOwnerOrAdmin(job, user) {
   if (!job || !user) return false;
   return job.employer_id === user.id || user.role === 'admin' || user.role === 'root';
+}
+
+/**
+ * Validates that job data contains all fields required by Google Jobs structured data.
+ * Returns an array of missing field names (empty array = valid).
+ */
+function validateGoogleJobsFields(data) {
+  const missing = [];
+  if (!data.title) missing.push('title');
+  if (!data.company) missing.push('company');
+  if (!data.description) missing.push('description');
+  if (!data.location) missing.push('location');
+  if (!data.apply_link && !data.applyLink) missing.push('apply_link');
+  // datePosted comes from created_at — always present
+  // validThrough comes from deadline or defaults to 60-day window
+  return missing;
+}
+
+/**
+ * Returns an ISO 8601 validThrough date for Google Jobs.
+ * Uses deadline if present, otherwise defaults to 60 days from created_at or now.
+ */
+function getValidThrough(job) {
+  if (job.deadline && job.deadline.trim()) {
+    try {
+      const d = new Date(job.deadline);
+      if (!isNaN(d.getTime())) return d.toISOString();
+    } catch (e) { /* fall through */ }
+  }
+  // Default: 60 days from creation or now
+  const base = job.created_at ? new Date(job.created_at) : new Date();
+  return new Date(base.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -200,6 +234,10 @@ jobs.get('/feed.xml', async (c) => {
        FROM jobs WHERE status = 'active' ORDER BY created_at DESC LIMIT 100`
     ).all();
 
+    const mostRecentDate = results?.length
+      ? new Date(results[0].created_at).toUTCString()
+      : new Date().toUTCString();
+
     const items = (results || []).map((job) => {
       const link = `${SITE_ORIGIN}/job?id=${encodeURIComponent(job.id)}`;
       const pubDate = job.created_at ? new Date(job.created_at).toUTCString() : new Date().toUTCString();
@@ -220,7 +258,7 @@ jobs.get('/feed.xml', async (c) => {
     <link>${SITE_ORIGIN}/job</link>
     <description>Latest media and corporate job listings on OpinionPlus</description>
     <language>en-us</language>
-    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <lastBuildDate>${mostRecentDate}</lastBuildDate>
 ${items}
   </channel>
 </rss>`;
@@ -247,7 +285,7 @@ jobs.get('/company', async (c) => {
       `SELECT * FROM jobs WHERE company = ? AND status = 'active' ORDER BY created_at DESC`
     ).bind(name).all();
     const totalRow = await c.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM jobs WHERE company = ?`
+      `SELECT COUNT(*) as total FROM jobs WHERE company = ? AND status = 'active'`
     ).bind(name).first();
 
     return c.json({
@@ -332,6 +370,7 @@ jobs.post('/initialize', requireAuth, async (c) => {
     const is_remote = body.is_remote ? 1 : (location.toLowerCase().includes('remote') ? 1 : 0);
     const salary_min = toNullableInt(body.salary_min);
     const salary_max = toNullableInt(body.salary_max);
+    const salary_currency = SALARY_CURRENCIES.includes(body.salary_currency) ? body.salary_currency : 'KES';
 
     const package_type = body.package_type === 'multiple' ? 'multiple' : 'single';
     const amountCents = PACKAGE_PRICES[package_type];
@@ -346,22 +385,48 @@ jobs.post('/initialize', requireAuth, async (c) => {
       return c.json({ error: 'Minimum salary cannot exceed maximum salary.' }, 400);
     }
 
+    // ── Content filtering (profanity/spam) ──────────────
+    try {
+      const filterResult = await contentFilter.check(
+        `${title} ${description} ${additional_info}`
+      );
+      if (!filterResult.passed) {
+        return c.json({
+          error: 'Your job posting contains flagged content. Please revise and try again.',
+          details: filterResult.reason || 'Content did not pass moderation checks.',
+        }, 400);
+      }
+    } catch (filterErr) {
+      // If content filter is unavailable, log and allow through (fail-open)
+      console.error('Content filter error (fail-open):', filterErr);
+    }
+
     const jobId = 'job_' + crypto.randomUUID().slice(0, 10);
+
+    // ── Validate Google Jobs required fields ────────────
+    const missingGoogleFields = validateGoogleJobsFields({ title, company, description, location, apply_link });
+    // We don't block posting, but log a warning so admins can follow up
+    if (missingGoogleFields.length) {
+      console.warn(`Job ${jobId} missing Google Jobs fields: ${missingGoogleFields.join(', ')}`);
+    }
 
     await c.env.DB.prepare(
       `INSERT INTO jobs (
          id, employer_id, title, company, location, type, description, apply_link,
          amount_paid, status, additional_info, deadline, education, is_urgent,
-         category, is_remote, salary_min, salary_max
+         category, is_remote, salary_min, salary_max, salary_currency
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       jobId, user.id, title, company, location, type, description, apply_link,
       amountCents, additional_info, deadline, education, is_urgent,
-      category, is_remote, salary_min, salary_max
+      category, is_remote, salary_min, salary_max, salary_currency
     ).run();
 
     // Call Paystack API to initialize transaction
+    // NOTE: The callback URL passes the jobId as the reference parameter.
+    // The frontend callback page (/job?reference=job_xxx) must extract this
+    // and POST it to /jobs/verify as { reference: "job_xxx" }.
     const origin = c.req.header('origin') || SITE_ORIGIN;
     const callbackUrl = `${origin}/job?reference=${jobId}`;
 
@@ -451,6 +516,37 @@ jobs.post('/admin/:id/feature', requireAdmin, async (c) => {
     return c.json({ ok: true });
   } catch (e) {
     return c.json({ error: 'Failed to update featured status.' }, 500);
+  }
+});
+
+// Standalone feature verify — used by frontend callback when job_id isn't in the URL
+// (Paystack metadata provides the job_id)
+jobs.post('/feature-verify', requireAuth, async (c) => {
+  try {
+    const { reference } = await c.req.json().catch(() => ({}));
+    if (!reference) return c.json({ error: 'Transaction reference required.' }, 400);
+
+    const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
+      headers: { Authorization: `Bearer ${c.env.PAYSTACK_SECRET_KEY}` },
+    });
+    const verifyData = await verifyRes.json().catch(() => ({}));
+
+    if (verifyData.status && verifyData.data?.status === 'success') {
+      const days = Number(verifyData.data?.metadata?.days) || 7;
+      const jobId = verifyData.data?.metadata?.job_id;
+      if (!jobId) return c.json({ error: 'Missing job reference in payment metadata.' }, 400);
+
+      const featuredUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      await c.env.DB.prepare(
+        'UPDATE jobs SET is_featured = 1, featured_until = ? WHERE id = ?'
+      ).bind(featuredUntil, jobId).run();
+
+      return c.json({ ok: true, message: 'Your job is now featured!', featured_until: featuredUntil });
+    }
+
+    return c.json({ error: 'Payment verification failed or pending.' }, 400);
+  } catch (e) {
+    return c.json({ error: 'Failed to verify featured job payment.' }, 500);
   }
 });
 
@@ -688,8 +784,24 @@ jobs.patch('/:id', requireAuth, async (c) => {
     if (CATEGORIES.includes(body.category)) { updates.push('category = ?'); params.push(body.category); }
     if (body.salary_min !== undefined) { updates.push('salary_min = ?'); params.push(toNullableInt(body.salary_min)); }
     if (body.salary_max !== undefined) { updates.push('salary_max = ?'); params.push(toNullableInt(body.salary_max)); }
+    if (SALARY_CURRENCIES.includes(body.salary_currency)) { updates.push('salary_currency = ?'); params.push(body.salary_currency); }
 
     if (!updates.length) return c.json({ error: 'No valid fields to update.' }, 400);
+
+    // ── Content filtering on edit ─────────────────────
+    try {
+      const newTitle = body.title !== undefined ? sanitizeText(body.title, 200) : job.title;
+      const newDesc = body.description !== undefined ? sanitizeText(body.description, 5000) : job.description;
+      const newInfo = body.additional_info !== undefined ? sanitizeText(body.additional_info, 1000) : (job.additional_info || '');
+      const filterResult = await contentFilter.check(`${newTitle} ${newDesc} ${newInfo}`);
+      if (!filterResult.passed) {
+        return c.json({
+          error: 'Your edited content contains flagged content. Please revise and try again.',
+        }, 400);
+      }
+    } catch (filterErr) {
+      console.error('Content filter error on edit (fail-open):', filterErr);
+    }
 
     params.push(jobId);
     await c.env.DB.prepare(`UPDATE jobs SET ${updates.join(', ')} WHERE id = ?`).bind(...params).run();
@@ -748,4 +860,57 @@ jobs.delete('/:id', requireAdmin, async (c) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════
+// CRON: Auto-expire jobs past deadline or 60-day window
+// Called by a scheduled worker cron trigger (daily)
+// ═══════════════════════════════════════════════════════
+jobs.post('/cron/expire', async (c) => {
+  try {
+    // Only allow cron triggers (check for cron-specific header or secret)
+    const cronSecret = c.req.header('X-Cron-Secret');
+    if (cronSecret !== c.env.CRON_SECRET) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const result = await expireJobs(c.env);
+    return c.json({ ok: true, ...result });
+  } catch (e) {
+    return c.json({ error: 'Failed to run expiry cron.' }, 500);
+  }
+});
+
 export default jobs;
+
+// ── Standalone export for cron (used by index.js scheduled handler) ──
+export async function expireJobs(env) {
+  const now = new Date().toISOString();
+  let expiredByDeadline = 0;
+  let expiredByAge = 0;
+
+  try {
+    const deadlineResult = await env.DB.prepare(
+      `UPDATE jobs SET status = 'expired'
+       WHERE status = 'active'
+         AND deadline IS NOT NULL
+         AND deadline != ''
+         AND deadline < ?`
+    ).bind(now).run();
+    expiredByDeadline = deadlineResult?.meta?.changes || 0;
+  } catch (e) {
+    console.error(JSON.stringify({ kind: 'jobs_expire_deadline_failed', message: e.message }));
+  }
+
+  try {
+    const ageResult = await env.DB.prepare(
+      `UPDATE jobs SET status = 'expired'
+       WHERE status = 'active'
+         AND (deadline IS NULL OR deadline = '')
+         AND created_at < datetime('now', '-60 days')`
+    ).run();
+    expiredByAge = ageResult?.meta?.changes || 0;
+  } catch (e) {
+    console.error(JSON.stringify({ kind: 'jobs_expire_age_failed', message: e.message }));
+  }
+
+  return { expiredByDeadline, expiredByAge, checkedAt: now };
+}

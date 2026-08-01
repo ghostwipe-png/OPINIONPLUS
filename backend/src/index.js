@@ -25,7 +25,7 @@ import subscriptions from './routes/subscriptions.js';
 import archive from './routes/archive.js';
 import polls from './routes/polls.js';
 import rooms from './routes/rooms.js';
-import jobs from './routes/jobs.js';
+import jobs, { expireJobs } from './routes/jobs.js';
 import campuses from './routes/campuses.js';
 import services, { publishScheduledPressReleases } from './routes/services.js';
 import apiService from './routes/api-service.js';
@@ -204,6 +204,10 @@ app.use('*', async (c, next) => {
   if (c.req.path.startsWith('/api-service/v1/')) return await next();
   if (c.req.path.startsWith('/sponsored-service/track/')) return await next();
   if (c.req.path.startsWith('/services/sponsored/track/')) return await next();
+  // Jobs: allow public apply tracking and alert subscriptions without CSRF
+  if (/^\/jobs\/[^/]+\/apply$/.test(c.req.path)) return await next();
+  if (c.req.path === '/jobs/alerts/subscribe') return await next();
+  if (c.req.path === '/jobs/alerts/unsubscribe') return await next();
   return csrfProtection(c, next);
 });
 
@@ -430,6 +434,7 @@ const worker = {
       }));
       jobs.push(runCronJob('process-sponsored-campaigns', () => processSponsoredCampaigns(env)));
       jobs.push(runCronJob('count-sponsored-impressions', () => countSponsoredImpressions(env)));
+      jobs.push(runCronJob('jobs-auto-expire', () => expireJobs(env)));
       jobs.push(runCronJob('api-log-cleanup', async () => {
         await env.DB.prepare("DELETE FROM api_request_logs WHERE created_at < datetime('now', '-90 days')").run();
       }));
@@ -570,7 +575,7 @@ const worker = {
                 frequency: alert.frequency,
                 job_count: matches.length,
                 jobs: matches.slice(0, 10).map((m) => `${m.title} at ${m.company}`),
-                unsubscribe_url: `https://opinionplus.online/api/jobs/alerts/unsubscribe?email=${encodeURIComponent(alert.email)}`,
+                unsubscribe_url: `https://opinionplus.online/jobs/alerts/unsubscribe?email=${encodeURIComponent(alert.email)}`,
               }));
             }
           }

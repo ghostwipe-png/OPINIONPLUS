@@ -27,6 +27,13 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
       return;
     }
 
+    // Prevent empty job types array
+    if (jobTypes.length === 0) {
+      setStatus('error');
+      setMessage('Please select at least one job type.');
+      return;
+    }
+
     setStatus('loading');
     setMessage('');
 
@@ -44,6 +51,9 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
         setStatus('success');
         setMessage(data.message || `Alert set! You'll receive ${frequency} updates.`);
         setEmail('');
+        // Reset to defaults after successful subscription
+        setJobTypes(['Full-time']);
+        setFrequency('weekly');
       } else if (res.status === 429) {
         setStatus('error');
         setMessage(data.error || 'Too many attempts. Please try again later.');
@@ -76,13 +86,14 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
+            aria-label="Your email address"
             className="w-full bg-white/10 rounded-lg pl-9 pr-3.5 py-3 text-xs font-semibold text-white placeholder:text-white/40 focus:outline-none focus:bg-white/15"
           />
         </div>
 
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-white/50 mb-2">Job Types</p>
-          <div className="flex flex-wrap gap-2">
+        <fieldset>
+          <legend className="text-[10px] font-bold uppercase tracking-wider text-white/50 mb-2">Job Types</legend>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Select job types">
             {JOB_TYPE_OPTIONS.map((type) => (
               <label
                 key={type}
@@ -94,22 +105,24 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
                   type="checkbox"
                   checked={jobTypes.includes(type)}
                   onChange={() => toggleType(type)}
-                  className="hidden"
+                  className="sr-only"
+                  aria-checked={jobTypes.includes(type)}
                 />
                 {type}
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
 
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-white/50 mb-2">Frequency</p>
-          <div className="flex gap-2">
+        <fieldset>
+          <legend className="text-[10px] font-bold uppercase tracking-wider text-white/50 mb-2">Frequency</legend>
+          <div className="flex gap-2" role="group" aria-label="Select alert frequency">
             {['daily', 'weekly'].map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => setFrequency(f)}
+                aria-pressed={frequency === f}
                 className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase transition-colors ${
                   frequency === f ? 'bg-signal text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
                 }`}
@@ -118,7 +131,7 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
               </button>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         <button
           type="submit"
@@ -133,13 +146,13 @@ export default function JobAlertsForm({ apiBase, fetchCsrfToken }) {
         </button>
 
         {status === 'success' && (
-          <p className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-semibold">
-            <CheckCircle2 size={13} /> {message}
+          <p className="flex items-center gap-1.5 text-emerald-400 text-[11px] font-semibold" role="status">
+            <CheckCircle2 size={13} aria-hidden="true" /> {message}
           </p>
         )}
         {status === 'error' && (
-          <p className="flex items-center gap-1.5 text-red-400 text-[11px] font-semibold">
-            <AlertCircle size={13} /> {message}
+          <p className="flex items-center gap-1.5 text-red-400 text-[11px] font-semibold" role="alert">
+            <AlertCircle size={13} aria-hidden="true" /> {message}
           </p>
         )}
       </form>
