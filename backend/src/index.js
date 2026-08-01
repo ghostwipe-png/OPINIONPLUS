@@ -535,6 +535,51 @@ const worker = {
       }));
     }
 
+    if (event.cron === '0 8 * * *') {
+      // Every day at 8AM: send job alert digests
+      jobs.push(runCronJob('job-alert-digest', async () => {
+        try {
+          const isMonday = new Date().getUTCDay() === 1;
+          const { results: alerts } = await env.DB.prepare(
+            "SELECT * FROM job_alerts WHERE is_active = 1 AND (frequency = 'daily' OR (frequency = 'weekly' AND ? = 1))"
+          ).bind(isMonday ? 1 : 0).all();
+
+          const sinceDaily = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const sinceWeekly = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+          for (const alert of (alerts || [])) {
+            const since = alert.frequency === 'daily' ? sinceDaily : sinceWeekly;
+            let jobTypes = [];
+            try { jobTypes = JSON.parse(alert.job_types || '[]'); } catch (e) { jobTypes = []; }
+
+            let sql = "SELECT title, company, location, type, is_remote FROM jobs WHERE status = 'active' AND created_at >= ?";
+            const params = [since];
+            const concreteTypes = jobTypes.filter((t) => t !== 'Remote');
+            if (concreteTypes.length) {
+              sql += ` AND type IN (${concreteTypes.map(() => '?').join(',')})`;
+              params.push(...concreteTypes);
+            }
+            const { results: matches } = await env.DB.prepare(sql).bind(...params).all();
+
+            if (matches && matches.length > 0) {
+              // Real email delivery (e.g. via a transactional email provider) can be
+              // wired in here later. For now we log a structured digest record.
+              console.log(JSON.stringify({
+                kind: 'job_alert_digest',
+                to: alert.email,
+                frequency: alert.frequency,
+                job_count: matches.length,
+                jobs: matches.slice(0, 10).map((m) => `${m.title} at ${m.company}`),
+                unsubscribe_url: `https://opinionplus.online/api/jobs/alerts/unsubscribe?email=${encodeURIComponent(alert.email)}`,
+              }));
+            }
+          }
+        } catch (e) {
+          console.error(JSON.stringify({ kind: 'job_alert_digest_failed', message: e.message }));
+        }
+      }));
+    }
+
     if (event.cron === '0 * * * *') {
       jobs.push(runCronJob('dead-link-checker', async () => {
         try {
